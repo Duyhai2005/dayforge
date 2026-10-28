@@ -8,6 +8,7 @@
 | Thiết kế T02 đã duyệt | [T02 — Đặc tả giao diện và tương tác](tasks/t02/design.md) |
 | Kiểm tra bản T02 | [Rà soát và kiểm tra giao diện tổng hợp](tasks/t02/review-and-verification.md) |
 | Hợp đồng T03 | [Dữ liệu, tài khoản, API và đồng bộ 1.0](tasks/t03/design.md) |
+| Kế hoạch T04 | [Tổ chức dự án và môi trường phát triển](tasks/t04/plan.md) |
 | Quy ước phát triển | [Coding convention](CONVENTION.md), [Git Flow](GITFLOW.md) |
 
 ## Quy ước tổ chức

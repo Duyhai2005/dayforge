@@ -64,7 +64,7 @@ Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hi
 
 ### Nhóm 2 — Dựng nền dự án · T04–T07
 
-- [ ] **T04 — Tổ chức dự án và môi trường phát triển.** Tạo cấu trúc frontend/backend, khóa phiên bản, cấu hình mẫu không chứa secrets và các lệnh chạy local tái lập được.
+- [ ] **T04 — Tổ chức dự án và môi trường phát triển.** Tạo cấu trúc frontend/backend, khóa phiên bản, cấu hình mẫu không chứa secrets và các lệnh chạy local tái lập được. Có [kế hoạch chi tiết](t04/plan.md); chưa triển khai, chưa đánh dấu hoàn thành.
 - [ ] **T05 — Dựng FastAPI và MySQL.** Thiết lập kết nối, schema/migration ban đầu, validation, xử lý lỗi, health check và log cần thiết.
 - [ ] **T06 — Dựng khung Next.js server.** Thiết lập runtime Node, hai route lịch, route tài khoản/email callback, nền giao diện, widget và cơ chế trạng thái/focus; tách shell có thể cache khỏi dữ liệu riêng.
 - [ ] **T07 — Thiết lập kiểm tra tự động.** Có lint, type check, test runner, môi trường MySQL kiểm thử và CI kiểm tra test/build trước khi phát hành.
