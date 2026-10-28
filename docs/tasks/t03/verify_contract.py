@@ -17,7 +17,6 @@ from urllib.parse import unquote
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-
 CONTRACT_DIR = Path(__file__).resolve().parent
 
 
@@ -57,10 +56,7 @@ def main() -> None:
         if actual and definition == "Command":
             covered_actions.add(fixture["value"]["action"])
 
-    action_names = {
-        item["properties"]["action"]["const"]
-        for item in schema["$defs"]["Command"]["oneOf"]
-    }
+    action_names = {item["properties"]["action"]["const"] for item in schema["$defs"]["Command"]["oneOf"]}
     if action_names != covered_actions:
         raise AssertionError(f"Actions without a valid fixture: {action_names - covered_actions}")
 

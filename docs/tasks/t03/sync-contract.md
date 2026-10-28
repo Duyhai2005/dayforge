@@ -168,7 +168,7 @@ Retry chính operation đó không tạo tác dụng mới hoặc đổi timesta
 
 ## 5. Nhóm lặp và thứ tự thẻ
 
-Family có số segment/override/detached child hữu hạn; chỉ khai triển occurrence trong khoảng xem.
+Family có số segment/override/rank-only override/detached child hữu hạn; chỉ khai triển occurrence trong khoảng xem. Rank-only override chỉ áp dụng cho ngày còn được rule hiện hành sinh; nó không thay thế hoặc suppress slot.
 Occurrence identity là root + ngày gốc; đổi ngày đích không đổi identity.
 `source_segment_id` chỉ xác thực/provenance theo lịch sử; tra mapping detached bằng root/ngày gốc trước khi báo retired.
 Không từ chối child đã tách chỉ vì segment nguồn nay đã kết thúc.
@@ -180,23 +180,25 @@ Edit/stop áp dụng lên **tương lai canonical hiện hành** từ cutoff; `s
 `series.edit_future(C)` thực hiện trong một working copy:
 
 1. Giữ phần trước `C`; cắt các interval nguồn tại `C` và thay phần rule tương lai thuộc phạm vi bằng successor.
-2. Tìm mọi override còn attached có original date từ `C`, kể cả đã dời sang tuần khác.
-3. Live replacement thành detached child với ID xác định từ root/ngày gốc, giữ toàn bộ dữ liệu/kết quả/kế hoạch.
+2. Tìm mọi override replacement còn attached có original date từ `C`, kể cả đã dời sang tuần khác; rank-only override không phải replacement.
+3. Live replacement thành detached child với ID xác định từ root/ngày gốc, giữ toàn bộ dữ liệu/kết quả/kế hoạch. Chỉ `user_reorder` mới tạo replacement do đổi rank.
 4. Slot ngày gốc của mỗi child vừa tách được suppress trong successor, kể cả ngày đó vẫn khớp weekday mới.
 5. Deleted override giữ suppression, không sinh child sống; giữ mọi detached child có từ trước.
+6. Giữ rank-only override từ `C` nếu successor vẫn sinh cùng original date và đổi `source_segment_id` sang segment successor; bỏ override ở ngày không còn khớp rule. Không tạo detached child hoặc suppression từ rebalance.
 
-`series.stop_future(C)` cắt các interval trong phạm vi và gỡ mọi attached member có original date từ `C`.
+`series.stop_future(C)` cắt các interval trong phạm vi và gỡ mọi attached member có original date từ `C`; rank-only override của slot bị cắt cũng bị bỏ.
 Nó gồm occurrence đã dời/hoàn thành; không xóa lịch sử trước `C` hoặc detached child.
 Sửa occurrence sau rule edit theo mapping vào child đã tách; nếu không có child/slot hợp lệ thì `target_retired`.
 Sửa một occurrence sau stop không tự restart series; một cấu trúc mới phải là command hợp lệ riêng.
 Một occurrence cũ tới trễ nhưng có `K` trước rule edit được replay trước và tham gia detach đúng quy tắc.
 
-Ordinary reorder dùng `set_order` trên một target; giữ lịch/ngày/buổi ngoài rank.
+`set_order.payload.intent` bắt buộc là `user_reorder` hoặc `rank_maintenance`. User reorder là thứ tự người dùng chủ động chọn; chỉ loại này mới materialize replacement cho occurrence implicit. Rank maintenance cập nhật rank-only override, không tạo content exception và không detach occurrence. Với single/detached hoặc occurrence đã có replacement, maintenance chỉ cập nhật `order_key` hiện có.
+Rank-maintenance group phải giữ nguyên thứ tự card ID trong bucket; nếu operation có user reorder thì kết quả phải khớp thứ tự do lệnh đó chọn và giữ nguyên thứ tự tương đối của các card khác. Nhờ vậy client không thể đánh dấu một thay đổi thứ tự chủ động là bảo trì để né quy tắc detach.
 Mỗi `set_order` cần `expected_root_hash`; operation phải có `expected_bucket` cho từng bucket bị tác động, có thể đặt một lần trên command đầu tương ứng.
 Khi cần rebalance, một operation chứa nhiều `set_order`; kiểm tra các root hash và bucket hash một lần trên state trước nhóm.
 Một hash khác tại vị trí replay làm **cả nhóm** `no_op precondition_failed`; bucket guard phát hiện phantom insert từ root khác, không dùng revision/arrival.
 Rank prep chia nhóm giới hạn theo hợp đồng dữ liệu; mọi nhóm vẫn được ghi bền vững và ACK, không biến wire cap thành giới hạn số thẻ UI.
-Rebalance không có quyền thay lịch hoặc ghi đè payload task/milestone.
+Rebalance không có quyền thay lịch hoặc ghi đè payload task/milestone; rank-only override được áp dụng khi khai triển occurrence và được tính trong semantic root hash.
 
 ## 6. Hoàn tác
 

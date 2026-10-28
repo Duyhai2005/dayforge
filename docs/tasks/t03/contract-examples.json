@@ -734,12 +734,42 @@
           "target": {
             "kind": "single"
           },
-          "order_key": "2048"
+          "order_key": "2048",
+          "intent": "user_reorder"
         },
         "precondition": {
           "expected_root_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "expected_bucket": {
             "date": "2026-10-28",
+            "period": "morning",
+            "order_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        }
+      }
+    },
+    {
+      "name": "command-set_order-rank-maintenance",
+      "definition": "Command",
+      "valid": true,
+      "value": {
+        "root": {
+          "kind": "work_item",
+          "id": "11111111-1111-4111-8111-111111111111"
+        },
+        "action": "set_order",
+        "payload": {
+          "target": {
+            "kind": "occurrence",
+            "source_segment_id": "33333333-3333-4333-8333-333333333333",
+            "original_date": "2026-10-30"
+          },
+          "order_key": "2048",
+          "intent": "rank_maintenance"
+        },
+        "precondition": {
+          "expected_root_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "expected_bucket": {
+            "date": "2026-10-30",
             "period": "morning",
             "order_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
           }
@@ -1240,9 +1270,67 @@
           "target": {
             "kind": "single"
           },
-          "order_key": "2048"
+          "order_key": "2048",
+          "intent": "user_reorder"
         },
         "precondition": null
+      }
+    },
+    {
+      "name": "reject-order-without-intent",
+      "definition": "Command",
+      "valid": false,
+      "value": {
+        "root": {
+          "kind": "work_item",
+          "id": "11111111-1111-4111-8111-111111111111"
+        },
+        "action": "set_order",
+        "payload": {
+          "target": {
+            "kind": "occurrence",
+            "source_segment_id": "33333333-3333-4333-8333-333333333333",
+            "original_date": "2026-10-30"
+          },
+          "order_key": "2048"
+        },
+        "precondition": {
+          "expected_root_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "expected_bucket": {
+            "date": "2026-10-30",
+            "period": "morning",
+            "order_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject-order-with-unknown-intent",
+      "definition": "Command",
+      "valid": false,
+      "value": {
+        "root": {
+          "kind": "work_item",
+          "id": "11111111-1111-4111-8111-111111111111"
+        },
+        "action": "set_order",
+        "payload": {
+          "target": {
+            "kind": "occurrence",
+            "source_segment_id": "33333333-3333-4333-8333-333333333333",
+            "original_date": "2026-10-30"
+          },
+          "order_key": "2048",
+          "intent": "rebalance"
+        },
+        "precondition": {
+          "expected_root_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "expected_bucket": {
+            "date": "2026-10-30",
+            "period": "morning",
+            "order_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        }
       }
     }
   ],

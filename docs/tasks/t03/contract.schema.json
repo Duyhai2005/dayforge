@@ -1218,11 +1218,18 @@
                 },
                 "order_key": {
                   "$ref": "#/$defs/OrderKey"
+                },
+                "intent": {
+                  "enum": [
+                    "user_reorder",
+                    "rank_maintenance"
+                  ]
                 }
               },
               "required": [
                 "target",
-                "order_key"
+                "order_key",
+                "intent"
               ]
             },
             "precondition": {

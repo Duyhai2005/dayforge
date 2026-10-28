@@ -55,7 +55,7 @@ T03 hoàn thành phần hợp đồng kỹ thuật theo quyền đã giao. Các 
 | CT-01 | Null/Unicode/NFC/date/enum/limits frontend và server giống nhau; không cắt note. | T04–T08, T15/T17 |
 | CT-02 | Task completed bật lặp giữ lần đầu; weekday không khớp bị từ chối; không tạo hai root. | T21/T22 |
 | CT-03 | Original trước cutoff dời sau cutoff vẫn giữ; original sau cutoff dời trước cutoff bị detach/stop đúng phạm vi. | T21–T23 |
-| CT-04 | Deleted, completed và order-only override; successor không trùng child hoặc hồi sinh deleted slot. | T21–T23 |
+| CT-04 | Deleted/completed/user-reorder được giữ hoặc detach theo ngày gốc; rank maintenance không detach; successor không trùng child hoặc hồi sinh deleted slot. | T21–T23 |
 | CT-05 | Hai edit ở occurrence khác nhau giữ cả hai; cùng target nhận payload K mới nhất; hoán vị arrival/retry cho cùng projection. | T10–T12, T23 |
 | CT-06 | Newer structural intent dùng historical source; stop sau edit và edit sau stop có kết quả đã định nghĩa. | T12/T22/T23 |
 | CT-07 | Equal-HLC delete tie, clock lùi/tới trước/offline lâu, lane repair và dependency mapping không bỏ dữ liệu. | T08/T11/T12 |
@@ -68,6 +68,7 @@ T03 hoàn thành phần hợp đồng kỹ thuật theo quyền đã giao. Các 
 | CT-14 | Email allowlist, token hết hạn/reuse/race, reset revoke, CSRF/Origin, no-store và log không có secret. | T09/T13/T28 |
 | CT-15 | Hết phiên vẫn xem/sửa; offline logout khóa mọi tab/late callback; login đúng owner mở lại nguyên pending. | T09/T13/T25/T28 |
 | CT-16 | KEK/key/DB backup phục hồi, reset không đổi vault key, delivery email tới inbox thật. | T30–T32/T35 |
+| CT-17 | Rebalance occurrence Friday chỉ bằng `rank_maintenance`, rồi đổi lịch tương lai sang Monday: Friday không thành detached, Monday được sinh; nếu Friday vẫn thuộc rule mới thì rank override được giữ. `user_reorder` riêng vẫn detach theo hợp đồng. | T19/T21–T23 |
 
 Các case này **chưa chạy trên sản phẩm** trong T03. Chưa có FastAPI/Next.js/MySQL/IndexedDB thật, SMTP/provider, Cốc Cốc production hoặc CI sản phẩm để nghiệm thu 38 AC.
 
