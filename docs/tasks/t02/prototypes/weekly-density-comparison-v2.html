@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DAYFORGE · So sánh mật độ lịch tuần</title>
+<style>
+:root{color-scheme:dark;--bg:#141c22;--ink:#e6ece7;--muted:#afbfba;--quiet:#8da29a;--line:#344741;--panel:#202c30;--accent:#bfd7c9;--exam:#ecd0b0;--exam-bg:#493e32;--english:#c4e0cf;--english-bg:#2b4138;--report:#ded0ef;--report-bg:#3d354d;--slides:#f0cbd8;--slides-bg:#493641;font:14px/1.45 "Segoe UI",sans-serif}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);background-image:radial-gradient(ellipse at 8% 0,#7eac9010,transparent 50%),radial-gradient(ellipse at 98% 90%,#ab8fcc09,transparent 48%)}button{font:inherit;color:inherit;cursor:pointer}button:focus-visible{outline:2px solid #d6ecd9;outline-offset:4px}button:disabled{cursor:default}::selection{background:#bfd7c944}button,input{touch-action:manipulation}
+.review-bar{display:flex;align-items:center;justify-content:space-between;gap:20px;max-width:1540px;margin:auto;padding:17px 38px;border-bottom:1px solid #6a82772e}.review-title{font-size:11px;letter-spacing:.13em;color:var(--muted)}.review-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.mode-button,.choose{min-height:36px;padding:7px 13px;border:1px solid #62766e66;border-radius:10px;background:transparent;color:#c1cec6;font-size:13px}.mode-button[aria-pressed=true]{border-color:#bed4c2;background:#bfd7c917;color:#e1ede1}.choose{background:#c1d7c2;border-color:#c1d7c2;color:#203426;margin-left:5px;font-weight:600}.choose[aria-pressed=true]{background:#deeadb}.review-status{max-width:1540px;margin:0 auto;padding:9px 38px 0;font-size:12px;color:#b4c7b7;min-height:27px}
+.product{max-width:1540px;margin:auto;padding:24px 38px 140px;min-height:calc(100vh - 94px)}.intro{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;margin-bottom:23px}.eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin:0 0 9px}.intro h1{font-size:31px;font-weight:400;letter-spacing:-.9px;line-height:1.18;margin:0 0 19px}.year{font-size:13px;color:#d4dfd7;margin:17px 0 4px;text-align:right}.context{font-size:12px;color:var(--muted);margin:0;text-align:right;max-width:230px}.legend{display:flex;flex-wrap:wrap;gap:10px 19px;font-size:12px;color:#b8c8bd}.legend span{display:inline-flex;gap:7px;align-items:center}.legend i{width:5px;height:5px;border-radius:50%;background:var(--tone)}
+.week-grid{display:grid;grid-template-columns:44px repeat(7,minmax(0,1fr));column-gap:10px;row-gap:24px;align-items:start}.corner{grid-column:1}.day-heading{min-height:84px;min-width:0;padding:0 4px}.day-heading small{font-size:12px;color:var(--muted);display:block;margin-bottom:8px}.day-number{font-size:27px;line-height:38px;font-weight:400;display:inline-flex;align-items:center;justify-content:center;min-width:38px;letter-spacing:-.7px}.day-heading.today .day-number{background:#bbd3c1;color:#23352a;border-radius:50%}.milestone{font-size:11px;line-height:1.35;color:var(--tone);margin-top:9px;display:flex;gap:5px;align-items:baseline}.milestone:before{content:'◆';font-size:7px}.period-name{font-size:11px;letter-spacing:.055em;text-transform:uppercase;color:var(--muted);padding-top:15px;margin:0}.day-stack{min-height:97px;min-width:0;display:grid;gap:8px}.task{display:flex;flex-direction:column;gap:9px;position:relative;width:100%;min-width:0;min-height:77px;padding:13px 11px 12px;border:1px solid transparent;border-radius:12px;background:var(--tint);color:var(--tone);text-align:left;box-shadow:0 5px 20px #00000009;transition:transform .17s ease,border-color .17s ease,box-shadow .17s ease}.task:hover{transform:translateY(-2px);border-color:color-mix(in srgb,var(--tone),transparent 65%);box-shadow:0 7px 24px #00000016}.task-title{font-size:14px;line-height:1.38;font-weight:500;overflow-wrap:anywhere;padding-right:5px}.task-meta{font-size:12px;line-height:1.3;color:color-mix(in srgb,var(--tone),#aab7af 22%);margin-top:auto}.result-mark{position:absolute;top:7px;right:8px;font-size:11px;line-height:1;color:var(--tone)}.result-mark.missed{width:10px;height:10px;border:1px solid currentColor;border-radius:50%;opacity:.9}.result-mark.missed:after{content:'';position:absolute;width:3px;height:3px;left:4px;top:1px;border-left:1px solid currentColor;border-bottom:1px solid currentColor}.empty-space{min-height:97px;border-radius:12px;background:linear-gradient(180deg,#97b8a602,transparent)}
+.exam{--tone:var(--exam);--tint:var(--exam-bg)}.english{--tone:var(--english);--tint:var(--english-bg)}.report{--tone:var(--report);--tint:var(--report-bg)}.slides{--tone:var(--slides);--tint:var(--slides-bg)}
+body.compact .week-grid{row-gap:19px}body.compact .day-stack{gap:5px;min-height:72px}body.compact .empty-space{min-height:72px}body.compact .task{min-height:54px;padding:8px 10px 7px;gap:4px;border-radius:10px}body.compact .task-title{font-size:14px;line-height:1.28}body.compact .task-meta{font-size:12px}body.compact .period-name{padding-top:9px}body.compact .intro{margin-bottom:18px}
+.footer-note{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-top:31px;padding-left:54px;font-size:11px;color:var(--quiet)}.footer-note span{display:inline-flex;align-items:center;gap:7px}.result-key{display:flex;gap:15px}.navigator{position:fixed;bottom:25px;left:50%;transform:translateX(-50%);z-index:5;display:flex;align-items:center;gap:13px;padding:13px 19px;min-height:49px;border:1px solid #d4e3d7;border-radius:28px;background:#bfd4c5;color:#2b4032;box-shadow:0 5px 30px #060e1160;font-size:13px}.orbit{display:block;position:relative;width:20px;height:16px}.orbit:before,.orbit:after{content:'';position:absolute;top:2px;width:12px;height:12px;border:1px solid #3e5b48;border-radius:50%}.orbit:before{left:0}.orbit:after{right:0}.navigator .caret{font-size:13px;margin-left:2px}.navigator:after{content:'';position:absolute;inset:-9px;z-index:-1;backdrop-filter:blur(6px);border-radius:36px;mask-image:linear-gradient(#000,#000)}
+dialog{width:min(420px,calc(100vw - 36px));border:1px solid #6e8a7888;border-radius:20px;padding:25px;background:#202e32;color:var(--ink);box-shadow:0 25px 90px #0007}dialog::backdrop{background:#0d1419a8;backdrop-filter:blur(5px)}dialog h2{font-size:23px;letter-spacing:-.5px;font-weight:450;line-height:1.3;margin:9px 0 18px}dialog p{color:#bbccc1;font-size:14px;margin:10px 0}.dialog-kicker{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}.dialog-close{width:100%;border:1px solid #647d6a88;border-radius:10px;background:#31443a;color:#d6e6d8;min-height:40px;margin-top:17px}.dialog-note{font-size:12px;color:#a8bcb0;line-height:1.5}.back-top{position:fixed;right:24px;bottom:27px;border:1px solid #71857966;border-radius:11px;background:#26332df2;color:#bfd0c3;min-height:40px;padding:7px 12px;font-size:12px;z-index:6}.back-top[hidden]{display:none}
+@media(max-width:1000px){.review-bar{padding:14px 22px}.review-status{padding-inline:22px}.product{padding-inline:22px}.week-grid{grid-template-columns:36px repeat(7,minmax(0,1fr));column-gap:7px}.task{padding-inline:9px}.footer-note{padding-left:43px}.intro h1{font-size:28px}.legend{gap:8px 13px}.context{max-width:190px}}@media(max-width:740px){.review-bar{align-items:flex-start;flex-direction:column;gap:9px}.review-actions{gap:5px}.mode-button,.choose{padding-inline:10px}.review-title{font-size:10px}.product{padding-inline:14px}.intro{gap:10px}.intro h1{font-size:24px}.context{font-size:11px;max-width:135px}.week-grid{column-gap:5px;grid-template-columns:30px repeat(7,minmax(0,1fr))}.day-heading{padding-inline:0}.day-heading small{font-size:11px}.day-number{font-size:23px}.period-name{font-size:10px}.task{padding-inline:7px}.task-title,body.compact .task-title{font-size:14px}.task-meta{font-size:11px}.legend{font-size:11px}.navigator{bottom:18px}.back-top{bottom:78px;right:14px}}@media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}@media(pointer:coarse){.mode-button,.choose,.back-top{min-height:44px}}
+.day-stack{align-content:start}.navigator:after{content:none}
+</style>
+</head>
+<body>
+<aside class="review-bar" aria-label="Công cụ so sánh bản phác thảo">
+  <span class="review-title">DAYFORGE · T02 · SO SÁNH BỐ CỤC</span>
+  <div class="review-actions">
+    <button type="button" class="mode-button" data-mode="airy" aria-pressed="true">A · Thẻ thoáng</button>
+    <button type="button" class="mode-button" data-mode="compact" aria-pressed="false">B · Thẻ gọn</button>
+    <button type="button" class="choose" id="choose-mode" aria-pressed="false">Chọn kiểu A</button>
+  </div>
+</aside>
+<p class="review-status" id="review-status" role="status" aria-live="polite">Cùng 23 công việc · Chiều thứ tư có 5 việc để so sánh hai kiểu.</p>
+<main class="product">
+  <div class="intro">
+    <div>
+      <p class="eyebrow">Lịch công việc · Tuần</p>
+      <h1>26 tháng 10 — 01 tháng 11</h1>
+      <div class="legend" aria-label="Kế hoạch">
+        <span class="exam"><i></i>Ôn thi giữa kỳ</span><span class="english"><i></i>Học tiếng Anh</span>
+        <span class="report"><i></i>Báo cáo tiến độ</span><span class="slides"><i></i>Chuẩn bị thuyết trình</span>
+      </div>
+    </div>
+    <div><p class="year">2026</p><p class="context">Sắp theo buổi · Thời lượng ước tính</p></div>
+  </div>
+  <section class="week-grid" id="week-grid" aria-label="Công việc từ thứ hai ngày 26 tháng 10 đến chủ nhật ngày 1 tháng 11"></section>
+  <div class="footer-note"><span>Dữ liệu minh họa · Không đặt giờ bắt đầu</span><div class="result-key"><span>✓ Đã xong</span><span>◷ Chưa xong</span></div></div>
+</main>
+<div class="navigator" role="note" aria-label="Vị trí widget lịch công việc trong bản phác thảo"><span class="orbit" aria-hidden="true"></span><span>Lịch công việc</span><span class="caret" aria-hidden="true">⌃</span></div>
+<button type="button" class="back-top" id="back-top" hidden>↑ Về đầu tuần</button>
+<dialog id="task-preview" aria-labelledby="task-preview-title"><span class="dialog-kicker">Công việc trong bản phác thảo</span><h2 id="task-preview-title"></h2><div id="task-preview-info"></div><p class="dialog-note">Bản này dùng để so sánh cách đọc lịch khi có nhiều công việc.</p><button type="button" class="dialog-close" id="close-task-preview">Trở lại lịch</button></dialog>
+<script>
+(()=>{
+const days=['Thứ hai','Thứ ba','Thứ tư','Thứ năm','Thứ sáu','Thứ bảy','Chủ nhật'];
+const dates=[26,27,28,29,30,31,1],periods=['Sáng','Chiều','Tối'];
+const planNames={exam:'Ôn thi giữa kỳ',english:'Học tiếng Anh',report:'Báo cáo tiến độ',slides:'Chuẩn bị thuyết trình'};
+const tasks=[];
+const add=(day,period,title,minutes,plan,status='pending')=>tasks.push({id:'task-'+(tasks.length+1),day,period,title,minutes,plan,status});
+for(let day=0;day<7;day++)add(day,0,'Từ vựng',25,'english',day<2?'done':'pending');
+add(3,0,'Cập nhật số liệu',25,'report');
+add(0,1,'Ôn phần ABC',90,'exam','missed');
+add(1,1,'Ôn phần XYZ',60,'exam','done');
+add(2,1,'Ôn phần ABC',60,'exam');add(2,1,'Ôn phần XYZ',45,'exam');add(2,1,'Làm đề số 2',60,'exam');add(2,1,'Chữa câu sai',30,'exam');add(2,1,'Tóm tắt công thức',20,'exam');
+add(3,1,'Luyện đề',90,'exam');add(5,1,'Hoàn thiện slide',60,'slides');
+add(1,2,'Chuẩn bị báo cáo',45,'report','missed');
+add(3,2,'Dàn ý thuyết trình',40,'slides');add(3,2,'Thiết kế slide',60,'slides');add(3,2,'Tập trình bày',30,'slides');
+add(4,2,'Đọc tiếng Anh',20,'english');add(6,2,'Đọc tiếng Anh',20,'english');
+const markers={2:{title:'Báo cáo tuần',plan:'report'},4:{title:'Thi giữa kỳ',plan:'exam'}};
+let mode='airy',selected=null;
+const grid=document.getElementById('week-grid'),dialog=document.getElementById('task-preview');
+const esc=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function render(){
+ grid.innerHTML='<div class="corner" aria-hidden="true"></div>'+days.map((day,i)=>'<div class="day-heading '+(i===2?'today':'')+'"><small>'+day+'</small><span class="day-number">'+dates[i]+'</span>'+(markers[i]?'<div class="milestone '+markers[i].plan+'">'+markers[i].title+'</div>':'')+'</div>').join('')+periods.map((period,p)=>'<p class="period-name">'+period+'</p>'+days.map((_,day)=>{
+  const list=tasks.filter(t=>t.day===day&&t.period===p);
+  return '<div class="day-stack" aria-label="'+period+' '+days[day]+'">'+(list.length?list.map(t=>'<button type="button" class="task '+t.plan+'" data-task-id="'+t.id+'" aria-label="'+esc(t.title+', '+period+' '+days[day]+', ước tính '+t.minutes+' phút, '+planNames[t.plan]+(t.status==='done'?', đã hoàn thành':t.status==='missed'?', chưa hoàn thành':''))+'"><span class="task-title">'+esc(t.title)+'</span><span class="task-meta">'+(mode==='airy'?'Ước tính ':'')+t.minutes+' phút</span>'+(t.status==='done'?'<span class="result-mark" aria-hidden="true">✓</span>':t.status==='missed'?'<span class="result-mark missed" aria-hidden="true"></span>':'')+'</button>').join(''):'<div class="empty-space" aria-hidden="true"></div>')+'</div>';
+ }).join('')).join('');
+}
+function setMode(next){
+ mode=next;document.body.classList.toggle('compact',mode==='compact');
+ document.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===mode)));
+ const letter=mode==='airy'?'A':'B',button=document.getElementById('choose-mode');button.textContent='Chọn kiểu '+letter;button.setAttribute('aria-pressed',String(selected===mode));
+ document.getElementById('review-status').textContent=mode==='airy'?'A · Thẻ thoáng hơn; lịch dài theo nội dung và cuộn chung cả trang.':'B · Thẻ gọn hơn; giữ cỡ chữ tên việc, giảm khoảng đệm và chữ phụ.';
+ render();window.scrollTo({top:0,behavior:'instant'});window.brainstorm?.send({type:'density-preview',mode});
+}
+document.querySelectorAll('[data-mode]').forEach(button=>button.addEventListener('click',()=>setMode(button.dataset.mode)));
+document.getElementById('choose-mode').addEventListener('click',()=>{selected=mode;document.getElementById('choose-mode').setAttribute('aria-pressed','true');const label=mode==='airy'?'A · Thẻ thoáng':'B · Thẻ gọn';document.getElementById('review-status').textContent='Đã chọn '+label+'. Bạn có thể nói thêm điều muốn chỉnh trong chat.';window.brainstorm?.send({type:'click',choice:mode,text:label});});
+grid.addEventListener('click',event=>{const button=event.target.closest('[data-task-id]');if(!button)return;const task=tasks.find(t=>t.id===button.dataset.taskId);document.getElementById('task-preview-title').textContent=task.title;document.getElementById('task-preview-info').innerHTML='<p>'+periods[task.period]+' · '+days[task.day]+', '+dates[task.day]+'/'+(task.day===6?'11':'10')+'/2026</p><p>'+esc(planNames[task.plan])+'</p><p>Ước tính '+task.minutes+' phút</p>';dialog.showModal();});
+document.getElementById('close-task-preview').addEventListener('click',()=>dialog.close());
+dialog.addEventListener('click',event=>{if(event.target===dialog){const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)dialog.close();}});
+const backTop=document.getElementById('back-top');window.addEventListener('scroll',()=>{backTop.hidden=window.scrollY<180;},{passive:true});backTop.addEventListener('click',()=>window.scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'}));
+render();
+})();
+</script>
+</body>
+</html>

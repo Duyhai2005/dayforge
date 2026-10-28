@@ -1,0 +1,2267 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dayforge.invalid/contracts/v1/contract.schema.json",
+  "title": "DAYFORGE Task 3 wire contracts v1",
+  "description": "Contract artifacts only; no deployed endpoint. Resolve definitions locally. Semantic rules remain mandatory.",
+  "$defs": {
+    "UUID": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[45][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "Hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "LocalDate": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+      "description": "Gregorian year 0001..9999; semantic validation required."
+    },
+    "Timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+    },
+    "Cursor": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)$",
+      "maxLength": 20
+    },
+    "DeviceSequence": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*$",
+      "maxLength": 20
+    },
+    "OrderKey": {
+      "type": "string",
+      "pattern": "^(0|-?[1-9][0-9]*)$",
+      "maxLength": 20,
+      "description": "Signed int64 canonical decimal; check numeric bounds semantically."
+    },
+    "Period": {
+      "enum": [
+        "morning",
+        "afternoon",
+        "evening"
+      ]
+    },
+    "Color": {
+      "enum": [
+        "neutral",
+        "earth",
+        "green",
+        "teal",
+        "blue",
+        "purple",
+        "pink",
+        "coral",
+        "sand"
+      ]
+    },
+    "TaskData": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "date": {
+          "$ref": "#/$defs/LocalDate"
+        },
+        "period": {
+          "$ref": "#/$defs/Period"
+        },
+        "duration_minutes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1440
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "plan_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UUID"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "standalone_color_id": {
+          "$ref": "#/$defs/Color"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "completed"
+          ]
+        },
+        "order_key": {
+          "$ref": "#/$defs/OrderKey"
+        }
+      },
+      "required": [
+        "title",
+        "date",
+        "period",
+        "duration_minutes",
+        "plan_id",
+        "standalone_color_id",
+        "status",
+        "order_key"
+      ]
+    },
+    "TaskTemplate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "period": {
+          "$ref": "#/$defs/Period"
+        },
+        "duration_minutes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1440
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "plan_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UUID"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "standalone_color_id": {
+          "$ref": "#/$defs/Color"
+        },
+        "order_key": {
+          "$ref": "#/$defs/OrderKey"
+        }
+      },
+      "required": [
+        "title",
+        "period",
+        "duration_minutes",
+        "plan_id",
+        "standalone_color_id",
+        "order_key"
+      ]
+    },
+    "PlanData": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "color_id": {
+          "$ref": "#/$defs/Color"
+        }
+      },
+      "required": [
+        "name",
+        "color_id"
+      ]
+    },
+    "MilestoneData": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "date": {
+          "$ref": "#/$defs/LocalDate"
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 4000,
+          "pattern": "^[^\\u0000-\\u0008\\u000b-\\u001f\\u007f]*$"
+        },
+        "plan_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UUID"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "standalone_color_id": {
+          "$ref": "#/$defs/Color"
+        },
+        "show_in_work_calendar": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "title",
+        "date",
+        "period",
+        "note",
+        "plan_id",
+        "standalone_color_id",
+        "show_in_work_calendar"
+      ]
+    },
+    "RecurrenceRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "weekdays": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 7
+          },
+          "minItems": 1,
+          "maxItems": 7,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "weekdays"
+      ]
+    },
+    "WorkspaceSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "time_zone": {
+          "const": "Asia/Bangkok"
+        },
+        "utc_offset_minutes": {
+          "const": 420
+        },
+        "week_start": {
+          "const": 1
+        }
+      },
+      "required": [
+        "time_zone",
+        "utc_offset_minutes",
+        "week_start"
+      ]
+    },
+    "Root": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "plan",
+            "milestone",
+            "work_item"
+          ]
+        },
+        "id": {
+          "$ref": "#/$defs/UUID"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ]
+    },
+    "BucketPrecondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "date": {
+          "$ref": "#/$defs/LocalDate"
+        },
+        "period": {
+          "$ref": "#/$defs/Period"
+        },
+        "order_hash": {
+          "$ref": "#/$defs/Hash"
+        }
+      },
+      "required": [
+        "date",
+        "period",
+        "order_hash"
+      ]
+    },
+    "Precondition": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "expected_root_hash": {
+              "$ref": "#/$defs/Hash"
+            },
+            "expected_bucket": {
+              "$ref": "#/$defs/BucketPrecondition"
+            }
+          },
+          "required": [],
+          "minProperties": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "TaskTarget": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "single"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "occurrence"
+            },
+            "source_segment_id": {
+              "$ref": "#/$defs/UUID"
+            },
+            "original_date": {
+              "$ref": "#/$defs/LocalDate"
+            }
+          },
+          "required": [
+            "kind",
+            "source_segment_id",
+            "original_date"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "detached"
+            },
+            "task_id": {
+              "$ref": "#/$defs/UUID"
+            }
+          },
+          "required": [
+            "kind",
+            "task_id"
+          ]
+        }
+      ]
+    },
+    "ExpectedState": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "root": {
+          "$ref": "#/$defs/Root"
+        },
+        "hash": {
+          "$ref": "#/$defs/Hash"
+        }
+      },
+      "required": [
+        "root",
+        "hash"
+      ]
+    },
+    "Command": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "plan"
+                },
+                "id": {
+                  "$ref": "#/$defs/UUID"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ]
+            },
+            "action": {
+              "const": "plan.create"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "data": {
+                  "$ref": "#/$defs/PlanData"
+                }
+              },
+              "required": [
+                "data"
+              ]
+            },
+            "precondition": {
+              "$ref": "#/$defs/Precondition"
+            }
+          },
+          "required": [
+            "root",
+            "action",
+            "payload",
+            "precondition"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "milestone"
+                },
+                "id": {
+                  "$ref": "#/$defs/UUID"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ]
+            },
+            "action": {
+              "const": "milestone.create"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "data": {
+                  "$ref": "#/$defs/MilestoneData"
+                }
+              },
+              "required": [
+                "data"
+              ]
+            },
+            "precondition": {
+              "$ref": "#/$defs/Precondition"
+            }
+          },
+          "required": [
+            "root",
+            "action",
+            "payload",
+            "precondition"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "plan"
+                },
+                "id": {
+                  "$ref": "#/$defs/UUID"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ]
+            },
+            "action": {
+              "const": "plan.replace"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "data": {
+                  "$ref": "#/$defs/PlanData"
+                }
+              },
+              "required": [
+                "data"
+              ]
+            },
+            "precondition": {
+              "$ref": "#/$defs/Precondition"
+            }
+          },
+          "required": [
+            "root",
+            "action",
+            "payload",
+            "precondition"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "milestone"
+                },
+                "id": {
+                  "$ref": "#/$defs/UUID"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ]
+            },
+            "action": {
+              "const": "milestone.replace"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "data": {
+                  "$ref": "#/$defs/MilestoneData"
+                }
+              },
+              "required": [
+                "data"
+              ]
+            },
+            "precondition": {
+              "$ref": "#/$defs/Precondition"
+            }
+          },
+          "required": [
+            "root",
+            "action",
+            "payload",
+            "precondition"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "milestone"
+                },
+                "id": {
+                  "$ref": "#/$defs/UUID"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ]
+            },
+            "action": {
+              "const": "milestone.delete"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {},
+              "required": []
+            },
+            "precondition": {
+              "$ref": "#/$defs/Precondition"
+            }
+          },
+          "required": [
+            "root",
+            "action",
+            "payload",
+            "precondition"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "work_item"
+                },
+                "id": {
+                  "$ref": "#/$defs/UUID"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ]
+            },
+            "action": {
+              "const": "work_item.create_single"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "data": {
+                  "$ref": "#/$defs/TaskData"
+                }
+              },
+              "required": [
+                "data"
+              ]
+            },
+            "precondition": {
+              "$ref": "#/$defs/Precondition"
+            }
+          },
+          "required": [
+            "root",
+            "action",
+            "payload",
+            "precondition"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "work_item"
+                },
+                "id": {
+                  "$ref": "#/$defs/UUID"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ]
+            },
+            "action": {
+              "const": "work_item.create_recurrence"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "start_date": {
+                  "$ref": "#/$defs/LocalDate"
+                },
+                "rule": {
+                  "$ref": "#/$defs/RecurrenceRule"
+                },
+                "template": {
+                  "$ref": "#/$defs/TaskTemplate"
+                }
+              },
+              "required": [
+                "start_date",
+                "rule",
+                "template"
+              ]
+            },
+            "precondition": {
+              "$ref": "#/$defs/Precondition"
+            }
+          },
+          "required": [
+            "root",
+            "action",
+            "payload",
+            "precondition"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "work_item"
+                },
+                "id": {
+                  "$ref": "#/$defs/UUID"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ]
+            },
+            "action": {
+              "const": "work_item.enable_recurrence"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "data": {
+                  "$ref": "#/$defs/TaskData"
+                },
+                "rule": {
+                  "$ref": "#/$defs/RecurrenceRule"
+                }
+              },
+              "required": [
+                "data",
+                "rule"
+              ]
+            },
+            "precondition": {
+              "$ref": "#/$defs/Precondition"
+            }
+          },
+          "required": [
+            "root",
+            "action",
+            "payload",
+            "precondition"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "work_item"
+                },
+                "id": {
+                  "$ref": "#/$defs/UUID"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ]
+            },
+            "action": {
+              "const": "single.replace"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "data": {
+                  "$ref": "#/$defs/TaskData"
+                }
+              },
+              "required": [
+                "data"
+              ]
+            },
+            "precondition": {
+              "$ref": "#/$defs/Precondition"
+            }
+          },
+          "required": [
+            "root",
+            "action",
+            "payload",
+            "precondition"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "work_item"
+                },
+                "id": {
+                  "$ref": "#/$defs/UUID"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ]
+            },
+            "action": {
+              "const": "single.delete"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {},
+              "required": []
+            },
+            "precondition": {
+              "$ref": "#/$defs/Precondition"
+            }
+          },
+          "required": [
+            "root",
+            "action",
+            "payload",
+            "precondition"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "work_item"
+                },
+                "id": {
+                  "$ref": "#/$defs/UUID"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ]
+            },
+            "action": {
+              "const": "occurrence.replace"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "source_segment_id": {
+                  "$ref": "#/$defs/UUID"
+                },
+                "original_date": {
+                  "$ref": "#/$defs/LocalDate"
+                },
+                "data": {
+                  "$ref": "#/$defs/TaskData"
+                }
+              },
+              "required": [
+                "source_segment_id",
+                "original_date",
+                "data"
+              ]
+            },
+            "precondition": {
+              "$ref": "#/$defs/Precondition"
+            }
+          },
+          "required": [
+            "root",
+            "action",
+            "payload",
+            "precondition"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "work_item"
+                },
+                "id": {
+                  "$ref": "#/$defs/UUID"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ]
+            },
+            "action": {
+              "const": "detached.replace"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "task_id": {
+                  "$ref": "#/$defs/UUID"
+                },
+                "data": {
+                  "$ref": "#/$defs/TaskData"
+                }
+              },
+              "required": [
+                "task_id",
+                "data"
+              ]
+            },
+            "precondition": {
+              "$ref": "#/$defs/Precondition"
+            }
+          },
+          "required": [
+            "root",
+            "action",
+            "payload",
+            "precondition"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "work_item"
+                },
+                "id": {
+                  "$ref": "#/$defs/UUID"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ]
+            },
+            "action": {
+              "const": "occurrence.delete"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "source_segment_id": {
+                  "$ref": "#/$defs/UUID"
+                },
+                "original_date": {
+                  "$ref": "#/$defs/LocalDate"
+                }
+              },
+              "required": [
+                "source_segment_id",
+                "original_date"
+              ]
+            },
+            "precondition": {
+              "$ref": "#/$defs/Precondition"
+            }
+          },
+          "required": [
+            "root",
+            "action",
+            "payload",
+            "precondition"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "work_item"
+                },
+                "id": {
+                  "$ref": "#/$defs/UUID"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ]
+            },
+            "action": {
+              "const": "detached.delete"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "task_id": {
+                  "$ref": "#/$defs/UUID"
+                }
+              },
+              "required": [
+                "task_id"
+              ]
+            },
+            "precondition": {
+              "$ref": "#/$defs/Precondition"
+            }
+          },
+          "required": [
+            "root",
+            "action",
+            "payload",
+            "precondition"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "work_item"
+                },
+                "id": {
+                  "$ref": "#/$defs/UUID"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ]
+            },
+            "action": {
+              "const": "series.edit_future"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "source_segment_id": {
+                  "$ref": "#/$defs/UUID"
+                },
+                "cutoff_original_date": {
+                  "$ref": "#/$defs/LocalDate"
+                },
+                "rule": {
+                  "$ref": "#/$defs/RecurrenceRule"
+                },
+                "template": {
+                  "$ref": "#/$defs/TaskTemplate"
+                }
+              },
+              "required": [
+                "source_segment_id",
+                "cutoff_original_date",
+                "rule",
+                "template"
+              ]
+            },
+            "precondition": {
+              "$ref": "#/$defs/Precondition"
+            }
+          },
+          "required": [
+            "root",
+            "action",
+            "payload",
+            "precondition"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "work_item"
+                },
+                "id": {
+                  "$ref": "#/$defs/UUID"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ]
+            },
+            "action": {
+              "const": "series.stop_future"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "source_segment_id": {
+                  "$ref": "#/$defs/UUID"
+                },
+                "cutoff_original_date": {
+                  "$ref": "#/$defs/LocalDate"
+                }
+              },
+              "required": [
+                "source_segment_id",
+                "cutoff_original_date"
+              ]
+            },
+            "precondition": {
+              "$ref": "#/$defs/Precondition"
+            }
+          },
+          "required": [
+            "root",
+            "action",
+            "payload",
+            "precondition"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "work_item"
+                },
+                "id": {
+                  "$ref": "#/$defs/UUID"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ]
+            },
+            "action": {
+              "const": "set_order"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "target": {
+                  "$ref": "#/$defs/TaskTarget"
+                },
+                "order_key": {
+                  "$ref": "#/$defs/OrderKey"
+                },
+                "intent": {
+                  "enum": [
+                    "user_reorder",
+                    "rank_maintenance"
+                  ]
+                }
+              },
+              "required": [
+                "target",
+                "order_key",
+                "intent"
+              ]
+            },
+            "precondition": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "expected_root_hash": {
+                  "$ref": "#/$defs/Hash"
+                },
+                "expected_bucket": {
+                  "$ref": "#/$defs/BucketPrecondition"
+                }
+              },
+              "required": [
+                "expected_root_hash"
+              ]
+            }
+          },
+          "required": [
+            "root",
+            "action",
+            "payload",
+            "precondition"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "plan"
+                },
+                "id": {
+                  "$ref": "#/$defs/UUID"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ]
+            },
+            "action": {
+              "const": "undo"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "original_operation_id": {
+                  "$ref": "#/$defs/UUID"
+                },
+                "expected_states": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ExpectedState"
+                  },
+                  "minItems": 1,
+                  "maxItems": 1000,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "original_operation_id",
+                "expected_states"
+              ]
+            },
+            "precondition": {
+              "$ref": "#/$defs/Precondition"
+            }
+          },
+          "required": [
+            "root",
+            "action",
+            "payload",
+            "precondition"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "milestone"
+                },
+                "id": {
+                  "$ref": "#/$defs/UUID"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ]
+            },
+            "action": {
+              "const": "undo"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "original_operation_id": {
+                  "$ref": "#/$defs/UUID"
+                },
+                "expected_states": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ExpectedState"
+                  },
+                  "minItems": 1,
+                  "maxItems": 1000,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "original_operation_id",
+                "expected_states"
+              ]
+            },
+            "precondition": {
+              "$ref": "#/$defs/Precondition"
+            }
+          },
+          "required": [
+            "root",
+            "action",
+            "payload",
+            "precondition"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "work_item"
+                },
+                "id": {
+                  "$ref": "#/$defs/UUID"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ]
+            },
+            "action": {
+              "const": "undo"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "original_operation_id": {
+                  "$ref": "#/$defs/UUID"
+                },
+                "expected_states": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ExpectedState"
+                  },
+                  "minItems": 1,
+                  "maxItems": 1000,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "original_operation_id",
+                "expected_states"
+              ]
+            },
+            "precondition": {
+              "$ref": "#/$defs/Precondition"
+            }
+          },
+          "required": [
+            "root",
+            "action",
+            "payload",
+            "precondition"
+          ]
+        }
+      ]
+    },
+    "EditTime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "physical_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "logical": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "calibration_id": {
+          "$ref": "#/$defs/UUID"
+        },
+        "raw_wall_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "quality": {
+          "enum": [
+            "calibrated",
+            "offline_estimate",
+            "untrusted"
+          ]
+        }
+      },
+      "required": [
+        "physical_ms",
+        "logical",
+        "calibration_id",
+        "raw_wall_ms",
+        "quality"
+      ]
+    },
+    "Operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": 1
+        },
+        "reducer_version": {
+          "const": 1
+        },
+        "operation_id": {
+          "$ref": "#/$defs/UUID"
+        },
+        "owner_id": {
+          "$ref": "#/$defs/UUID"
+        },
+        "device_id": {
+          "$ref": "#/$defs/UUID"
+        },
+        "device_sequence": {
+          "$ref": "#/$defs/DeviceSequence"
+        },
+        "edit_time": {
+          "$ref": "#/$defs/EditTime"
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UUID"
+          },
+          "minItems": 0,
+          "maxItems": 1000,
+          "uniqueItems": true
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Command"
+          },
+          "minItems": 1,
+          "maxItems": 1000
+        }
+      },
+      "required": [
+        "protocol_version",
+        "reducer_version",
+        "operation_id",
+        "owner_id",
+        "device_id",
+        "device_sequence",
+        "edit_time",
+        "dependencies",
+        "commands"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "commands": {
+                "contains": {
+                  "properties": {
+                    "action": {
+                      "const": "undo"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "commands": {
+                "maxItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "commands": {
+                "contains": {
+                  "properties": {
+                    "action": {
+                      "const": "set_order"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "commands": {
+                "contains": {
+                  "properties": {
+                    "precondition": {
+                      "type": "object",
+                      "required": [
+                        "expected_bucket"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "precondition"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "FieldError": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^(|/.*)$"
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "path",
+        "code"
+      ]
+    },
+    "Problem": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "format": "uri-reference"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "integer",
+          "minimum": 400,
+          "maximum": 599
+        },
+        "detail": {
+          "type": "string"
+        },
+        "instance": {
+          "type": "string",
+          "format": "uri-reference"
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "request_id": {
+          "$ref": "#/$defs/UUID"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "server_time": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "field_errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FieldError"
+          },
+          "minItems": 0
+        },
+        "retry_after_seconds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "status",
+        "detail",
+        "instance",
+        "code",
+        "request_id",
+        "retryable",
+        "server_time"
+      ]
+    },
+    "Receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "$ref": "#/$defs/UUID"
+        },
+        "request_hash": {
+          "$ref": "#/$defs/Hash"
+        },
+        "recorded": {
+          "const": true
+        },
+        "commit_cursor": {
+          "$ref": "#/$defs/DeviceSequence"
+        },
+        "effect_at_commit": {
+          "enum": [
+            "applied",
+            "superseded",
+            "no_op"
+          ]
+        },
+        "reason_at_commit": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "operation_id",
+        "request_hash",
+        "recorded",
+        "commit_cursor",
+        "effect_at_commit",
+        "reason_at_commit"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "effect_at_commit": {
+                "const": "no_op"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason_at_commit": {
+                "enum": [
+                  "duplicate_target",
+                  "reference_unavailable",
+                  "target_retired",
+                  "precondition_failed",
+                  "undo_not_applicable"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "EventGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "$ref": "#/$defs/DeviceSequence"
+        },
+        "committed_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "operation": {
+          "$ref": "#/$defs/Operation"
+        }
+      },
+      "required": [
+        "cursor",
+        "committed_at",
+        "operation"
+      ]
+    },
+    "SyncPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "epoch": {
+          "$ref": "#/$defs/UUID"
+        },
+        "through_cursor": {
+          "$ref": "#/$defs/Cursor"
+        },
+        "next_cursor": {
+          "$ref": "#/$defs/Cursor"
+        },
+        "has_more": {
+          "type": "boolean"
+        },
+        "next_page_token": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EventGroup"
+          },
+          "minItems": 0,
+          "maxItems": 200
+        }
+      },
+      "required": [
+        "epoch",
+        "through_cursor",
+        "next_cursor",
+        "has_more",
+        "next_page_token",
+        "groups"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "has_more": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "groups": {
+                "minItems": 1
+              },
+              "next_page_token": {
+                "type": "string"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "next_page_token": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "PushRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Operation"
+          },
+          "minItems": 1,
+          "maxItems": 100
+        }
+      },
+      "required": [
+        "operations"
+      ]
+    },
+    "PushResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "operation_id": {
+              "$ref": "#/$defs/UUID"
+            },
+            "status": {
+              "enum": [
+                "recorded",
+                "duplicate"
+              ]
+            },
+            "receipt": {
+              "$ref": "#/$defs/Receipt"
+            }
+          },
+          "required": [
+            "operation_id",
+            "status",
+            "receipt"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "operation_id": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/UUID"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "status": {
+              "enum": [
+                "deferred",
+                "rejected"
+              ]
+            },
+            "problem": {
+              "$ref": "#/$defs/Problem"
+            }
+          },
+          "required": [
+            "operation_id",
+            "status",
+            "problem"
+          ]
+        }
+      ]
+    },
+    "PushResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "epoch": {
+          "$ref": "#/$defs/UUID"
+        },
+        "head_cursor": {
+          "$ref": "#/$defs/Cursor"
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PushResult"
+          },
+          "minItems": 1,
+          "maxItems": 100
+        }
+      },
+      "required": [
+        "epoch",
+        "head_cursor",
+        "results"
+      ]
+    },
+    "EmailRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 254
+        }
+      },
+      "required": [
+        "email"
+      ]
+    },
+    "TokenPasswordRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "token": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "password": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "description": "Transport bound only; NFC/password policy is semantic: new passwords 15..128 code points."
+        }
+      },
+      "required": [
+        "token",
+        "password"
+      ]
+    },
+    "LoginRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 254
+        },
+        "password": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "description": "Transport bound only; NFC/password policy is semantic: new passwords 15..128 code points."
+        },
+        "remember_me": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "email",
+        "password",
+        "remember_me"
+      ]
+    },
+    "LogoutRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "logout_ticket": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{64}$"
+        }
+      },
+      "required": []
+    },
+    "AcceptedEmailRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "accepted"
+        },
+        "resend_after_seconds": {
+          "const": 60
+        }
+      },
+      "required": [
+        "status",
+        "resend_after_seconds"
+      ]
+    },
+    "OwnerView": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/UUID"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 254
+        },
+        "email_verified_at": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "email_verified_at"
+      ]
+    },
+    "SessionDetails": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/UUID"
+        },
+        "remember_me": {
+          "type": "boolean"
+        },
+        "idle_expires_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "absolute_expires_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "password_authenticated_at": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      },
+      "required": [
+        "id",
+        "remember_me",
+        "idle_expires_at",
+        "absolute_expires_at",
+        "password_authenticated_at"
+      ]
+    },
+    "SessionView": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "authenticated": {
+          "type": "boolean"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OwnerView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "session": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionDetails"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "csrf_token": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "server_time": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "logout_ticket": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "authenticated",
+        "owner",
+        "session",
+        "csrf_token",
+        "server_time",
+        "logout_ticket"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "authenticated": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "owner": {
+                "$ref": "#/$defs/OwnerView"
+              },
+              "session": {
+                "$ref": "#/$defs/SessionDetails"
+              },
+              "logout_ticket": {
+                "type": "string"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "owner": {
+                "type": "null"
+              },
+              "session": {
+                "type": "null"
+              },
+              "logout_ticket": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "LocalKeyView": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "owner_id": {
+          "$ref": "#/$defs/UUID"
+        },
+        "key_id": {
+          "$ref": "#/$defs/UUID"
+        },
+        "algorithm": {
+          "const": "A256GCM"
+        },
+        "key_base64url": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        }
+      },
+      "required": [
+        "owner_id",
+        "key_id",
+        "algorithm",
+        "key_base64url"
+      ]
+    },
+    "ClockView": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "calibration_id": {
+          "$ref": "#/$defs/UUID"
+        },
+        "server_time_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "server_time": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "max_future_skew_ms": {
+          "const": 300000
+        }
+      },
+      "required": [
+        "calibration_id",
+        "server_time_ms",
+        "server_time",
+        "max_future_skew_ms"
+      ]
+    },
+    "VersionInfo": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "api_major": {
+          "const": 1
+        },
+        "protocol_versions": {
+          "const": [
+            1
+          ]
+        },
+        "reducer_versions": {
+          "const": [
+            1
+          ]
+        },
+        "server_time": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "push_operations": {
+              "const": 100
+            },
+            "push_request_bytes": {
+              "const": 8388608
+            },
+            "operation_bytes": {
+              "const": 2097152
+            },
+            "commands_per_operation": {
+              "const": 1000
+            },
+            "page_operations": {
+              "const": 200
+            },
+            "page_bytes": {
+              "const": 8388608
+            },
+            "page_token_ttl_seconds": {
+              "const": 1800
+            }
+          },
+          "required": [
+            "push_operations",
+            "push_request_bytes",
+            "operation_bytes",
+            "commands_per_operation",
+            "page_operations",
+            "page_bytes",
+            "page_token_ttl_seconds"
+          ]
+        }
+      },
+      "required": [
+        "api_major",
+        "protocol_versions",
+        "reducer_versions",
+        "server_time",
+        "limits"
+      ]
+    }
+  }
+}
