@@ -33,9 +33,9 @@ The verification checkout was a detached worktree at `.local/verification/Dayfor
 | `pnpm dev:api`, `pnpm dev:web`, `pnpm smoke:local --ca-file <rootCA.pem>` in the clean checkout | **PASS.** The HTTPS page and `/api/v1/openapi.json` passed through the same origin. |
 | `pnpm db:down` in the clean checkout | **PASS.** Container/network stopped and the isolated `dayforge-t04-verify_mysql-data` volume remained. |
 | Same-origin smoke in the main checkout after restoring services and after the production build | **PASS.** Output: `PASS: local HTTPS web and API bootstrap`. |
-| `pnpm verify:env` | **PASS.** Five unittest cases passed. |
+| `pnpm verify:env` | **PASS.** Seven unittest cases passed: five environment-generator tests and two frontend origin-guard regression tests. |
 | `pnpm build:web` | **PASS.** Next.js production build and TypeScript checks completed; `/` was generated. |
-| `pnpm start:web` and `Invoke-WebRequest http://127.0.0.1:3001/` | **PASS.** HTTP `200`; response contained `DAYFORGE`. |
+| `pnpm start:web` and `Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3001/` | **PASS.** HTTP `200`; response contained `DAYFORGE`. The probe uses basic parsing for Windows PowerShell 5.1 compatibility. |
 | `git diff --check` and locked-file comparison | **PASS.** No whitespace errors or lockfile changes remained. Tracked files contain templates, not generated `.env`, private keys, `.next`, `node_modules` or `.venv` artifacts. |
 
 ## Review focus
@@ -49,6 +49,8 @@ The verification checkout was a detached worktree at `.local/verification/Dayfor
 | API outage must not look like a successful web/API setup | With Next.js left running and FastAPI stopped, smoke returned HTTP `500`, exited `1` and printed no `PASS`; restarting the API restored a passing smoke. | **PASS** |
 
 An invalid `API_INTERNAL_ORIGIN` was also rejected by the `predev` check before Next.js opened its listener.
+
+The final review fix added `scripts/tests/test_check_local_api_origin.py` to the existing `verify:env` discovery suite. Its temporary frontend env files cover quoted origins and exact-origin rejection. The quoted-origin regression failed before replacing literal line parsing with the `@next/env` parser shipped with pinned Next.js `16.4.3`, then passed after the fix. Existing process-variable precedence is preserved. No dependency or lockfile changed.
 
 ## Waiver and limits
 

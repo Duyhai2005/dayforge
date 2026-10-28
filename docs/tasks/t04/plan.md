@@ -233,7 +233,7 @@ Expected: FAIL/ImportError do `scripts/init_local.py` chưa có. Test thêm repo
 
 - [x] **Step 5: Kiểm chứng generator và ignore.**
 
-Run `pnpm verify:env`, sau đó `pnpm setup:local` hai lần. Expected: tất cả 5 tests PASS; lần hai giữ nguyên các file.
+Run `pnpm verify:env`, sau đó `pnpm setup:local` hai lần. Expected: tất cả 7 tests PASS (5 generator, 2 origin guard); lần hai giữ nguyên các file.
 
 Run: `git check-ignore .env backend/.env frontend/.env.local .local/tls/localhost-key.pem` — cả bốn path phải được ignore. Run: `git check-ignore .env.example backend/.env.example frontend/.env.example` — không in path, exit 1. `git status --short` không hiện file cấu hình local.
 
@@ -334,7 +334,7 @@ mkcert -cert-file .local/tls/localhost.pem -key-file .local/tls/localhost-key.pe
 
 - [x] **Step 4: Nối Next config và command chạy hai server.**
 
-Frontend `predev` gọi `scripts/check-local-api-origin.cjs` để kiểm tra `.env.local`/environment trước khi Next mở listener (Next 16.4.3 nạp `next.config.ts` sau khi listener sẵn sàng); `dev` dùng `next dev --hostname localhost --port 3000 --experimental-https --experimental-https-key ../.local/tls/localhost-key.pem --experimental-https-cert ../.local/tls/localhost.pem`. Dùng `rewrites` của `NextConfig` để giữ nguyên prefix; đọc `API_INTERNAL_ORIGIN` phía server, thiếu/sai giá trị thì lỗi ngắn trước startup. Chỉ cho internal origin `http://127.0.0.1:8000`, không xây open proxy. Không thêm route handler auth/DB trong Next.js, CORS wildcard, response cache hoặc rewrite email callback. Thêm ba command root theo Interfaces; `smoke:local = uv run --directory backend --locked python ../scripts/smoke_local.py`.
+Frontend `predev` gọi `scripts/check-local-api-origin.cjs` để kiểm tra `.env.local`/environment trước khi Next mở listener (Next 16.4.3 nạp `next.config.ts` sau khi listener sẵn sàng); parser `@next/env` đi kèm bản Next.js đã pin hỗ trợ giá trị có dấu nháy, process environment được ưu tiên. Regression tests trong `scripts/tests/test_check_local_api_origin.py` chạy qua `pnpm verify:env`. `dev` dùng `next dev --hostname localhost --port 3000 --experimental-https --experimental-https-key ../.local/tls/localhost-key.pem --experimental-https-cert ../.local/tls/localhost.pem`. Dùng `rewrites` của `NextConfig` để giữ nguyên prefix; đọc `API_INTERNAL_ORIGIN` phía server, thiếu/sai giá trị thì lỗi ngắn trước startup. Chỉ cho internal origin `http://127.0.0.1:8000`, không xây open proxy. Không thêm route handler auth/DB trong Next.js, CORS wildcard, response cache hoặc rewrite email callback. Thêm ba command root theo Interfaces; `smoke:local = uv run --directory backend --locked python ../scripts/smoke_local.py`.
 
 [Next CLI](https://nextjs.org/docs/app/api-reference/cli/next) hỗ trợ các cờ HTTPS này cho development; [rewrites](https://nextjs.org/docs/app/api-reference/config/next-config-js/rewrites) là proxy URL. `next start` vẫn là probe HTTP công khai port 3001; TLS/reverse proxy production thuộc T29/T30.
 
@@ -385,7 +385,7 @@ Expected: mọi bước từ hướng dẫn chạy được; không phải sửa
 
 Chạy riêng `pnpm install --frozen-lockfile`, `uv sync --directory backend --locked`, `pnpm verify:env`, `pnpm build:web`, `pnpm smoke:local --ca-file "$dayforgeCaFile"`, `git diff --check` và `git status --short`. Chạy lại probe `start:web` sau build; xác nhận lockfiles không đổi khi cài lại. Kiểm tra `git ls-files` không chứa `.env` thật, private key hoặc output build; không stage bằng `git add .`.
 
-Expected: commands exit 0; 5 tests generator PASS; smoke/build/Node start PASS; chỉ các file dự kiến thay đổi. Không cần thêm pytest/Vitest/Playwright/CI để hoàn thành T04; chúng thuộc T07.
+Expected: commands exit 0; 7 tests PASS (5 generator, 2 origin guard); smoke/build/Node start PASS; chỉ các file dự kiến thay đổi. Không cần thêm pytest/Vitest/Playwright/CI để hoàn thành T04; chúng thuộc T07.
 
 - [x] **Step 4: Ghi báo cáo và ranh giới bàn giao.**
 

@@ -2,7 +2,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const expected = "http://127.0.0.1:8000";
-const envFile = path.join(__dirname, "..", "frontend", ".env.local");
+const frontendDir = path.join(__dirname, "..", "frontend");
+const envFile = path.join(frontendDir, ".env.local");
 let actual = process.env.API_INTERNAL_ORIGIN;
 
 if (actual === undefined) {
@@ -14,16 +15,18 @@ if (actual === undefined) {
     process.exit(1);
   }
 
-  const values = contents
-    .split(/\r?\n/)
-    .filter((line) => line.startsWith("API_INTERNAL_ORIGIN="))
-    .map((line) => line.slice("API_INTERNAL_ORIGIN=".length));
+  // Use the env parser bundled with the pinned Next.js installation.
+  const nextDir = path.dirname(require.resolve("next/package.json", { paths: [frontendDir] }));
+  const { processEnv } = require(require.resolve("@next/env", { paths: [nextDir] }));
+  const [combinedEnv] = processEnv(
+    [{ path: ".env.local", contents, env: {} }], frontendDir, console, true,
+  );
+  actual = combinedEnv.API_INTERNAL_ORIGIN;
 
-  if (values.length !== 1) {
-    console.error("frontend/.env.local must define API_INTERNAL_ORIGIN exactly once.");
+  if (actual === undefined) {
+    console.error("frontend/.env.local must define API_INTERNAL_ORIGIN.");
     process.exit(1);
   }
-  [actual] = values;
 }
 
 if (actual !== expected) {

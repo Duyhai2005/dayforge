@@ -136,10 +136,10 @@ pnpm build:web
 pnpm start:web
 ```
 
-`verify:env` runs the repository's current environment-generator unit tests. `build:web` builds the Next.js server. `start:web` listens on loopback HTTP port `3001`; in another terminal, verify the response:
+`verify:env` runs the environment-generator and frontend origin-guard regression tests. The guard uses Next.js env parsing, including quoted values, and an existing process variable takes precedence over `frontend/.env.local`. `build:web` builds the Next.js server. `start:web` listens on loopback HTTP port `3001`; in another terminal, verify the response:
 
 ```powershell
-$response = Invoke-WebRequest http://127.0.0.1:3001/
+$response = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3001/
 $response.StatusCode
 $response.Content.Contains('DAYFORGE')
 ```
