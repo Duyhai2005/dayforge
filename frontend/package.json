@@ -1,0 +1,22 @@
+{
+  "name": "@dayforge/frontend",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "predev": "node ../scripts/check-local-api-origin.cjs",
+    "dev": "next dev --hostname localhost --port 3000 --experimental-https --experimental-https-key ../.local/tls/localhost-key.pem --experimental-https-cert ../.local/tls/localhost.pem",
+    "build": "next build",
+    "start": "next start --hostname 127.0.0.1 --port 3001"
+  },
+  "dependencies": {
+    "next": "16.4.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "typescript": "6.0.3"
+  }
+}

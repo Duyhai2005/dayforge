@@ -1,0 +1,21 @@
+{
+  "name": "dayforge",
+  "version": "0.0.0",
+  "private": true,
+  "engines": {
+    "node": "24.22.1"
+  },
+  "packageManager": "pnpm@12.16.1",
+  "scripts": {
+    "preinstall": "node scripts/check-node-version.cjs",
+    "build:web": "pnpm --filter @dayforge/frontend build",
+    "db:up": "docker compose --env-file .env up -d --wait --wait-timeout 120 mysql",
+    "db:down": "docker compose --env-file .env down",
+    "dev:api": "uv run --directory backend --locked --env-file .env uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload --no-access-log",
+    "dev:web": "pnpm --filter @dayforge/frontend dev",
+    "setup:local": "uv run --directory backend --locked python ../scripts/init_local.py",
+    "verify:env": "uv run --directory backend --locked python -m unittest discover -s ../scripts/tests -v",
+    "start:web": "pnpm --filter @dayforge/frontend start",
+    "smoke:local": "uv run --directory backend --locked python ../scripts/smoke_local.py"
+  }
+}
