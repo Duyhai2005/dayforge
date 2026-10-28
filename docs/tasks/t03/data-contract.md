@@ -75,7 +75,7 @@ Plan tham chiếu phải tồn tại cùng owner. Milestone không có `duration
 WorkItem { id, owner_id, deleted, kind: single | recurrence_family,
   single: TaskData | null,
   segment_origins[],
-  family: { segments[], overrides_by_original_date{}, detached_by_id{} } | null }
+  family: { segments[], overrides_by_original_date{}, order_overrides_by_original_date{}, detached_by_id{} } | null }
 SegmentOrigin { segment_id, born_from_date, created_by_operation_id, command_index }
 RuleSegment { segment_id, from_date, until_date: LocalDate | null, rule, template }
 OccurrenceOverride { override_id, original_date, source_segment_id,
@@ -85,7 +85,7 @@ OccurrenceOrderOverride { original_date, source_segment_id, order_key }
 DetachedTask { task_id, source_occurrence_id, original_date, data: TaskData, deleted }
 ```
 
-Chỉ nhánh ứng với `kind` được có dữ liệu. `deleted` mặc định false, single delete đặt true và giữ payload; family chỉ có thể thành root tombstone do Undo-create, không có lệnh delete family. Root tombstone không khai triển thẻ; mọi non-create command nhắm family đã tombstone là `target_retired`, trừ Undo hợp lệ. Khoảng segment là `[from_date, until_date)`, `null` là chưa có giới hạn; các khoảng tăng dần và không chồng nhau. `source_segment_id` trong override ghi nguồn tạo ngoại lệ; original date thuộc family, không đổi khi segment về sau bị cắt.
+Chỉ nhánh ứng với `kind` được có dữ liệu. `deleted` mặc định false, single delete đặt true và giữ payload; family chỉ có thể thành root tombstone do Undo-create, không có lệnh delete family. Root tombstone không khai triển thẻ; mọi non-create command nhắm family đã tombstone là `target_retired`, trừ Undo hợp lệ. Khoảng segment là `[from_date, until_date)`, `null` là chưa có giới hạn; các khoảng tăng dần và không chồng nhau. `OccurrenceOverride.source_segment_id` ghi segment nguồn của ngoại lệ; `OccurrenceOrderOverride.source_segment_id` trỏ segment hiện hành đang sinh `original_date` và được cập nhật khi edit-future carry override sang segment mới.
 
 `segment_origins` là catalog provenance bất biến ở root, ban đầu rỗng; create/enable/edit-future thêm origin của segment vừa tạo với `born_from_date` bằng start/cutoff lúc tạo. Cắt, stop hoặc Undo không xóa origin. Catalog được dựng từ prefix canonical replay, không từ server arrival; single sau Undo enable vẫn giữ catalog lịch sử nhưng không addressable như family.
 
@@ -190,7 +190,7 @@ Thực hiện một phép chuyển projection nguyên tử:
 3. Giữ deleted suppression; không biến một lần đã gỡ thành child sống. Giữ toàn bộ child đã tách từ trước, kể cả child đã xóa.
 4. Giữ các khoảng kết thúc trước/ở C; cắt khoảng hiện hành băng qua C nếu có, bỏ mọi phần interval từ C, rồi thêm segment mới `[C, null)` với rule/template mới và origin mới trong catalog. C có thể nằm trong vùng đã stop/gap; không cần một segment hiện hành chứa C. Các segment rỗng không đưa vào projection hiện hành.
 5. Tiếp tục suppress mọi original date đã deleted/detached, dù rule mới vẫn khớp ngày đó. Không suppress theo ngày đích: các task độc lập được phép cùng ngày/buổi.
-6. Giữ rank-only maintenance override tại ngày `>= C` chỉ khi ngày đó vẫn được segment mới sinh; cập nhật provenance sang segment mới. Bỏ override cho ngày không còn khớp rule. Việc rebalance cũ không tạo child standalone và không suppress occurrence.
+6. Với từng rank-only maintenance override tại ngày `>= C`, tìm segment đang sinh ngày đó trong state trước operation. Chỉ giữ override nếu segment successor vẫn sinh ngày đó và `period` cùng `order_key` của template successor không đổi so với template của segment đang sinh trước operation; cập nhật `source_segment_id` sang segment successor. Nếu ngày không còn khớp rule hoặc template đổi bucket/rank, bỏ override để dùng rank template successor. Việc rebalance cũ không tạo child standalone và không suppress occurrence.
 
 Template không lấy từ một replacement bất kỳ. Payload intent là giá trị người dùng lưu trong màn Lịch lặp; mọi detach dùng trạng thái canonical trước structural intent, không dùng danh sách override đóng băng trên thiết bị.
 
@@ -239,7 +239,7 @@ Migration milestone cũ thiếu trường: `period -> null`, `note -> ""`; khôn
 - Intent sửa một lần K cũ đến sau stop: replay trước stop rồi bị stop gỡ. Intent K mới nhắm slot đã nghỉ: no-op, không phục hồi rule.
 - Structural edit K mới từ nguồn đã bị edit trước cắt vẫn áp dụng lên tương lai hiện hành; stop K mới từ cùng nguồn vẫn gỡ đúng tương lai đó. Edit-future tường minh sau stop có thể resume; stop sau stop không resume.
 - Hai intent sửa hai ngày khác nhau giữ được cả hai; hai replace cùng một occurrence lấy payload mới nhất, không trộn ngày của A với buổi của B.
-- `set_order` user reorder không đè nội dung hoàn thành/đổi tên mới hơn và occurrence implicit được detach khi edit-future; `rank_maintenance` chỉ đổi rank override, giữ occurrence theo rule, không detach. Kiểm chứng rebalance Friday occurrence rồi edit-future sang Mondays: không tạo detached Friday, Monday vẫn sinh; nếu Friday vẫn khớp rule mới thì rank maintenance giữ nguyên. Root/bucket hash phải cùng kết quả ở Python/TypeScript, gồm order overrides, tombstone/catalog và loại mọi head-operation dẫn xuất.
+- `set_order` user reorder không đè nội dung hoàn thành/đổi tên mới hơn và occurrence implicit được detach khi edit-future; `rank_maintenance` chỉ đổi rank override, giữ occurrence theo rule, không detach. Kiểm chứng rebalance Friday occurrence rồi edit-future sang Mondays: không tạo detached Friday, Monday vẫn sinh; nếu Friday vẫn khớp rule và template giữ period/order_key thì rank maintenance được giữ. Nếu period hoặc template order_key đổi, override bị bỏ và successor dùng rank mới. Root/bucket hash phải cùng kết quả ở Python/TypeScript, gồm order overrides, tombstone/catalog và loại mọi head-operation dẫn xuất.
 - Undo-create giữ root tombstone/catalog và không sinh thẻ; lệnh sửa occurrence trên family tombstone bị retired. Undo plan-create khi task/milestone khác vẫn dùng plan bị từ chối nguyên nhóm, không tạo reference treo.
 - Rebalance nhiều root bị fingerprint cũ: không target nào đổi; retry cùng operation/group không đổi ID hoặc tạo tác dụng mới.
 - Lưu/sync/reload giữ nguyên note Unicode/xuống dòng; milestone hai lịch cùng ngày/buổi/màu; nửa đêm UTC+07 đổi dấu quá hạn đúng ngày.

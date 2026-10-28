@@ -184,7 +184,7 @@ Edit/stop áp dụng lên **tương lai canonical hiện hành** từ cutoff; `s
 3. Live replacement thành detached child với ID xác định từ root/ngày gốc, giữ toàn bộ dữ liệu/kết quả/kế hoạch. Chỉ `user_reorder` mới tạo replacement do đổi rank.
 4. Slot ngày gốc của mỗi child vừa tách được suppress trong successor, kể cả ngày đó vẫn khớp weekday mới.
 5. Deleted override giữ suppression, không sinh child sống; giữ mọi detached child có từ trước.
-6. Giữ rank-only override từ `C` nếu successor vẫn sinh cùng original date và đổi `source_segment_id` sang segment successor; bỏ override ở ngày không còn khớp rule. Không tạo detached child hoặc suppression từ rebalance.
+6. Với mỗi rank-only override từ `C`, tìm segment đang sinh original date đó trong state trước operation. Chỉ giữ nếu successor vẫn sinh ngày đó và template successor giữ nguyên `period` lẫn `order_key` so với template của segment đang sinh trước operation; đổi `source_segment_id` sang segment successor. Bỏ override nếu ngày không còn khớp rule hoặc bucket/rank template đổi, để template successor quyết định rank. Không tạo detached child hoặc suppression từ rebalance.
 
 `series.stop_future(C)` cắt các interval trong phạm vi và gỡ mọi attached member có original date từ `C`; rank-only override của slot bị cắt cũng bị bỏ.
 Nó gồm occurrence đã dời/hoàn thành; không xóa lịch sử trước `C` hoặc detached child.

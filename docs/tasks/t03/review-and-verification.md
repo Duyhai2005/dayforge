@@ -40,11 +40,11 @@ Validator chỉ đọc schema/fixture/Markdown tại T03; không gọi mạng, s
 
 Kết quả thực chạy:
 
-- Schema hợp lệ: **42 definition**, **64 fixture**; 41 payload được chấp nhận và 23 payload sai bị từ chối đúng kỳ vọng; đủ ví dụ cho **18 action**.
+- Schema hợp lệ: **42 definition**, **67 fixture**; 42 payload được chấp nhận và 25 payload sai bị từ chối đúng kỳ vọng; đủ ví dụ cho **18 action**.
 - Bốn giá trị dẫn xuất UUIDv5 và một vector byte canonical JSON/SHA-256 khớp giá trị chuẩn đã ghi trong fixture. Đây là dữ liệu đối chiếu cho implementer, không thay test JCS/reducer của sản phẩm.
 - Validator kiểm tra **35 liên kết local** trong bộ Markdown T03, không có đích bị thiếu.
 - Builder reviewer đọc lại sau khi sửa các vấn đề clock recovery, provenance, Undo và transport; kết luận cuối: **“nothing important left”**.
-- `git diff --check` không ghi nhận lỗi whitespace; trước commit kiểm tra thêm diff đã stage và đúng phạm vi tài liệu T03/mục lục chịu ảnh hưởng.
+- Black (`--check --line-length 120`) và Ruff đều đạt cho validator; `git diff --check` không ghi nhận lỗi whitespace.
 
 T03 hoàn thành phần hợp đồng kỹ thuật theo quyền đã giao. Các kết quả trên không xác nhận API hoặc thuật toán sản phẩm đã chạy.
 
@@ -68,7 +68,8 @@ T03 hoàn thành phần hợp đồng kỹ thuật theo quyền đã giao. Các 
 | CT-14 | Email allowlist, token hết hạn/reuse/race, reset revoke, CSRF/Origin, no-store và log không có secret. | T09/T13/T28 |
 | CT-15 | Hết phiên vẫn xem/sửa; offline logout khóa mọi tab/late callback; login đúng owner mở lại nguyên pending. | T09/T13/T25/T28 |
 | CT-16 | KEK/key/DB backup phục hồi, reset không đổi vault key, delivery email tới inbox thật. | T30–T32/T35 |
-| CT-17 | Rebalance occurrence Friday chỉ bằng `rank_maintenance`, rồi đổi lịch tương lai sang Monday: Friday không thành detached, Monday được sinh; nếu Friday vẫn thuộc rule mới thì rank override được giữ. `user_reorder` riêng vẫn detach theo hợp đồng. | T19/T21–T23 |
+| CT-17 | Rebalance occurrence Friday chỉ bằng `rank_maintenance`, rồi đổi lịch tương lai sang Monday: Friday không thành detached, Monday được sinh; nếu Friday vẫn thuộc rule mới và template giữ cùng period/order_key thì rank override được giữ. Đổi period hoặc template order_key phải bỏ override cũ và dùng rank successor. `user_reorder` riêng vẫn detach theo hợp đồng. | T19/T21–T23 |
+| CT-18 | Nhiều segment hiện hành có template khác nhau: `edit_future` từ cutoff sớm phải so từng rank override với template của segment đang sinh đúng original date, rồi carry/drop riêng theo date; không dùng template của `source_segment_id` trong command làm giá trị cũ chung. | T21–T23 |
 
 Các case này **chưa chạy trên sản phẩm** trong T03. Chưa có FastAPI/Next.js/MySQL/IndexedDB thật, SMTP/provider, Cốc Cốc production hoặc CI sản phẩm để nghiệm thu 38 AC.
 
