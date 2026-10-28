@@ -3,7 +3,8 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --hostname localhost --port 3000",
+    "predev": "node ../scripts/check-local-api-origin.cjs",
+    "dev": "next dev --hostname localhost --port 3000 --experimental-https --experimental-https-key ../.local/tls/localhost-key.pem --experimental-https-cert ../.local/tls/localhost.pem",
     "build": "next build",
     "start": "next start --hostname 127.0.0.1 --port 3001"
   },
