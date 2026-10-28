@@ -9,6 +9,8 @@
   "scripts": {
     "preinstall": "node scripts/check-node-version.cjs",
     "build:web": "pnpm --filter @dayforge/frontend build",
+    "setup:local": "uv run --directory backend --locked python ../scripts/init_local.py",
+    "verify:env": "uv run --directory backend --locked python -m unittest discover -s ../scripts/tests -v",
     "start:web": "pnpm --filter @dayforge/frontend start"
   }
 }

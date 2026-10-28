@@ -184,7 +184,7 @@ Run: `git commit -m "chore: bootstrap pinned frontend and backend workspaces"`.
 - Produces: `initialize_local(repo_root: Path) -> tuple[Path, Path, Path]` trong `scripts/init_local.py`; `main() -> int` chạy từ bất kỳ cwd nào và xác định root theo vị trí script.
 - Lần đầu trả ba path đã tạo. Nếu đủ ba file, trả lại các path mà không đổi byte nào; nếu chỉ tồn tại một phần, raise `FileExistsError` với tên file thiếu, không in nội dung. CLI exit 0 cho tạo mới/giữ nguyên, exit 1 cho lỗi và chỉ in path/trạng thái.
 
-- [ ] **Step 1: Viết test thất bại cho dữ liệu local cần được bảo toàn.**
+- [x] **Step 1: Viết test thất bại cho dữ liệu local cần được bảo toàn.**
 
 Dùng `unittest.TestCase` và `TemporaryDirectory`; fixtures chép ba templates vào cây tạm. Viết các test sau, với assertion tương ứng:
 
@@ -217,27 +217,27 @@ assert not any(path.exists() for path in output_paths)
 
 Các biến fixture/dictionary trong ví dụ được định nghĩa trong test; parse env fixture bằng cách tách mỗi dòng tại dấu `=` đầu tiên. Đây là test cho nguy cơ mất credentials, không phải yêu cầu bổ sung test runner T07.
 
-- [ ] **Step 2: Chạy test để xác nhận thất bại vì chưa có generator.**
+- [x] **Step 2: Chạy test để xác nhận thất bại vì chưa có generator.**
 
 Run: `uv run --directory backend --locked python -m unittest discover -s ../scripts/tests -v`.
 
 Expected: FAIL/ImportError do `scripts/init_local.py` chưa có. Test thêm repo root vào import path bằng `Path(__file__).resolve().parents[2]`, không phụ thuộc cwd.
 
-- [ ] **Step 3: Viết `initialize_local(repo_root: Path) -> tuple[Path, Path, Path]`.**
+- [x] **Step 3: Viết `initialize_local(repo_root: Path) -> tuple[Path, Path, Path]`.**
 
 Đọc và kiểm tra đủ templates/đầu ra trước khi ghi; dùng `secrets.token_urlsafe(32)` độc lập cho app/root password. Render UTF-8, LF, từ templates ở mục 1.2; tạo file với chế độ exclusive `x`, không cung cấp cờ `--force`. Lỗi I/O giữa chừng báo rõ tập file còn thiếu để người dùng phục hồi; lần chạy sau không tự ghi đè phần đã tạo. Không gọi Docker, installer, mkcert hoặc thay trust store trong generator.
 
-- [ ] **Step 4: Thêm command và quy tắc Git/editor.**
+- [x] **Step 4: Thêm command và quy tắc Git/editor.**
 
 `setup:local = uv run --directory backend --locked python ../scripts/init_local.py`; `verify:env` theo mục 1.2. Ignore `node_modules/`, `.next/`, `.venv/`, Python caches, `.env`, `.env.*` nhưng allow `!.env.example` ở mọi cấp, `.local/`, certificates/private keys và log sinh ra. Giữ dòng `.superpowers/` hiện có. `.gitattributes` áp dụng `text=auto eol=lf`; `.editorconfig` dùng UTF-8/LF, final newline, TS/JSON/YAML 2 spaces và Python 4 spaces; không đổi line endings các tài liệu cũ hàng loạt.
 
-- [ ] **Step 5: Kiểm chứng generator và ignore.**
+- [x] **Step 5: Kiểm chứng generator và ignore.**
 
 Run `pnpm verify:env`, sau đó `pnpm setup:local` hai lần. Expected: tất cả 5 tests PASS; lần hai giữ nguyên các file.
 
 Run: `git check-ignore .env backend/.env frontend/.env.local .local/tls/localhost-key.pem` — cả bốn path phải được ignore. Run: `git check-ignore .env.example backend/.env.example frontend/.env.example` — không in path, exit 1. `git status --short` không hiện file cấu hình local.
 
-- [ ] **Step 6: Commit deliverable đã kiểm chứng.**
+- [x] **Step 6: Commit deliverable đã kiểm chứng.**
 
 Run: `git add .gitignore .gitattributes .editorconfig .env.example backend/.env.example frontend/.env.example scripts/init_local.py scripts/tests/test_init_local.py package.json`.
 
