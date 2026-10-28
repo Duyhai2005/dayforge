@@ -21,7 +21,7 @@
 - “Không log password, token email, cookie, CSRF, logout ticket, local key, note hoặc toàn bộ operation chứa dữ liệu cá nhân.”
 - “Không tự mua hạ tầng”; AWS/Oracle, domain và nhà cung cấp email giữ ở T29/T30.
 - “Cốc Cốc desktop” là browser nghiệm thu. Chạy bootstrap không có nghĩa đã đạt các AC của sản phẩm.
-- “Direct pushes to `main` and `develop` are prohibited.” Lúc triển khai dùng nhánh `feature/t04-development-environment` từ `develop` theo Git Flow; tái sử dụng checkout/worktree phù hợp, không tự chuyển hoặc bỏ thay đổi đang có.
+- “Direct pushes to `main` and `develop` are prohibited.” Lúc triển khai dùng nhánh `feature/development-environment` theo Git Flow; do `develop` chưa có hợp đồng T01–T03 ở thời điểm bắt đầu, implementation branch được tạo từ `feature/project-design` để giữ đủ tài liệu ràng buộc; tái sử dụng checkout/worktree phù hợp, không tự chuyển hoặc bỏ thay đổi đang có.
 
 ## Review Focus
 
@@ -105,7 +105,7 @@ Các lệnh sau chạy từ repo root, dùng được trong PowerShell 5.1+, kh�
 
 | File | Trách nhiệm | Task |
 | --- | --- | --- |
-| `.node-version`, `.npmrc`, `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml` | Runtime Node, pnpm, một workspace frontend và các command root | 1, bổ sung command ở 2–4 |
+| `.node-version`, `.npmrc`, `package.json`, `scripts/check-node-version.cjs`, `pnpm-workspace.yaml`, `pnpm-lock.yaml` | Runtime Node, pnpm, guard cài đặt Node chính xác, một workspace frontend và các command root | 1, bổ sung command ở 2–4 |
 | `frontend/package.json`, `tsconfig.json`, `next-env.d.ts`, `next.config.ts` | Dependency, TS strict, Next server và rewrite | 1, 4 |
 | `frontend/app/layout.tsx`, `frontend/app/page.tsx` | Bootstrap route `/`, chưa phải UI T06 | 1 |
 | `backend/.python-version`, `backend/pyproject.toml`, `backend/uv.lock` | Runtime Python, dependency tối thiểu, uv version | 1 |
@@ -132,9 +132,9 @@ Thứ tự: **1 → 2 → 3 → 4 → 5**. Sau Task 2 có thể nghiên cứu TL
 - Produces: frontend package tên `@dayforge/frontend`; `RootLayout(props: Readonly<{ children: React.ReactNode }>): React.JSX.Element`; `HomePage(): React.JSX.Element`; backend `app: FastAPI` tại `app.main`; scripts `build:web`, `start:web`.
 - ASGI bootstrap: title `DAYFORGE API`, version `0.0.0`, `openapi_url="/api/v1/openapi.json"`, `docs_url=None`, `redoc_url=None`; chưa có `/health`, `/version`, auth hoặc mutation. OpenAPI này là probe dev, không thay API tương thích T03.
 
-- [ ] **Step 1: Ghi và chạy probe trước khi có bootstrap.**
+- [x] **Step 1: Ghi và chạy probe trước khi có bootstrap.**
 
-Run: `pnpm --filter @dayforge/frontend build`.
+Run: `pnpm --dir frontend run build`.
 
 Expected: FAIL vì workspace/package chưa tồn tại. Probe backend sẽ dùng đúng các assertion sau sau khi có uv project:
 
@@ -145,33 +145,33 @@ assert app.openapi_url == "/api/v1/openapi.json"
 assert app.openapi()["paths"] == {}
 ```
 
-- [ ] **Step 2: Tạo manifest và cấu hình runtime theo mục 1.1.**
+- [x] **Step 2: Tạo manifest và cấu hình runtime theo mục 1.1.**
 
-Root `package.json` đặt `name=dayforge`, `version=0.0.0`, `private=true`, exact `engines.node`, `packageManager`; `.npmrc` có `engine-strict=true`, `save-exact=true`; workspace chỉ gồm `frontend`. Backend đặt project `name=dayforge-backend`, `version=0.0.0`, `[tool.uv] package=false` và `required-version`, chưa thêm build backend/package phát hành. Tạo manifest frontend với runtime/dev dependency đúng bảng; `build=next build`, `start=next start --hostname 127.0.0.1 --port 3001`. Bổ sung `.gitignore` cho `node_modules/`, `.next/`, `.venv/`, `__pycache__/` và `*.pyc` ngay ở bước này; giữ `.superpowers/` hiện có.
+Root `package.json` đặt `name=dayforge`, `version=0.0.0`, `private=true`, exact `engines.node`, `packageManager`, và `preinstall` gọi `scripts/check-node-version.cjs` để chặn Node lệch pin (pnpm `engine-strict` không tự kiểm tra runtime của root); `.npmrc` có `engine-strict=true`, `save-exact=true`; workspace chỉ gồm `frontend`. Backend đặt project `name=dayforge-backend`, `version=0.0.0`, `[tool.uv] package=false` và `required-version`, chưa thêm build backend/package phát hành. Tạo manifest frontend với runtime/dev dependency đúng bảng; `build=next build`, `start=next start --hostname 127.0.0.1 --port 3001`. Bổ sung `.gitignore` cho `node_modules/`, `.next/`, `.venv/`, `__pycache__/` và `*.pyc` ngay ở bước này; giữ `.superpowers/` hiện có.
 
-- [ ] **Step 3: Tạo bootstrap `RootLayout`, `HomePage` và `app` theo Interfaces.**
+- [x] **Step 3: Tạo bootstrap `RootLayout`, `HomePage` và `app` theo Interfaces.**
 
 Layout dùng `<html lang="vi">`; `/` có heading `DAYFORGE` và câu `Môi trường phát triển đã sẵn sàng.`. Không dùng remote font/ảnh, không thêm CSS framework; `tsconfig.json` bật `strict`, `noEmit`, cấu hình Next App Router. Next config không có `output: "export"`; không thêm DB connection, route lịch hoặc auth.
 
-- [ ] **Step 4: Sinh lockfile bằng đúng package manager rồi cài lại ở chế độ locked.**
+- [x] **Step 4: Sinh lockfile bằng đúng package manager rồi cài lại ở chế độ locked.**
 
 Run lần đầu: `pnpm install`, tiếp theo `uv lock --directory backend`. Sau đó chạy riêng `pnpm install --frozen-lockfile` và `uv sync --directory backend --locked`.
 
 Expected: bốn lệnh exit 0; chỉ có một pnpm lockfile tại root và một uv lockfile trong backend; không có `package-lock.json`/`yarn.lock`/requirements được tạo song song.
 
-- [ ] **Step 5: Chạy probe bootstrap và production build.**
+- [x] **Step 5: Chạy probe bootstrap và production build.**
 
 Run: `uv run --directory backend --locked python -c "from app.main import app; assert app.title == 'DAYFORGE API'; assert app.openapi_url == '/api/v1/openapi.json'; assert app.openapi()['paths'] == {}"`, rồi `pnpm build:web`.
 
 Expected: exit 0; build có route `/`. Chạy `pnpm start:web` ở terminal riêng; `Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3001` trả 200 và có `DAYFORGE`. Dừng bằng Ctrl+C. Probe HTTP này chỉ xác nhận Next Node runtime, không dùng cho luồng tài khoản.
 
-- [ ] **Step 6: Kiểm chứng lockfile từ chối metadata bị đổi trong thư mục tạm.**
+- [x] **Step 6: Kiểm chứng lockfile từ chối metadata bị đổi trong thư mục tạm.**
 
 Sao chép các manifest/lockfile vào thư mục tạm ngoài checkout làm việc. Đổi React trực tiếp thành một phiên bản khác mà không sinh lại lock; `pnpm install --frozen-lockfile` phải exit khác 0 vì lockfile không khớp. Trong bản sao backend, đổi pin FastAPI nhưng giữ `uv.lock`; `uv sync --locked` cũng phải exit khác 0. Chạy pnpm với Node không khớp `engines.node` phải bị `engine-strict` chặn; uv có version khác bị `required-version` chặn. Giữ log đã bỏ đường dẫn cá nhân; không sửa manifest/lockfile thật cho bài thử này.
 
-- [ ] **Step 7: Commit deliverable đã kiểm chứng.**
+- [x] **Step 7: Commit deliverable đã kiểm chứng.**
 
-Run: `git add .gitignore .node-version .npmrc package.json pnpm-workspace.yaml pnpm-lock.yaml frontend/package.json frontend/tsconfig.json frontend/next-env.d.ts frontend/next.config.ts frontend/app/layout.tsx frontend/app/page.tsx backend/.python-version backend/pyproject.toml backend/uv.lock backend/app/__init__.py backend/app/main.py`.
+Run: `git add .gitignore .node-version .npmrc package.json pnpm-workspace.yaml pnpm-lock.yaml scripts/check-node-version.cjs frontend/package.json frontend/tsconfig.json frontend/next-env.d.ts frontend/next.config.ts frontend/app/layout.tsx frontend/app/page.tsx backend/.python-version backend/pyproject.toml backend/uv.lock backend/app/__init__.py backend/app/main.py`.
 
 Run: `git commit -m "chore: bootstrap pinned frontend and backend workspaces"`.
 
