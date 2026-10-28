@@ -20,7 +20,7 @@
 - “`OWNER_EMAIL` chỉ ở cấu hình server; không đưa allowlist vào bundle hoặc response công khai.”
 - “Không log password, token email, cookie, CSRF, logout ticket, local key, note hoặc toàn bộ operation chứa dữ liệu cá nhân.”
 - “Không tự mua hạ tầng”; AWS/Oracle, domain và nhà cung cấp email giữ ở T29/T30.
-- “Cốc Cốc desktop” là browser nghiệm thu. Chạy bootstrap không có nghĩa đã đạt các AC của sản phẩm.
+- “Cốc Cốc desktop” là browser nghiệm thu sản phẩm. Riêng kiểm tra browser trực tiếp của T04 được người dùng miễn ngày 29/10/2026; T04 chỉ ghi nhận smoke HTTPS có CA tường minh, không tuyên bố Cốc Cốc đã tin chứng chỉ.
 - “Direct pushes to `main` and `develop` are prohibited.” Lúc triển khai dùng nhánh `feature/development-environment` theo Git Flow; do `develop` chưa có hợp đồng T01–T03 ở thời điểm bắt đầu, implementation branch được tạo từ `feature/project-design` để giữ đủ tài liệu ràng buộc; tái sử dụng checkout/worktree phù hợp, không tự chuyển hoặc bỏ thay đổi đang có.
 
 ## Review Focus
@@ -35,7 +35,7 @@
 
 ## 1. Phạm vi và lựa chọn kỹ thuật
 
-Ngày lập plan: **28/10/2026**. Trạng thái: **chỉ có kế hoạch, chưa triển khai; T04 vẫn chưa hoàn thành**. Các phiên bản dưới đây là lựa chọn kỹ thuật của người lập plan dựa trên nguồn chính thức, chưa phải kết quả cài/build tương thích trên máy này.
+Ngày lập plan: **28/10/2026**. Trạng thái ban đầu là chỉ có kế hoạch; kết quả sau triển khai ngày **29/10/2026** nằm trong [báo cáo kiểm chứng](review-and-verification.md). Các phiên bản được chọn dựa trên nguồn chính thức và đã kiểm tra theo báo cáo này.
 
 | T04 tạo ra | Giữ ở task sau |
 | --- | --- |
@@ -291,14 +291,14 @@ Run: `git commit -m "chore: add persistent local MySQL service"`.
 
 ### Task 4: HTTPS local, proxy một origin và smoke có thể thất bại
 
-**Files:** Create `scripts/smoke_local.py`; Modify `frontend/next.config.ts`, `frontend/package.json`, `package.json`.
+**Files:** Create `scripts/smoke_local.py`, `scripts/check-local-api-origin.cjs`; Modify `frontend/next.config.ts`, `frontend/package.json`. Root commands đã có trong `package.json` sau Task 3 commit `56e2186`, được tái sử dụng và xác minh ở Task 4.
 
 **Interfaces:**
 - Consumes: frontend `.env.local`, backend ASGI app và TLS files ở mục 1.2.
 - Produces: browser origin `https://localhost:3000`; rewrite `/api/v1/:path*` → `http://127.0.0.1:8000/api/v1/:path*`; commands `dev:web`, `dev:api`, `smoke:local`.
 - `smoke_local(base_url: str, ca_file: Path, timeout_seconds: float = 10.0) -> None` trong `scripts/smoke_local.py`; `main() -> int` nhận `--base-url` mặc định HTTPS origin ở trên và `--ca-file` bắt buộc, exit 0/1. Không in response body hoặc giá trị env khi lỗi.
 
-- [ ] **Step 1: Viết probe smoke trước phần nối proxy/TLS.**
+- [x] **Step 1: Viết probe smoke trước phần nối proxy/TLS.**
 
 Probe thực hiện hai GET bằng `urllib.request` với `ssl.create_default_context(cafile=str(ca_file))`, không theo redirect sang origin khác; kiểm tra chính xác:
 
@@ -314,15 +314,15 @@ assert isinstance(api_json["paths"], dict)
 
 Chỉ chấp nhận `base_url` là HTTPS với hostname `localhost`, không có credentials/path/query/fragment. Thiếu chứng chỉ, TLS/HTTP/JSON lỗi hoặc sai assertion đều exit 1. In `PASS: local HTTPS web and API bootstrap` sau khi cả hai probe thành công. Không dùng schema rỗng làm điều kiện smoke để T05 thêm endpoint không làm hỏng lệnh.
 
-- [ ] **Step 2: Chạy probe để xác nhận thiếu TLS/proxy thì chưa pass.**
+- [x] **Step 2: Chạy probe để xác nhận thiếu TLS/proxy thì chưa pass.**
 
 Run: `uv run --directory backend --locked python ../scripts/smoke_local.py --ca-file ../.local/tls/missing-ca.pem`.
 
 Expected: exit 1, thông báo ngắn về file CA; không traceback chứa response/config, không có dòng PASS.
 
-- [ ] **Step 3: Chuẩn bị chứng chỉ localhost riêng trên máy.**
+- [x] **Step 3: Chuẩn bị chứng chỉ localhost riêng trên máy.**
 
-Xác nhận `mkcert -version` là `v1.4.4`; chạy bước trust CA một lần, tách khỏi bootstrap tự động. Nếu môi trường cần quyền hệ thống, làm đúng luồng permission của máy thay vì tự nâng quyền. Các lệnh được ghi vào hướng dẫn:
+Xác nhận `mkcert -version` là `v1.4.4`; tạo cert/key riêng trong `.local/tls/`. Cài CA vào trust store chỉ cần nếu muốn Cốc Cốc mở không cảnh báo; người dùng đã miễn kiểm tra đó cho T04, nên không cài trust store. Lệnh cài vẫn được ghi là bước tùy chọn trong hướng dẫn:
 
 ```powershell
 mkcert -install
@@ -332,13 +332,13 @@ mkcert -cert-file .local/tls/localhost.pem -key-file .local/tls/localhost-key.pe
 
 `mkcert -CAROOT` chứa CA trên từng máy; chỉ lấy `rootCA.pem` cho probe, không sao chép `rootCA-key.pem` vào repo hoặc chia sẻ. [mkcert](https://github.com/FiloSottile/mkcert) mô tả việc cài CA vào Windows trust store. Chưa cần certificate production hoặc domain.
 
-- [ ] **Step 4: Nối Next config và command chạy hai server.**
+- [x] **Step 4: Nối Next config và command chạy hai server.**
 
-Frontend `dev` dùng `next dev --hostname localhost --port 3000 --experimental-https --experimental-https-key ../.local/tls/localhost-key.pem --experimental-https-cert ../.local/tls/localhost.pem`. Dùng `rewrites` của `NextConfig` để giữ nguyên prefix; đọc `API_INTERNAL_ORIGIN` phía server, thiếu/sai giá trị thì lỗi ngắn trước startup. Chỉ cho internal origin `http://127.0.0.1:8000`, không xây open proxy. Không thêm route handler auth/DB trong Next.js, CORS wildcard, response cache hoặc rewrite email callback. Thêm ba command root theo Interfaces; `smoke:local = uv run --directory backend --locked python ../scripts/smoke_local.py`.
+Frontend `predev` gọi `scripts/check-local-api-origin.cjs` để kiểm tra `.env.local`/environment trước khi Next mở listener (Next 16.4.3 nạp `next.config.ts` sau khi listener sẵn sàng); `dev` dùng `next dev --hostname localhost --port 3000 --experimental-https --experimental-https-key ../.local/tls/localhost-key.pem --experimental-https-cert ../.local/tls/localhost.pem`. Dùng `rewrites` của `NextConfig` để giữ nguyên prefix; đọc `API_INTERNAL_ORIGIN` phía server, thiếu/sai giá trị thì lỗi ngắn trước startup. Chỉ cho internal origin `http://127.0.0.1:8000`, không xây open proxy. Không thêm route handler auth/DB trong Next.js, CORS wildcard, response cache hoặc rewrite email callback. Thêm ba command root theo Interfaces; `smoke:local = uv run --directory backend --locked python ../scripts/smoke_local.py`.
 
 [Next CLI](https://nextjs.org/docs/app/api-reference/cli/next) hỗ trợ các cờ HTTPS này cho development; [rewrites](https://nextjs.org/docs/app/api-reference/config/next-config-js/rewrites) là proxy URL. `next start` vẫn là probe HTTP công khai port 3001; TLS/reverse proxy production thuộc T29/T30.
 
-- [ ] **Step 5: Chạy smoke thành công và kiểm tra browser thực.**
+- [x] **Step 5: Chạy smoke thành công; ghi nhận miễn kiểm tra browser.**
 
 Mở hai terminal từ root: `pnpm dev:api` và `pnpm dev:web`. Terminal thứ ba:
 
@@ -347,69 +347,69 @@ $dayforgeCaFile = Join-Path (mkcert -CAROOT) 'rootCA.pem'
 pnpm smoke:local --ca-file "$dayforgeCaFile"
 ```
 
-Expected: exit 0, đúng dòng PASS; trực tiếp Cốc Cốc mở `https://localhost:3000` không cảnh báo TLS và `/api/v1/openapi.json` trả JSON của FastAPI. Ghi browser version. T04 không cấp cookie, nên chưa tuyên bố kiểm chứng session/CSRF/no-store auth.
+Expected: exit 0, đúng dòng PASS; `/api/v1/openapi.json` trả JSON của FastAPI qua rewrite. Người dùng miễn bước mở Cốc Cốc/kiểm tra trust ngày 29/10/2026; ghi là waived/unverified, không ghi PASS browser. T04 không cấp cookie, nên chưa tuyên bố kiểm chứng session/CSRF/no-store auth.
 
-- [ ] **Step 6: Kiểm chứng ba trường hợp lỗi của môi trường.**
+- [x] **Step 6: Kiểm chứng ba trường hợp lỗi của môi trường.**
 
 1. Dừng API, giữ web: chạy lại smoke phải exit 1 ở probe API, không PASS hoặc HTML 200 giả thành công; khởi động lại API và smoke phải PASS.
 2. Dùng CA không ký certificate localhost hoặc hostname không hợp lệ: smoke phải exit 1; không thêm `-k`, `verify=False` hoặc `NODE_TLS_REJECT_UNAUTHORIZED=0`.
 3. Khi web đầu tiên đang chiếm 3000, chạy thêm `pnpm dev:web`: phải exit khác 0 vì cổng cố định, không tự chuyển 3002 làm lệch `PUBLIC_ORIGIN`. Dừng tiến trình thử, giữ web đầu tiên.
 
-- [ ] **Step 7: Commit deliverable đã kiểm chứng.**
+- [x] **Step 7: Commit deliverable đã kiểm chứng.**
 
-Run: `git add scripts/smoke_local.py frontend/next.config.ts frontend/package.json package.json`.
+Run: `git add scripts/smoke_local.py scripts/check-local-api-origin.cjs frontend/next.config.ts frontend/package.json package.json`.
 
 Run: `git commit -m "chore: add same-origin HTTPS local development"`.
 
 ### Task 5: Hướng dẫn checkout sạch và bằng chứng bàn giao T04
 
-**Files:** Create `README.md`, `docs/development.md`, `docs/tasks/t04/review-and-verification.md`; Modify `docs/README.md`, `docs/tasks/README.md`.
+**Files:** Create `README.md`, `docs/development.md`, `docs/tasks/t04/review-and-verification.md`; Modify `docs/README.md`, `docs/tasks/README.md`, `docs/tasks/t04/plan.md`.
 
 **Interfaces:**
 - Consumes: các command, file và probe từ Tasks 1–4.
 - Produces: một quy trình clone/checkout → cài đúng tool → cài locked → sinh config/TLS → MySQL → web/API → smoke/build → dừng mà giữ dữ liệu; báo cáo ghi rõ PASS/FAIL/BLOCKED/chưa chạy, phiên bản thực và giới hạn.
 
-- [ ] **Step 1: Viết runbook `docs/development.md` theo đúng thứ tự dưới đây.**
+- [x] **Step 1: Viết runbook `docs/development.md` theo đúng thứ tự dưới đây.**
 
 Ghi prerequisite Windows/PowerShell, Docker Desktop Linux containers và engine đang chạy; lấy đúng Node/pnpm/uv/mkcert từ nguồn mục 1.1, dùng installer/version cụ thể, không giả định tool toàn cục hiện tại đúng pin. `uv python install 3.14.10` cài interpreter do uv quản lý, không cần thay Python hệ thống. Đưa từng command mục 1.2 và các bước mkcert vào hướng dẫn; mỗi command có cwd, kết quả mong đợi và cách dừng.
 
 Runbook giải thích: lần đầu cần mạng tải dependency/image; chưa có offline app. Với port bị chiếm, xử lý tiến trình đang dùng thay vì tự đổi origin. Với MySQL volume cũ, đổi password env không tự đổi user trong volume; phục hồi config cũ/đổi credentials bằng quy trình có chủ đích, không tự `down -v`. Với lỗi TLS, kiểm tra CA, hostname và restart browser. Với thiếu một phần env, phục hồi file thiếu thủ công bằng template/cấu hình tương ứng, không ghi đè file còn lại.
 
-- [ ] **Step 2: Chạy toàn bộ hướng dẫn trên một checkout sạch.**
+- [x] **Step 2: Chạy toàn bộ hướng dẫn trên một checkout sạch.**
 
 Dùng thư mục kiểm chứng riêng có dấu cách, cài từ manifest/lockfile được commit, không sao chép `.env`, `.venv`, `node_modules`, certificates hoặc `.next` từ checkout gốc. Dừng dịch vụ dev gốc trước để tránh xung đột cổng; trong một terminal kiểm chứng mới đặt `$env:COMPOSE_PROJECT_NAME = 'dayforge-t04-verify'` trước mọi command của lần diễn tập. Biến này ghi đè project name trong YAML, nên các command `pnpm db:up`/`pnpm db:down` vẫn dùng được và volume DB gốc không bị tác động. Sinh env mới rồi thực hiện lần lượt install locked, `setup:local`, TLS, `db:up`, hai server và smoke; kết thúc bằng `db:down`, dừng server và đóng terminal kiểm chứng. Ghi việc dùng project override vào báo cáo; trở lại checkout chính, chạy lại services/probe trước bước tiếp theo.
 
-Expected: mọi bước từ hướng dẫn chạy được; không phải sửa source hoặc lockfile. Nếu chưa có quyền cài tool/trust CA, ghi BLOCKED cho đúng bước và chưa đánh dấu T04 hoàn thành.
+Expected: mọi bước từ hướng dẫn chạy được; không phải sửa source hoặc lockfile. Không cài trust CA trong diễn tập vì kiểm tra Cốc Cốc đã được người dùng miễn; smoke dùng `rootCA.pem` tường minh.
 
-- [ ] **Step 3: Chạy lại kiểm chứng cuối trên checkout đang bàn giao.**
+- [x] **Step 3: Chạy lại kiểm chứng cuối trên checkout đang bàn giao.**
 
 Chạy riêng `pnpm install --frozen-lockfile`, `uv sync --directory backend --locked`, `pnpm verify:env`, `pnpm build:web`, `pnpm smoke:local --ca-file "$dayforgeCaFile"`, `git diff --check` và `git status --short`. Chạy lại probe `start:web` sau build; xác nhận lockfiles không đổi khi cài lại. Kiểm tra `git ls-files` không chứa `.env` thật, private key hoặc output build; không stage bằng `git add .`.
 
 Expected: commands exit 0; 5 tests generator PASS; smoke/build/Node start PASS; chỉ các file dự kiến thay đổi. Không cần thêm pytest/Vitest/Playwright/CI để hoàn thành T04; chúng thuộc T07.
 
-- [ ] **Step 4: Ghi báo cáo và ranh giới bàn giao.**
+- [x] **Step 4: Ghi báo cáo và ranh giới bàn giao.**
 
-`review-and-verification.md` ghi ngày/OS/tool/browser versions, MySQL tag + digest, từng command/kết quả, 5 mục Review Focus, checkout sạch và các giới hạn. Không đưa secrets hoặc log đầy đủ chứa env vào báo cáo. Ghi rõ chưa kiểm chứng kết nối DB từ app/migration (T05), UI lịch (T06), CI (T07), auth/email/offline/sync và AC-01–AC-38.
+`review-and-verification.md` ghi ngày/OS/tool versions, browser check được người dùng miễn (browser version không ghi như đã kiểm chứng), MySQL tag + digest, từng command/kết quả, 5 mục Review Focus, checkout sạch và các giới hạn. Không đưa secrets hoặc log đầy đủ chứa env vào báo cáo. Ghi rõ chưa kiểm chứng trust của Cốc Cốc, kết nối DB từ app/migration (T05), UI lịch (T06), CI (T07), auth/email/offline/sync và AC-01–AC-38.
 
 README root chỉ dẫn đến `docs/development.md`, task plan và hồ sơ thiết kế. Trong `docs/README.md` thêm link runbook/báo cáo. Chỉ đổi checkbox T04 và trạng thái tổng thể ở `docs/tasks/README.md` sau khi toàn bộ điều kiện hoàn thành dưới đây có bằng chứng; giữ T05–T36 chưa hoàn thành.
 
-- [ ] **Step 5: Commit tài liệu và bàn giao nhánh để review.**
+- [x] **Step 5: Commit tài liệu và bàn giao nhánh để review.**
 
-Run: `git add README.md docs/development.md docs/README.md docs/tasks/README.md docs/tasks/t04/review-and-verification.md`.
+Run: `git add README.md docs/development.md docs/README.md docs/tasks/README.md docs/tasks/t04/review-and-verification.md docs/tasks/t04/plan.md`.
 
 Run: `git commit -m "docs: verify and document T04 local development setup"`.
 
-Tạo/tích hợp PR theo Git Flow khi được yêu cầu trong lượt triển khai; không merge hoặc push trực tiếp `develop`/`main`. Không coi việc có plan hiện tại là đã thực hiện các commit nêu trên.
+Push branch `feature/development-environment` and create a PR into `develop`; merge through the PR only after review and available checks are clean. Never push directly to `develop`/`main`.
 
 ## 4. Điều kiện hoàn thành và bàn giao
 
-- [ ] Frontend Next.js chạy bằng Node server, backend import/chạy ASGI được; build/start của bootstrap đã được probe.
-- [ ] Runtime/dependency/image được khóa; hai lần cài locked không đổi lockfiles; bài thử manifest/runtime lệch bị chặn.
-- [ ] Templates không có secrets; khởi tạo đúng DB password ở hai nơi, không lộ root password cho backend/frontend, chạy lại không ghi đè, partial config có lỗi rõ ràng.
-- [ ] MySQL healthy bằng app user, loopback port đúng, bản ghi dev còn qua down/up và không có quyền quản trị toàn server.
-- [ ] HTTPS localhost được Cốc Cốc tin cậy; API proxy giữ prefix/cùng origin; mất backend, sai TLS và trùng cổng không bị báo thành công.
-- [ ] Checkout sạch dựng lại được từ hướng dẫn, kết quả và các phần chưa chạy được ghi trung thực.
-- [ ] T05 nhận ASGI app + DB/config và tự làm settings/connection/schema/health; T06 nhận Next server để dựng routes/UI; T07 nhận lockfiles và các probe hẹp để tổ chức kiểm tra tự động.
+- [x] Frontend Next.js chạy bằng Node server, backend import/chạy ASGI được; build/start của bootstrap đã được probe.
+- [x] Runtime/dependency/image được khóa; hai lần cài locked không đổi lockfiles; bài thử manifest/runtime lệch bị chặn.
+- [x] Templates không có secrets; khởi tạo đúng DB password ở hai nơi, không lộ root password cho backend/frontend, chạy lại không ghi đè, partial config có lỗi rõ ràng.
+- [x] MySQL healthy bằng app user, loopback port đúng, bản ghi dev còn qua down/up và không có quyền quản trị toàn server.
+- [x] HTTPS localhost và API proxy giữ prefix/cùng origin được smoke bằng CA tường minh; mất backend, sai TLS/origin và trùng cổng không bị báo thành công. Kiểm tra trust trực tiếp trong Cốc Cốc được người dùng miễn và ghi rõ là chưa xác minh.
+- [x] Checkout sạch dựng lại được từ hướng dẫn, kết quả và các phần chưa chạy được ghi trung thực.
+- [x] T05 nhận ASGI app + DB/config và tự làm settings/connection/schema/health; T06 nhận Next server để dựng routes/UI; T07 nhận lockfiles và các probe hẹp để tổ chức kiểm tra tự động.
 
 ## 5. Tự rà soát kế hoạch
 
