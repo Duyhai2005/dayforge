@@ -64,7 +64,7 @@ Không dựng sẵn Redis, worker, monorepo framework hoặc package dùng chung
 | CPython | `3.14.10` | `backend/.python-version`, `requires-python = ==3.14.10`; [release](https://www.python.org/downloads/release/python-31410/) |
 | uv | `0.13.6` | `[tool.uv] required-version = ==0.13.6` và hướng dẫn cài; [release](https://github.com/astral-sh/uv/releases/tag/0.13.6) |
 | FastAPI / Uvicorn | `0.162.0` / `0.54.0` | `backend/pyproject.toml`, không extras; [FastAPI manifest](https://raw.githubusercontent.com/fastapi/fastapi/0.162.0/pyproject.toml), [Uvicorn manifest](https://raw.githubusercontent.com/Kludex/uvicorn/0.54.0/pyproject.toml) |
-| MySQL | `mysql:8.4.13` + manifest digest | `compose.yaml`; [official image manifest](https://raw.githubusercontent.com/docker-library/official-images/master/library/mysql) |
+| MySQL | `mysql:8.4.13@sha256:a0225d1ea6631c8bc2385dc4c2faba17bbf1834ecf369e1659a9a382bd8d5dd7` (official multi-platform index, verified with `docker buildx imagetools inspect`) | `compose.yaml`; [official image manifest](https://raw.githubusercontent.com/docker-library/official-images/master/library/mysql) |
 | Docker Compose | `>=2.20.0`, plugin `docker compose` | Floor cho `up --wait --wait-timeout`; [source 2.20.0](https://raw.githubusercontent.com/docker/compose/v2.20.0/cmd/compose/up.go). Ghi phiên bản Docker Engine/Desktop/Compose thực chạy vào báo cáo |
 | mkcert | `1.4.4` | Hướng dẫn local; [release](https://github.com/FiloSottile/mkcert/releases/tag/v1.4.4) |
 
@@ -252,21 +252,21 @@ Run: `git commit -m "chore: add safe local environment initialization"`.
 - Produces: Compose service `mysql`; named volume key `mysql-data`; project name `dayforge-dev`; DB `dayforge_dev`, app user `dayforge_app`, host endpoint `127.0.0.1:3307`.
 - Các task sau dùng các trường `DB_*` trong `backend/.env`; T04 chưa tạo SQLAlchemy engine hoặc migration.
 
-- [ ] **Step 1: Ghi probe và xác nhận chưa có service.**
+- [x] **Step 1: Ghi probe và xác nhận chưa có service.**
 
 Run: `docker compose --env-file .env config --quiet`.
 
 Expected: FAIL vì chưa có Compose file. Probe chấp nhận cuối task là SQL trả `VERSION()` thuộc `8.4.13`, `DATABASE() = dayforge_dev`, `CURRENT_USER()` là app user và một bản ghi còn sau `down`/`up`.
 
-- [ ] **Step 2: Khóa image digest và viết service `mysql`.**
+- [x] **Step 2: Khóa image digest và viết service `mysql`.**
 
 Lấy manifest digest thực như mục 1.1. Dùng `${VARIABLE:?missing VARIABLE}` cho bốn biến MySQL; `ports` chỉ `127.0.0.1:3307:3306`; mount `mysql-data:/var/lib/mysql`. Cấu hình `utf8mb4`, `utf8mb4_0900_ai_ci`, server timezone `+00:00`; ngày nghiệp vụ UTC+07:00 vẫn do hợp đồng dữ liệu xử lý. Không mount source code vào data directory, không thêm `container_name` hoặc secret trong YAML.
 
-- [ ] **Step 3: Thêm healthcheck và commands chờ DB sẵn sàng.**
+- [x] **Step 3: Thêm healthcheck và commands chờ DB sẵn sàng.**
 
 Healthcheck chạy `SELECT 1` bằng app user/DB trong container, dùng biến env qua `CMD-SHELL` và escape `$` của Compose bằng `$$`; password chỉ qua `MYSQL_PWD`, không nằm trong đối số `-p`. Chọn `interval=5s`, `timeout=5s`, `retries=20`, `start_period=20s`. Thêm `db:up`/`db:down` theo mục 1.2; không có lệnh reset/down `-v` trong luồng chuẩn.
 
-- [ ] **Step 4: Xác nhận cấu hình và kết nối bằng app user.**
+- [x] **Step 4: Xác nhận cấu hình và kết nối bằng app user.**
 
 Run `docker compose --env-file .env config --quiet`, rồi `pnpm db:up`.
 
@@ -279,11 +279,11 @@ docker compose port mysql 3306
 
 Expected: exit 0, SQL đúng giá trị Interfaces, port đúng `127.0.0.1:3307`. Không dùng `docker compose config` không có `--quiet` trong báo cáo vì output có thể chứa secrets đã nội suy.
 
-- [ ] **Step 5: Kiểm chứng giữ dữ liệu qua restart và giới hạn quyền user.**
+- [x] **Step 5: Kiểm chứng giữ dữ liệu qua restart và giới hạn quyền user.**
 
 Trong DB dev riêng, dùng cùng cách truyền credentials ở Step 4 để tạo bảng `_t04_volume_probe(id INT PRIMARY KEY)` và insert `id=4`. Chạy `pnpm db:down`, `pnpm db:up`, rồi `SELECT id FROM _t04_volume_probe` phải trả `4`. `SHOW GRANTS` của app user chỉ có quyền trên `dayforge_dev.*`, không có quyền quản trị toàn server. Xóa riêng bảng probe sau khi đã đọc lại; không xóa volume. Đây là probe môi trường, không phải schema ứng dụng T05.
 
-- [ ] **Step 6: Commit deliverable đã kiểm chứng.**
+- [x] **Step 6: Commit deliverable đã kiểm chứng.**
 
 Run: `git add compose.yaml package.json`.
 
