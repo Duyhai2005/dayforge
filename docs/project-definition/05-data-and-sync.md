@@ -1,6 +1,6 @@
 # DAYFORGE — dữ liệu và đồng bộ
 
-Cập nhật **28/10/2026 — T01 đã duyệt và hoàn thành**. Người dùng đã duyệt chính sách tài khoản, LWW, việc lặp và các mặc định trong [bản tổng hợp T01](../tasks/t01/design.md). Mô hình trường/API và thuật toán chi tiết tiếp tục được **T03** khóa lại.
+Cập nhật **28/10/2026 — T01–T03 hoàn thành thiết kế/hợp đồng**. Người dùng đã duyệt chính sách trong [T01](../tasks/t01/design.md)/[T02](../tasks/t02/design.md). [Hợp đồng T03 1.0](../tasks/t03/design.md) đã khóa trường, API, auth và thuật toán; đó là nguồn chuẩn khi triển khai. Tài liệu này giữ nền yêu cầu và các đề xuất trước khi chi tiết hóa; tên thực thể logic không thay cho wire/schema T03.
 
 ## 1. Các nguyên tắc
 
@@ -70,7 +70,7 @@ Tách series, giữ task một lần và chuyển/xóa ngoại lệ liên quan l
 | Khái niệm | Vai trò |
 | --- | --- |
 | `OutboxOperation` | Thay đổi chờ gửi, ID, chủ tài khoản, đối tượng/nhóm, base revision, mốc chỉnh sửa và phụ thuộc. |
-| `AppliedOperation` | Kết quả đã xử lý, kể cả operation thua LWW, để retry trả cùng kết quả. |
+| `RecordedOperation` / `OperationReceipt` | Intent bất biến và xác nhận đã ghi; giữ cả operation thua/no-op để retry cùng kết quả receipt. Hiệu lực hiện hành được tính lại qua replay. |
 | `ChangeLog` | Thay đổi đã commit theo cursor server trong phạm vi chủ tài khoản, gồm dấu xóa. |
 | `ServerShadow` | Bản server cuối cùng đã biết, tách khỏi bản hiển thị còn thay đổi local. |
 | Metadata LWW | Thời điểm sửa đã ghi và các thông tin để phân xử bằng quy tắc xác định. |
@@ -87,13 +87,13 @@ Revision/cursor không được dùng thay cho mốc chỉnh sửa chỉ vì m�
 6. Pull sau cursor; áp dụng thay đổi và cursor nguyên tử. Nếu local còn bẩn, đối chiếu bằng cùng quy tắc LWW/shadow, không ghi đè mù bản mới hơn.
 7. Retry giữ nguyên ID, nội dung và mốc sửa của operation đã gửi. Sửa tiếp là một operation mới, không đổi timestamp chỉ để bản cũ thắng.
 
-Snapshot/cursor phải nhất quán. Một trang pull chỉ tiến cursor qua dữ liệu đã commit có thể đọc đầy đủ. ID tự tăng không tự bảo đảm thứ tự commit; đề xuất cấp change cursor dưới khóa sequence theo chủ tài khoản trong cùng giao dịch. Cách thực hiện cụ thể giao T03.
+Snapshot/cursor phải nhất quán. [T03](../tasks/t03/sync-contract.md) khóa owner sequence tới commit và dùng prefix event bất biến cho bootstrap/pull phân trang. ACK chỉ xác nhận event; không tự đẩy pull cursor hoặc ghi đè shadow. Nhóm chuỗi dùng typed intent replay, không thay snapshot cả family từ client.
 
 ## 7. Xung đột tự động — đã chốt LWW
 
 Người dùng yêu cầu **tự chọn bản chỉnh sửa mới nhất**, không yêu cầu giải quyết bằng tay. Ví dụ một việc được sửa offline lúc A và lúc B, bản sửa có mốc mới hơn thắng khi đồng bộ; thứ tự thiết bị kết nối lại không tự quyết định kết quả.
 
-Các yêu cầu kỹ thuật phải chốt và kiểm chứng trong T03:
+Các yêu cầu dưới đây đã được chốt trong [T03](../tasks/t03/sync-contract.md); hành vi chạy thật phải kiểm chứng ở các task triển khai:
 
 - Định nghĩa chính xác mốc sửa, nguồn thời gian, cách xử lý đồng hồ thiết bị lệch và quy tắc khi hai mốc bằng nhau; kết quả phải xác định và hội tụ trên mọi thiết bị.
 - Chốt độ hạt LWW. Mặc định người viết đề xuất là một đối tượng nghiệp vụ, với sửa/dừng chuỗi là một nhóm nguyên tử; không tự trộn trường làm một việc có ngày/buổi không thuộc bản sửa nào.
@@ -131,7 +131,7 @@ Không đồng bộ mật khẩu/token email/token phiên trong payload lịch h
 | Pull | Đọc thay đổi theo cursor, phân trang và dấu xóa, giới hạn theo chủ. |
 | Health/version | Khả năng kết nối và tương thích client/API. |
 
-Không bổ sung hệ thống ghép mã thiết bị hoặc đăng nhập Google. T03 khóa schema, đường dẫn, mốc thời gian và lỗi cụ thể; mọi mutation đi qua cùng lớp nghiệp vụ.
+Không bổ sung hệ thống ghép mã thiết bị hoặc đăng nhập Google. [HTTP contract T03](../tasks/t03/api-contract.md) đã khóa schema, đường dẫn, mốc thời gian và lỗi cụ thể; mọi mutation lịch đi qua cùng lớp nghiệp vụ/log.
 
 ## 11. Bất biến
 

@@ -10,17 +10,17 @@
 
 **Spec:** [Thiết kế T01 đã duyệt](t01/design.md), [tổng quan hồ sơ](../project-definition/README.md), [yêu cầu chức năng](../project-definition/02-functional-requirements.md), [UX](../project-definition/03-ux-and-interactions.md), [kiến trúc](../project-definition/04-technical-architecture.md), [dữ liệu và đồng bộ](../project-definition/05-data-and-sync.md), [nghiệm thu](../project-definition/06-delivery-and-acceptance.md).
 
-Ngày cập nhật: **28/10/2026** · Trạng thái: **T01 và T02 hoàn thành; T03–T36 chưa hoàn thành. Chưa triển khai sản phẩm.**
+Ngày cập nhật: **28/10/2026** · Trạng thái: **T01–T03 hoàn thành thiết kế/hợp đồng; T04–T36 chưa hoàn thành. Chưa triển khai sản phẩm.**
 
 ## 1. Cách dùng kế hoạch
 
-Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hiện có: [T01 — Thiết kế đã duyệt](t01/design.md), [T02 — Đang chốt UI và tương tác](t02/README.md). Các task tiếp theo dùng cùng quy ước khi có tài liệu.
+Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hiện có: [T01 — Thiết kế đã duyệt](t01/design.md), [T02 — UI và tương tác đã duyệt](t02/design.md), [T03 — Hợp đồng kỹ thuật 1.0](t03/design.md). Các task tiếp theo dùng cùng quy ước khi có tài liệu.
 
 - Có **36 task**, chia thành **8 nhóm**, đi từ dự án hiện chỉ có tài liệu đến bản production được kiểm chứng.
 - Mỗi task chỉ mô tả ngắn đầu việc; không liệt kê file code, chữ ký hàm hoặc lệnh thực hiện ở giai đoạn này, theo yêu cầu người dùng.
 - Mỗi task lập trình bao gồm kiểm chứng hành vi mình tạo ra và cập nhật tài liệu chịu ảnh hưởng. T28 là kiểm thử tích hợp/nghiệm thu, không thay cho việc kiểm tra từng task.
 - Đánh dấu xong khi có kết quả chạy/kiểm chứng được, không chỉ khi viết xong code.
-- Người dùng đã duyệt [Thiết kế T01](t01/design.md) và [Đặc tả T02 1.0](t02/design.md), xác nhận chốt T02 ngày 28/10/2026. T01/T02 hoàn thành, T03–T36 chưa hoàn thành; phê duyệt thiết kế không có nghĩa web đã được triển khai.
+- Người dùng đã duyệt [Thiết kế T01](t01/design.md) và [Đặc tả T02 1.0](t02/design.md). [T03](t03/design.md) khóa hợp đồng dữ liệu/API và thuật toán theo quyền chọn kỹ thuật đã giao trong T01/T02; có rà soát và kiểm chứng schema, không diễn giải thành một lần phê duyệt riêng của người dùng. T01–T03 hoàn thành; T04–T36 chưa hoàn thành; chưa có sản phẩm đã triển khai.
 
 ## 2. Ràng buộc chung
 
@@ -30,7 +30,7 @@ Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hi
 - Dấu mốc tạo riêng, không chuyển công việc thành dấu mốc; cùng bản ghi được hiển thị ở hai lịch. Việc lặp hằng ngày/theo thứ tiếp tục đến khi dừng; sửa quy tắc từ mốc tách các lần tương lai đã chỉnh riêng thành việc một lần cùng kế hoạch/màu, giữ lịch sử. Dừng từ mốc gỡ thành viên tương lai kể cả ngoại lệ đã dời, giữ lịch sử trước mốc và việc đã tách.
 - Không header/sidebar cố định; nền tối, bố cục thoáng, công cụ widget, animation mượt và có chế độ giảm chuyển động.
 - Xem và các thao tác ghi chính phải dùng được offline, tồn tại qua tải lại trang; tự đồng bộ khi app mở/mở lại, không yêu cầu chạy nền khi đóng hẳn. LWW theo lúc chỉnh tự hội tụ, không chọn conflict thủ công; chỉ báo lưu/đồng bộ đúng trạng thái thực.
-- **Đã duyệt cùng T01:** owner-email allowlist/signup, link xác minh, quên/đặt lại mật khẩu, ghi nhớ phiên, cách ly local theo owner, giữ pending khi hết phiên và cảnh báo đăng xuất. Hash/cookie/token TTL, clock skew, tiebreak và xóa–sửa LWW giao T03.
+- **Đã duyệt cùng T01:** owner-email allowlist/signup, link xác minh, quên/đặt lại mật khẩu, ghi nhớ phiên, cách ly local theo owner, giữ pending khi hết phiên và cảnh báo đăng xuất. Hash/cookie/token TTL, clock skew, tie-break và xóa–sửa được khóa trong [T03](t03/design.md).
 - Server phải chạy độc lập với PC cá nhân. AWS hoặc Oracle, tài nguyên sẵn có và hệ thống gửi email được chọn tại T29/T30; không tự mua hạ tầng. Email xác minh/reset phải tới inbox thực tế, không chỉ có log hoặc email giả lập.
 
 ## 3. Vùng trách nhiệm dự kiến
@@ -58,7 +58,7 @@ Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hi
 
 - [x] **T01 — Duyệt thiết kế tổng hợp.** Người dùng đã duyệt [thiết kế T01](t01/design.md) cùng các mặc định được nêu và yêu cầu đánh dấu hoàn thành ngày **28/10/2026**. Kiến trúc B, tài khoản, Cốc Cốc, LWW và quy tắc dấu mốc/lặp đã chốt; host/email provider để T29/T30.
 - [x] **T02 — Chốt giao diện để triển khai.** Người dùng đã duyệt [đặc tả tổng hợp 1.0](t02/design.md) bằng xác nhận “được rồi chốt T02” ngày 28/10/2026. Có [bản xem chung](t02/prototypes/t02-consolidated-preview-v3.html) và [rà soát/kiểm tra](t02/review-and-verification.md); chỉ hoàn thành thiết kế, chưa nghiệm thu sản phẩm.
-- [ ] **T03 — Chốt hợp đồng dữ liệu, tài khoản và API.** Xác định ngày/buổi/múi giờ, lặp/phạm vi sửa, revision/cursor, LWW theo lúc chỉnh, clock skew/tiebreak/xóa–sửa; chốt hash, cookie, token TTL, session, cách ly owner và tương thích phiên bản.
+- [x] **T03 — Chốt hợp đồng dữ liệu, tài khoản và API.** Hoàn thành [hợp đồng 1.0](t03/design.md) ngày **28/10/2026**: ngày/buổi/limits/ID, recurrence và Undo, typed command replay theo edit-time, clock repair, receipt/cursor/bootstrap/ACK, auth/session/local vault, HTTP và tương thích. Có JSON Schema, fixture và [rà soát/kiểm chứng](t03/review-and-verification.md). Đây là hoàn thành đặc tả kỹ thuật, chưa phải code hoặc nghiệm thu sản phẩm.
 
 **Kết quả nhóm:** thiết kế đủ rõ để triển khai, không còn lựa chọn nghiệp vụ hoặc kiến trúc quan trọng bị bỏ cho người lập trình tự đoán. T02 và T03 có thể làm song song sau T01.
 
@@ -147,7 +147,7 @@ Chỉ xong giao diện hoặc chạy `build` thành công chưa đạt một tro
 
 | Phần cần có | Task chịu trách nhiệm chính |
 | --- | --- |
-| Thiết kế tổng hợp đã duyệt; UI và các hợp đồng cần chi tiết | T01 đã hoàn thành; tiếp tục T02–T03 |
+| Thiết kế tổng hợp, UI và hợp đồng kỹ thuật đã khóa | T01–T03 hoàn thành; tiếp tục T04 |
 | FastAPI, Next.js, MySQL và môi trường chạy | T04–T07, T29–T30 |
 | Kế hoạch, màu, công việc độc lập và nhập nhanh | T14–T15 |
 | Lịch công việc sáng/chiều/tối | T16, T19–T20 |

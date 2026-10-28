@@ -1,6 +1,6 @@
 # DAYFORGE — quyết định và điểm còn mở
 
-Cập nhật **28/10/2026 — T01 và T02 đã hoàn thành**. Người dùng đã duyệt [thiết kế T01](../tasks/t01/design.md) và [đặc tả T02 1.0](../tasks/t02/design.md), gồm các mặc định được trình bày trong hai bản tổng hợp. Hợp đồng API/thuật toán và triển khai/deploy tiếp tục ở T03–T36.
+Cập nhật **28/10/2026 — T01–T03 hoàn thành thiết kế/hợp đồng**. Người dùng đã duyệt [T01](../tasks/t01/design.md) và [T02 1.0](../tasks/t02/design.md). [T03](../tasks/t03/design.md) khóa lựa chọn kỹ thuật theo quyền đã giao; không diễn giải thành một lần người dùng duyệt riêng. T04–T36 triển khai và deploy chưa hoàn thành.
 
 ## 1. Các quyết định đã chốt
 
@@ -39,6 +39,8 @@ Cập nhật **28/10/2026 — T01 và T02 đã hoàn thành**. Người dùng đ
 | D-31 | Dấu mốc có thể chọn buổi trong ngày và có ô ghi chú liên quan. Đây là bổ sung phạm vi trong T02; trang ghi chú nhanh độc lập vẫn để sau. | Yêu cầu trực tiếp ngày 28/10/2026: “dấu mốc cũng có thể hiện ở các buổi trong ngày nếu muốn” và “một ô note ghi chú liên quan”. |
 | D-32 | Nhóm tài khoản/lưu/sync đã được đồng ý; chi tiết UI còn lại giao người thiết kế tự chốt và gom một lượt trước khi chạy bản xem chung. Đây không phải phê duyệt tài liệu T02 chưa được gửi. | “Tôi thấy ổn rồi, tiếp tục những phần còn lại của T02 đi, chốt một lượt rồi mới chạy giao diện…”. |
 | D-33 | **Phê duyệt đặc tả T02 1.0 và chốt T02 hoàn thành ngày 28/10/2026.** Bao gồm hai lịch, biểu mẫu, màu, dấu mốc có buổi/ghi chú, lặp, tài khoản/phản hồi dữ liệu và các mặc định UI được gom trong bản duyệt cuối. T03–T36 chưa hoàn thành. | “được rồi chốt T02”. |
+| D-34 | Tuân thủ `docs/CONVENTION.md` và `docs/GITFLOW.md`; branch có mô tả tiếng Anh, commit message tiếng Anh không thêm scope số task. | Yêu cầu trực tiếp trong lượt thiết lập Git và thêm hai file quy ước. |
+| D-35 | T03 khóa dữ liệu, tài khoản, HTTP và sync 1.0 theo thuật toán được giao: immutable command replay, HLC, cursor commit-order, safe Undo, owner/session và local vault. Đây là lựa chọn kỹ thuật của người thực hiện, không mở scope sản phẩm. | Yêu cầu “tiếp tục Task 3… chốt hợp đồng dữ liệu và API”, cùng quyền chọn thuật toán đã ghi trong T02/sổ quyết định. |
 
 Các lựa chọn mới ngày 28/10/2026 được ghi thêm, không diễn giải là đã tồn tại từ đầu. Các mặc định nêu trong thiết kế T01 được chấp nhận cùng lần phê duyệt T01; thư viện, UI và thuật toán chưa chốt tiếp tục có nhãn đề xuất cho task liên quan.
 
@@ -66,10 +68,10 @@ Các mặc định về hành vi/tài khoản có trong thiết kế T01 đã đ
 | --- | --- | --- |
 | O-01 — Kiến trúc A/B | **Đã đóng:** chọn B, D-29. | Hồ sơ kiến trúc đã cập nhật. |
 | O-02 — Nhà cung cấp/cấu hình | **Hoãn có chủ ý:** AWS/Oracle khi deploy; server độc lập đã chốt. Không chặn duyệt T01. | T29/T30, theo ngân sách và đo bản build. |
-| O-03 — Quyền truy cập | **Đã duyệt:** tài khoản email có xác minh và mật khẩu; bỏ ghép mã. Các mặc định chủ sở hữu/xác minh/khôi phục/phiên trong thiết kế T01 đã được thông qua. | T03 khóa giao thức; T09 thực hiện. |
-| O-04 — Xung đột | **Đã đóng về chính sách:** tự giữ bản sửa mới nhất. | T03 khóa mốc thời gian, clock skew, tie-break, mức đối tượng/nhóm, xóa–sửa. |
+| O-03 — Quyền truy cập | **Đã đóng hợp đồng:** tài khoản email/xác minh/mật khẩu, phiên và local vault theo [T03](../tasks/t03/auth-contract.md). | T09/T13 thực hiện và kiểm chứng. |
+| O-04 — Xung đột | **Đã đóng hợp đồng:** tự giữ sửa mới nhất theo [T03](../tasks/t03/sync-contract.md), bao gồm clock repair/tie-break/nhóm/xóa–sửa. | T10–T12 thực hiện và kiểm chứng. |
 | O-05 — Task–milestone | **Đã đóng:** chỉ tạo milestone riêng. | T03/T17 triển khai cùng một record ở hai lịch. |
-| O-06 — Ngoại lệ lặp | **Đã đóng về hành vi:** D-24/D-25. | T03 khóa ranh giới ngày gốc/đích và giao dịch nguyên tử. |
+| O-06 — Ngoại lệ lặp | **Đã đóng hợp đồng:** D-24/D-25 và [T03](../tasks/t03/data-contract.md), ngày gốc/detach/suppression/stop/Undo nguyên tử. | T21–T23 thực hiện và kiểm chứng. |
 | O-07 — Browser và sync khi đóng | **Đã đóng về mục tiêu:** Cốc Cốc; sync khi mở/mở lại. | Ghi phiên bản/hệ điều hành thực khi nghiệm thu. |
 | O-08 — Palette/mục độc lập | **Đã chốt trong T02:** trung tính mặc định và chọn màu riêng cho mục độc lập; đã đồng ý bảng chín màu có sẵn, dấu chọn và xem trước qua bản thử v2. | T02 ghi bộ token; kiểm chứng toàn bộ trạng thái khi triển khai. |
 | O-09 — Email delivery/domain | **Hoãn cùng deploy:** chọn SMTP/API, địa chỉ gửi, domain, hạn mức và thử inbox thật. | T29/T30/T32. |
@@ -92,3 +94,7 @@ Người dùng đã duyệt [bản thiết kế T01](../tasks/t01/design.md), ba
 ## 6. Xác nhận kết thúc T02
 
 Người dùng xác nhận **“được rồi chốt T02” ngày 28/10/2026**, duyệt [đặc tả T02 1.0](../tasks/t02/design.md) sau builder check và bản xem tổng hợp. Kế hoạch đã cập nhật T02 thành hoàn thành. T03 — hợp đồng dữ liệu/API và thuật toán — là bước tiếp theo, chưa bắt đầu trong lượt chốt; các task triển khai và deploy cũng chưa hoàn thành.
+
+## 7. Kết thúc đặc tả T03
+
+Ngày 28/10/2026, T03 khóa [hợp đồng 1.0](../tasks/t03/design.md) theo phạm vi kỹ thuật đã được giao, có JSON Schema/ví dụ, validator tài liệu và [rà soát độc lập](../tasks/t03/review-and-verification.md). T03 hoàn thành phần hợp đồng; T04–T36 chưa hoàn thành. Không tuyên bố người dùng đã duyệt riêng tài liệu T03 hoặc sản phẩm đã chạy/đạt AC. Các nguồn phê duyệt T01/T02 ở trên giữ đúng thời điểm lịch sử.

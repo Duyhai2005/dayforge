@@ -1,6 +1,6 @@
 # DAYFORGE — hồ sơ định nghĩa dự án
 
-Ngày cập nhật: **28/10/2026** · Phiên bản: **0.5 — T01 và T02 đã duyệt** · Ngôn ngữ: **Tiếng Việt**
+Ngày cập nhật: **28/10/2026** · Phiên bản: **0.6 — T01/T02 đã duyệt, T03 đã khóa hợp đồng** · Ngôn ngữ: **Tiếng Việt**
 
 DAYFORGE là ứng dụng lập kế hoạch cá nhân, tập trung vào việc nhìn toàn cảnh công việc theo tuần và các dấu mốc sắp tới. Bộ hồ sơ này lưu lại kết quả trao đổi và hướng prototype đã xem, để có thể tiếp tục thiết kế và lập kế hoạch triển khai mà không phải hỏi lại từ đầu.
 
@@ -11,8 +11,9 @@ DAYFORGE là ứng dụng lập kế hoạch cá nhân, tập trung vào việc 
 - FastAPI/Python, React/Next.js và MySQL là công nghệ người dùng đã chọn.
 - **T01 đã hoàn thành ngày 28/10/2026.** Người dùng đã duyệt [bản tổng hợp T01](../tasks/t01/design.md), gồm kiến trúc B — Next.js server, tài khoản email/xác minh/mật khẩu, LWW, quy tắc chuỗi, Cốc Cốc và các mặc định nêu trong bản tổng hợp.
 - **T02 hoàn thành ngày 28/10/2026:** người dùng duyệt đặc tả giao diện/tương tác 1.0 bằng xác nhận “được rồi chốt T02”. Các mặc định UI được trình bày trong bản tổng hợp cũng được duyệt cùng lần này.
-- Nhà cung cấp AWS/Oracle chọn khi deploy; thư viện phụ và hợp đồng dữ liệu/API tiếp tục ở T03/T04. Các chi tiết kỹ thuật chưa chốt vẫn có nhãn **đề xuất**.
-- Hồ sơ có thiết kế T01/T02 đã duyệt; T03–T36 chưa hoàn thành. Đây không phải bằng chứng ứng dụng đã được xây dựng.
+- [T03 — hợp đồng 1.0](../tasks/t03/design.md) đã khóa dữ liệu, tài khoản, API, đồng bộ và thuật toán theo phạm vi được giao, kèm schema/ví dụ và rà soát độc lập. Không coi lựa chọn kỹ thuật này là một lần phê duyệt riêng chưa có của người dùng.
+- Nhà cung cấp AWS/Oracle chọn khi deploy; thư viện phụ/phiên bản khóa tại T04. Các chi tiết ngoài phạm vi T03 còn có nhãn **đề xuất**.
+- T01–T03 hoàn thành thiết kế/hợp đồng; T04–T36 chưa hoàn thành. Đây không phải bằng chứng ứng dụng đã được xây dựng.
 
 ## Cách phân biệt quyết định
 
@@ -42,6 +43,7 @@ Các nhãn áp dụng ở mức từng mục. Không hiểu việc chấp nhận
 - [Danh sách 36 task giai đoạn 1](../tasks/README.md).
 - [Hồ sơ T01 đã duyệt](../tasks/t01/design.md).
 - [Đặc tả T02 1.0 đã duyệt](../tasks/t02/design.md), [bản xem tổng hợp](../tasks/t02/prototypes/t02-consolidated-preview-v3.html) và [kết quả rà soát/kiểm tra](../tasks/t02/review-and-verification.md).
+- [Hợp đồng dữ liệu/API T03](../tasks/t03/design.md) là nguồn chuẩn cho schema và thuật toán; hồ sơ dự án giữ nền yêu cầu và quyết định trước đó.
 
 Tài liệu tổng hợp và hồ sơ riêng từng task được quản lý trong `docs/tasks/`; thư mục hiện tại lưu hồ sơ thiết kế dự án.
 
@@ -58,6 +60,6 @@ Nguồn kỹ thuật chính thức được dẫn ngay trong tài liệu kiến 
 3. Giữ rõ phần nào là yêu cầu, phần nào là đề xuất của người thực hiện.
 4. Sau khi thiết kế được duyệt, viết kế hoạch triển khai chi tiết riêng; không mặc nhiên coi các mốc bàn giao hiện tại là kế hoạch đã được duyệt.
 
-T01/T02 đã duyệt; bước tiếp theo là T03 — hợp đồng dữ liệu/API và thuật toán. Các mục T03/deploy được theo dõi trong [sổ quyết định](07-decisions-and-open-questions.md#3-các-quyết-định-còn-mở-và-nơi-xử-lý).
+T01/T02 đã duyệt, T03 đã khóa kỹ thuật; bước tiếp theo là T04 — tổ chức dự án/môi trường. Các mục deploy còn mở được theo dõi trong [sổ quyết định](07-decisions-and-open-questions.md#3-các-quyết-định-còn-mở-và-nơi-xử-lý).
 
 Để tổ chức triển khai, dùng [kế hoạch 36 task giai đoạn 1](../tasks/README.md); T01 bao gồm chốt những quyết định còn mở và duyệt thiết kế trước khi xây sản phẩm.

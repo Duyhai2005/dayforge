@@ -1,6 +1,6 @@
 # DAYFORGE — yêu cầu chức năng
 
-Trạng thái ngày **28/10/2026**: **T01 và [đặc tả T02 1.0](../tasks/t02/design.md) đã được duyệt, cả hai task hoàn thành; T03 chưa thực hiện, chưa xây code sản phẩm.** Có 48 yêu cầu chức năng; các lựa chọn trực tiếp và mặc định người thiết kế tự chốt theo ủy quyền được phân biệt trong T02 và đã được duyệt cùng bản tổng hợp. T03 khóa hợp đồng kỹ thuật. Những nhãn đề xuất UI cũ bên dưới được đọc cùng đặc tả hiện hành.
+Trạng thái ngày **28/10/2026**: **T01/T02 đã được duyệt; [T03](../tasks/t03/design.md) đã khóa hợp đồng kỹ thuật; T01–T03 hoàn thành, chưa xây code sản phẩm.** Có 48 yêu cầu chức năng; các lựa chọn trực tiếp và mặc định UI được phân biệt trong T02. T03 cụ thể hóa schema/API và thuật toán theo phạm vi được giao, không mở thêm yêu cầu chức năng. Những nhãn đề xuất cũ bên dưới được đọc cùng hai đặc tả hiện hành.
 
 ## 1. Thuật ngữ
 
@@ -125,7 +125,7 @@ Bổ sung T02: chọn một buổi tùy ý hoặc để không chọn; nhãn “
 | FR-S02 | Tạo/sửa/xóa/đổi lịch/đánh dấu kết quả offline, lưu qua việc tải lại trang. | Đã chốt mục tiêu |
 | FR-S03 | Tự đồng bộ khi ứng dụng đang mở hoặc được mở lại và kết nối máy chủ khả dụng; không yêu cầu đồng bộ khi ứng dụng đã đóng hẳn. | Đã chốt |
 | FR-S04 | Hiển thị trạng thái lưu trên máy, chờ đồng bộ, đã đồng bộ hoặc cần xử lý. | Đề xuất |
-| FR-S05 | Khi xung đột, tự chọn bản chỉnh sửa mới nhất theo thời điểm sửa đã ghi, không có UI bắt người dùng chọn giữa hai bản. Đồng hồ, trường hợp bằng thời điểm, phạm vi áp dụng và xóa–sửa do T03 cụ thể hóa. | Đã chốt chính sách; chưa khóa thuật toán T03 |
+| FR-S05 | Khi xung đột, tự chọn bản chỉnh sửa mới nhất theo thời điểm sửa đã ghi, không có UI bắt người dùng chọn giữa hai bản. Đồng hồ, trường hợp bằng thời điểm, phạm vi áp dụng và xóa–sửa do T03 cụ thể hóa. | Đã chốt chính sách và [thuật toán T03](../tasks/t03/sync-contract.md) |
 | FR-S06 | Có tài khoản ứng dụng trong giai đoạn 1: email đăng nhập đã xác minh và mật khẩu riêng; không đăng nhập Google. | Đã chốt |
 | FR-S07 | Truy cập và đồng bộ dữ liệu cá nhân qua tài khoản; không dùng ghép mã thiết bị hoặc phương án không tài khoản. | Đã chốt hướng; kỹ thuật phiên/quyền truy cập T03 |
 | FR-S08 | Cốc Cốc desktop là trình duyệt nghiệm thu chính; kiểm chứng cache/mở lại offline trên kiến trúc Next.js server/Node production. | Đã chốt |
@@ -145,4 +145,4 @@ Bổ sung T02: chọn một buổi tùy ý hoặc để không chọn; nhãn “
 | FR-A06 | Đăng nhập lần đầu, xác minh email và đặt lại mật khẩu cần online. | Đã duyệt cùng T01 |
 | FR-A07 | Dữ liệu cục bộ tách theo chủ sở hữu; phiên hết hạn không làm mất dữ liệu hoặc thay đổi đang chờ đồng bộ. Đăng xuất khóa truy cập local, cảnh báo nếu còn pending; giữ pending đúng owner, không gửi dưới tài khoản khác. | Đã duyệt cùng T01; chi tiết bảo vệ và phiên T03 |
 
-T02 sẽ thiết kế luồng tài khoản ở mức UI/UX theo phạm vi T01 đã duyệt; T03 sẽ cụ thể hóa bảo mật phiên, lưu trữ và đồng bộ. MFA và quản trị nhiều người dùng không thuộc phạm vi giai đoạn 1.
+T02 đã chốt luồng tài khoản ở mức UI/UX; [T03](../tasks/t03/auth-contract.md) đã cụ thể hóa bảo mật phiên, lưu trữ và đồng bộ. MFA và quản trị nhiều người dùng không thuộc phạm vi giai đoạn 1.

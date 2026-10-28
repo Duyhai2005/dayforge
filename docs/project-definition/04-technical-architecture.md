@@ -1,6 +1,6 @@
 # DAYFORGE — kiến trúc kỹ thuật
 
-Cập nhật: **28/10/2026 — T01 đã duyệt và hoàn thành**. Người dùng đã duyệt [Thiết kế T01](../tasks/t01/design.md), chọn **phương án B** cùng các mặc định nêu trong bản tổng hợp. Các thư viện phụ và chi tiết giao thức tiếp tục được T03/T04 cụ thể hóa.
+Cập nhật: **28/10/2026 — T01–T03 hoàn thành thiết kế/hợp đồng**. Người dùng đã duyệt [Thiết kế T01](../tasks/t01/design.md), chọn **phương án B**. [T03](../tasks/t03/design.md) là nguồn chuẩn đã khóa giao thức dữ liệu/tài khoản/sync; thư viện phụ và lockfile tiếp tục ở T04. Các mô tả nền dưới đây được đọc cùng hợp đồng T03.
 
 ## 1. Các phương án đã xem xét
 
@@ -81,7 +81,7 @@ Không ép reload hoặc xóa IndexedDB khi nâng cache. Browser có quyền qu�
 - Mật khẩu lưu bằng hàm băm dành cho mật khẩu; token xác minh/reset dùng một lần, có hạn và lưu dạng an toàn. Có giới hạn thử đăng nhập/gửi email. Chi tiết thuật toán, thời hạn, chống lạm dụng và phiên giao T03.
 - Dữ liệu API và local được ràng buộc với chủ tài khoản. Hết phiên giữ pending edits của đúng chủ; đăng xuất khóa truy cập local và báo rõ nếu còn thay đổi chưa gửi. Không gửi outbox của tài khoản cũ bằng một phiên của tài khoản khác.
 
-Các nguyên tắc mật khẩu/khôi phục tham khảo [OWASP Authentication](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html) và [OWASP Forgot Password](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html). Phạm vi tài khoản và các mặc định T01 đã được duyệt; thuật toán và thông số kỹ thuật vẫn giao T03. Chưa triển khai tính năng.
+Các nguyên tắc mật khẩu/khôi phục tham khảo [OWASP Authentication](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html) và [OWASP Forgot Password](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html). [Hợp đồng tài khoản T03](../tasks/t03/auth-contract.md) đã khóa Argon2id, cookie/session, token TTL, CSRF, khóa local và các giới hạn. Chưa triển khai tính năng.
 
 Dịch vụ gửi email chọn ở T29/T30 cùng hạ tầng: có thể qua SMTP hoặc API nhà cung cấp. Phải cấu hình địa chỉ gửi, HTTPS callback và thử gửi/nhận email thật trước production; không mặc định một tài khoản cloud mới đã gửi được email xác minh. Không cần thêm luồng đăng nhập Google hay ghép mã thiết bị.
 
@@ -89,7 +89,7 @@ Dịch vụ gửi email chọn ở T29/T30 cùng hạ tầng: có thể qua SMTP
 
 **Người dùng đã chọn tự giữ bản chỉnh sửa mới nhất.** Mốc so sánh dựa trên thời điểm chỉnh sửa đã ghi nhận; operation đến muộn không tự được coi là mới hơn. Không có luồng bắt người dùng chọn giữa hai bản để tiếp tục đồng bộ.
 
-LWW không thay thế kiểm tra dữ liệu, quyền, revision, cursor hoặc chống retry. Chi tiết đồng hồ lệch, timestamp bằng nhau, xóa–sửa và thao tác nhóm nguyên tử phải được định nghĩa ở T03; xem [thiết kế dữ liệu](05-data-and-sync.md).
+LWW không thay thế kiểm tra dữ liệu, quyền, revision, cursor hoặc chống retry. [Hợp đồng đồng bộ T03](../tasks/t03/sync-contract.md) khóa HLC/clock repair, tie-break, xóa–sửa, immutable intent replay và nhóm nguyên tử; [thiết kế dữ liệu](05-data-and-sync.md) giữ bối cảnh nghiệp vụ.
 
 ## 8. Deploy và các quyết định để sau
 
