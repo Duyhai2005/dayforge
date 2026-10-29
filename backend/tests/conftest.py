@@ -1,7 +1,28 @@
 import os
 import re
+from datetime import datetime, timezone
+from uuid import uuid4
 
 import pytest
+
+
+@pytest.fixture
+def user_factory():
+    from app.models.owner import User
+
+    def factory(**overrides):
+        identifier = uuid4()
+        instant = datetime(2026, 10, 29, 1, 2, 3, 456000, tzinfo=timezone.utc)
+        values = dict(id=identifier, owner_slot=1,
+                      email_canonical=f"owner-{identifier.hex}@example.test".encode("utf-8"),
+                      email_delivery=f"owner-{identifier.hex}@example.test",
+                      password_hash="$argon2id$v=19$storage-test-placeholder",
+                      email_verified_at=instant, auth_version=1,
+                      created_at=instant, updated_at=instant)
+        values.update(overrides)
+        return User(**values)
+
+    return factory
 
 
 @pytest.fixture
