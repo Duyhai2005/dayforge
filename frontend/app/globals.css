@@ -1,0 +1,79 @@
+:root {
+  color-scheme: dark;
+  --background: #141c22;
+  --background-outer: #10171c;
+  --panel: #202c30;
+  --input-background: #142226;
+  --text-primary: #e6ece7;
+  --text-secondary: #b8c8bc;
+  --text-muted: #9aaea3;
+  --control-background: #c4d7c5;
+  --control-text: #203328;
+  --font-system: "Segoe UI", Arial, sans-serif;
+  --font-title: 32px;
+  --font-day: 26px;
+  --font-body: 14px;
+  --font-meta: 12px;
+  --font-kicker: 11px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-card: 12px;
+  --radius-control: 10px;
+  --radius-panel: 24px;
+  --content-max-width: 1540px;
+  --calendar-min-width: 960px;
+  --widget-bottom-space: 160px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: var(--background-outer);
+  color: var(--text-primary);
+  font-family: var(--font-system);
+  font-size: var(--font-body);
+  line-height: 1.5;
+}
+
+body {
+  min-height: 100vh;
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+  background: var(--background);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--control-background);
+  outline-offset: 3px;
+}
+
+.calendar-main {
+  min-height: 100vh;
+  padding: var(--space-8) var(--space-8) var(--widget-bottom-space);
+  overflow-x: auto;
+}
+
+.calendar-content {
+  min-width: var(--calendar-min-width);
+}
+
+h1 {
+  margin: 0 0 var(--space-8);
+  font-size: var(--font-title);
+  font-weight: 600;
+  line-height: 1.25;
+}

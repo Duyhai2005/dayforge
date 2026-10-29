@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import "./globals.css";
 
 export const metadata: Metadata = {
   title: "DAYFORGE",
-  description: "Môi trường phát triển DAYFORGE",
+  description: "Lịch công việc và dấu mốc DAYFORGE",
 };
 
 export default function RootLayout({
