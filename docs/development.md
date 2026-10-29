@@ -1,8 +1,8 @@
 # Local development on Windows
 
-This guide starts the T04 development scaffold from the repository root in Windows PowerShell 5.1 or PowerShell 7. It runs Next.js and FastAPI on the host and MySQL in Docker Desktop. First-time setup needs internet access to download packages and the MySQL image. The scaffold is not an offline app.
+This guide starts the local foundation from the repository root in Windows PowerShell 5.1 or PowerShell 7. It runs Next.js and FastAPI on the host and MySQL in Docker Desktop. First-time setup needs internet access to download packages and the MySQL image. The scaffold is not an offline app.
 
-T04 provides a minimal Next.js page and FastAPI OpenAPI document. The backend does not connect to MySQL yet; application settings, database connection, schema and migrations belong to T05. Calendar and account features are later tasks.
+T05 adds validated settings, async MySQL sessions, Alembic migrations, strict request validation, private error/log handling, and public health/version endpoints. Calendar, account/email flows, owner initialization, event storage/sync, offline support, CI and production deployment remain later tasks. See the [verification report](tasks/t05/review-and-verification.md) for actual results and outstanding acceptance checks.
 
 ## 1. Install the pinned tools
 
@@ -84,18 +84,20 @@ Test-Path $dayforgeCaFile
 
 The final command should print `True`. The smoke command uses this CA file explicitly, so it can validate TLS without installing the CA into the Windows trust store. Keep the mkcert CA private key (`rootCA-key.pem`) outside the repository and never share it. The leaf certificate and key stay under ignored `.local/tls/`.
 
-If you later choose to test direct browser trust, run `mkcert -install` deliberately, restart the browser, then visit `https://localhost:3000`. That trust-store step was waived for T04 verification; the T04 report does not claim that Cốc Cốc trusts the certificate.
+Direct Cốc Cốc/browser trust verification was waived for T04 and remains unverified. The smoke workflow does not install trust, open the browser or bypass TLS.
 
 ## 4. Start MySQL, API and web servers
 
-Start Docker's local MySQL service from the repository root and wait for its health check:
+For a new, known development database, start Docker's local MySQL service from the repository root and wait for its health check. If a retained volume's state or credentials are unknown, first recover its matching configuration; do not attach/start it or run migrations merely to obtain a smoke result. The T05 verification leaves the existing `dayforge-dev` volume untouched and uses disposable test projects instead.
 
 ```powershell
 pnpm db:up
 docker compose --env-file .env ps
+pnpm db:migrate
+pnpm db:current
 ```
 
-MySQL is published only at `127.0.0.1:3307`, uses the `dayforge_app` database user for the health probe, and persists development data in the Compose named volume. The root password is read by Compose and is not passed to the backend or frontend. T04's FastAPI app does not use the database yet.
+MySQL is published only at `127.0.0.1:3307`, uses the `dayforge_app` database user for the health probe, and persists development data in the Compose named volume. The root password is read by Compose and is not passed to the backend or frontend. `db:migrate` explicitly upgrades to the bundled Alembic head; `db:current` should show `0001_owner_workspace (head)` at this revision. Migration creates empty `users` and `workspace_settings` tables. API startup does not migrate, seed an owner or repair a schema. An empty, stale or unavailable schema makes health return 503.
 
 Open two PowerShell terminals in the repository root. Keep each running:
 
@@ -121,10 +123,30 @@ pnpm smoke:local --ca-file "$dayforgeCaFile"
 Expected output:
 
 ```text
-PASS: local HTTPS web and API bootstrap
+PASS: local HTTPS web, API and MySQL readiness
 ```
 
-The smoke check verifies the HTML page and `/api/v1/openapi.json` through the same HTTPS origin. It fails if the CA is missing or invalid, the web/API response is wrong, the API is down, or a redirect occurs. It does not test database connectivity, login, cookies, CSRF, offline behavior or calendar features.
+The smoke checks `/`, `/api/v1/openapi.json`, `/api/v1/health` and `/api/v1/version` through the same HTTPS localhost origin. Health must return HTTP 200 with exactly `{"status":"ok"}`. Version must expose `api_major: 1`, `protocol_versions: [1]`, `reducer_versions: [1]`, a valid UTC millisecond timestamp, and the T03 limits: push operations 100, push request bytes 8388608, operation bytes 2097152, commands per operation 1000, page operations 200, page bytes 8388608 and page token TTL 1800 seconds. All four probes must pass before the success line appears.
+
+Health 503, a wrong version contract, HTML from an API proxy, invalid JSON, a missing/invalid CA or any redirect causes exit 1 without PASS. Response bodies and credentials are omitted from diagnostics. Never pass credentials in the CLI. The smoke verifies readiness; it does not establish login, cookies, CSRF, offline or calendar acceptance. Do not downgrade or drop an existing schema to manufacture a failing smoke.
+
+## Backend checks and transaction boundaries
+
+From the repository root:
+
+```powershell
+uv sync --directory backend --locked
+pnpm verify:env
+pnpm test:api
+pnpm test:api -- tests/api/test_system.py -v
+pnpm test:api:mysql
+```
+
+`test:api` runs unit/API tests without MySQL; MySQL cases are deliberately deselected. `test:api:mysql` requires Docker and runs every MySQL-marked case on the pinned real image in a fresh UUID-scoped Compose project, with generated test-only credentials, a dedicated loopback port and anonymous storage. It cleans up only that exact test project and its anonymous volume, even after test failure. It never uses the development database. A MySQL suite with skipped cases is not a passing acceptance run. `verify:env` also runs the smoke-response regression tests.
+
+Request session dependencies close their sessions but never auto-commit. A service owns its write transaction with `async with session.begin():`; an error rolls it back. Each background or concurrent task needs its own session. API shutdown disposes the engine/pool; stop the API with Ctrl+C before routine database shutdown.
+
+T09 must create a verified `User` and its fixed `WorkspaceSettings` in one transaction. T10 adds the owner lock, event store and domain data through Alembic; it must preserve User IDs and keep domain writes on the sync path instead of introducing bypass CRUD routes. The backend development user has schema privileges for local migration. Separate production migration/runtime privileges belong to T29.
 
 ## 5. Build and probe the production Next.js server
 
@@ -168,9 +190,16 @@ This stops and removes the Compose container/network while retaining the named d
 | TLS check fails | Recreate the localhost leaf cert/key, verify the hostname is `localhost`, and pass the matching `rootCA.pem`. The smoke check never disables certificate verification. |
 | `setup:local` reports partial configuration | It will not overwrite files. Restore only the missing environment file and preserve matching database credentials; do not delete or overwrite the remaining local configuration blindly. |
 | MySQL starts with a password/volume error | A password change in `.env` does not rotate an existing volume's initialized credentials. Restore the matching `.env` or make a deliberate credential change; do not use `down -v` as a repair shortcut. |
+| API startup rejects configuration | Check the named missing/invalid `APP_ENV`, `PUBLIC_ORIGIN` or `DB_*` fields in `backend/.env`; use `https://localhost:3000` in development. Do not paste secret values into logs or tickets. |
+| Existing volume uses another port or credentials | Confirm the known volume's original config and intended host mapping before starting it. New `.env` credentials do not establish compatibility with retained state. Do not attach unknown volumes or reset them to make tests pass. |
+| Health returns 503 because MySQL is unavailable | Check the intended database service and matching application configuration. Restore connectivity; the existing API engine must recover without restarting the API. Health diagnostics use only the static `database_not_ready` code. |
+| Health returns 503 after connection succeeds | On a known development DB, compare `pnpm db:current` with the bundled migration head and apply `pnpm db:migrate`. Missing tables/columns or a stale/multiple revision are not ready; startup does not repair them. |
+| Migration DDL fails partway | MySQL DDL can commit partially. Preserve the database, inspect its actual schema/revision with the matching configuration, and plan the correct forward migration or deliberate repair. Do not use `stamp head`, `down -v`, or an automatic old-backup restore to hide drift. |
 
 ## Related documents
 
 - [T04 implementation plan](tasks/t04/plan.md)
+- [T05 implementation plan](tasks/t05/plan.md)
+- [T05 verification results and limits](tasks/t05/review-and-verification.md)
 - [Overall task status and dependencies](tasks/README.md)
 - [Project architecture](project-definition/04-technical-architecture.md)

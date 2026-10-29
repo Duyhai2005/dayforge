@@ -437,19 +437,21 @@ git commit -m "feat: expose database readiness and API compatibility version"
 - Consumes: toàn bộ command/endpoint/interface Tasks 1–5, smoke TLS có kiểm tra CA của T04.
 - Produces: smoke `/`, `/api/v1/openapi.json`, `/api/v1/health`, `/api/v1/version` qua HTTPS cùng origin; hướng dẫn migrate/start/test/chẩn đoán và báo cáo kết quả trung thực.
 
-- [ ] **Step 1: Mở rộng smoke đã có và ghi kỳ vọng trước khi chạy.**
+- [x] **Step 1: Mở rộng smoke đã có và ghi kỳ vọng trước khi chạy.**
 
 Giữ `--ca-file`, hostname/origin validation và TLS verification của T04. Probe health phải 200 và body đúng `{"status":"ok"}`; version đúng major/arrays/limits mục Task 5 và timestamp UTC. Sau khi cả bốn probe pass mới in `PASS: local HTTPS web, API and MySQL readiness`. Health 503, version sai hoặc proxy trả HTML đều exit 1, không PASS. Không theo redirect sang origin khác, không thêm credentials vào CLI.
 
 Chạy smoke lúc MySQL **dev** chưa migrate (môi trường local chưa có dữ liệu sản phẩm), phải FAIL vì health 503; không drop/downgrade DB đang có chỉ để tạo RED. Nếu DB đã migrate, dùng kết quả RED từ test readiness Task 5 và không đảo schema thật.
 
-- [ ] **Step 2: Cập nhật runbook local theo đường chạy cụ thể.**
+- [x] **Step 2: Cập nhật runbook local theo đường chạy cụ thể.**
 
 Sau `setup:local`/TLS/`db:up`, chạy `pnpm db:migrate`, `pnpm db:current`, rồi `dev:api`, `dev:web`, smoke với CA T04. Ghi thêm commands unit/API tests và MySQL tests cô lập; migration không tự chạy khi API khởi động. Ghi các tình huống: env thiếu/sai, port/credential của volume cũ lệch cấu hình, DB unavailable, revision lệch, migration DDL thất bại một phần. Hướng xử lý là kiểm tra cấu hình/revision và áp dụng migration đúng; không `down -v`, `stamp head` hoặc restore backup cũ tự động.
 
 Ghi ranh giới transaction: request dependency không auto-commit, service dùng `session.begin()`, background/concurrent task cần session riêng. T09 tạo verified `User` + fixed `WorkspaceSettings` trong cùng transaction; T10 thêm owner lock/event store và dữ liệu domain qua Alembic, không tái sử dụng User ID hoặc thêm đường CRUD bypass sync. Backend có quyền schema dev để migrate; phân quyền migration/runtime production xử lý tại T29.
 
 - [ ] **Step 3: Chạy bộ kiểm chứng cuối từ môi trường T04.**
+
+Task 6 execution note (29/10/2026): locked sync, env/script tests (13), API tests (200), isolated MySQL tests (38) and CA-verified HTTPS smoke passed. Fresh UUID-scoped test MySQL proved health 503 before migration and all four probes passing after upgrade/current/repeat upgrade, with exact anonymous-volume cleanup. Root development `db:*` commands were not run: retained `dayforge-dev` state/credentials are unestablished and must not be touched. Direct Cốc Cốc/trust remains waived and unverified; interactive Ctrl+C was not performed, while graceful ASGI lifespan/pool disposal passed. This step stays unchecked because those literal checks were not all run. See [the verification report](review-and-verification.md).
 
 Chạy riêng từ root:
 
@@ -467,13 +469,13 @@ git status --short
 
 `$dayforgeCaFile` là đường dẫn `rootCA.pem` đã dùng ở T04. Expected: install locked không đổi lockfile, tests không có MySQL case bị skip, revision head, HTTPS smoke PASS và diff sạch whitespace. Kiểm tra Cốc Cốc desktop đọc được health/version qua `https://localhost:3000`, ghi phiên bản thực; không coi đây là AC auth/offline/sync đã đạt. Sau khi API đóng bằng Ctrl+C, không còn connection do engine T05 giữ.
 
-- [ ] **Step 4: Ghi báo cáo và cập nhật trạng thái có điều kiện.**
+- [x] **Step 4: Ghi báo cáo và cập nhật trạng thái có điều kiện.**
 
 Báo cáo ghi ngày/OS/runtime/dependency versions, MySQL image+digest, từng lệnh/exit code, tests count, kết quả năm Review Focus, migration từ DB sạch, rollback/upgrade DB test, outage/recovery, log sentinels và HTTPS. Nếu thiếu Docker/runtime/CA hoặc tests fail thì ghi FAIL/BLOCKED/chưa chạy đúng case, không ghi PASS suy đoán; không đính kèm env/raw log có secrets.
 
 Link báo cáo/runbook vào mục lục; chỉ đánh dấu T05 hoàn thành sau khi đủ điều kiện mục 4. T06–T36 giữ trạng thái thực tế; T04 không tự đổi thành hoàn thành dựa trên T05. Báo cáo phân biệt rõ các phần chưa có: auth/email/owner initialization, lịch, event log/reducer/sync, offline, CI và production.
 
-- [ ] **Step 5: Commit tài liệu và bàn giao để review.**
+- [x] **Step 5: Commit tài liệu và bàn giao để review.**
 
 ```bash
 git add scripts/smoke_local.py docs/development.md docs/README.md docs/tasks/README.md docs/tasks/t05/review-and-verification.md

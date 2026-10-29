@@ -65,7 +65,7 @@ Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hi
 ### Nhóm 2 — Dựng nền dự án · T04–T07
 
 - [x] **T04 — Tổ chức dự án và môi trường phát triển.** Hoàn thành ngày **29/10/2026**: cấu trúc frontend/backend, runtime/dependency/image pins, cấu hình mẫu không chứa secrets, HTTPS cùng-origin và hướng dẫn tái lập trên Windows. Xem [kế hoạch và checklist](t04/plan.md), [runbook](../development.md) và [báo cáo kiểm chứng](t04/review-and-verification.md). Người dùng miễn direct check trên Cốc Cốc; browser trust ghi nhận là chưa xác minh.
-- [ ] **T05 — Dựng FastAPI và MySQL.** Thiết lập kết nối, schema/migration ban đầu, validation, xử lý lỗi, health check và log cần thiết. Cần đầu vào T04; đang triển khai theo [kế hoạch chi tiết](t05/plan.md).
+- [ ] **T05 — Dựng FastAPI và MySQL.** Đã triển khai kết nối, schema/migration ban đầu, validation, xử lý lỗi, health/version và log; kiểm thử MySQL và HTTPS trên DB cô lập đã chạy. Xem [kế hoạch chi tiết](t05/plan.md), [runbook](../development.md) và [báo cáo kiểm chứng/giới hạn](t05/review-and-verification.md). Chờ review/đủ điều kiện nghiệm thu; DB dev giữ nguyên vì chưa xác lập state/credentials, browser trust chưa xác minh.
 - [ ] **T06 — Dựng khung Next.js server.** Thiết lập runtime Node, hai route lịch, route tài khoản/email callback, nền giao diện, widget và cơ chế trạng thái/focus; tách shell có thể cache khỏi dữ liệu riêng.
 - [ ] **T07 — Thiết lập kiểm tra tự động.** Có lint, type check, test runner, môi trường MySQL kiểm thử và CI kiểm tra test/build trước khi phát hành.
 
