@@ -1,8 +1,8 @@
 # Local development on Windows
 
-This guide starts the local foundation from the repository root in Windows PowerShell 5.1 or PowerShell 7. It runs Next.js and FastAPI on the host and MySQL in Docker Desktop. First-time setup needs internet access to download packages and the MySQL image. The scaffold is not an offline app.
+This guide starts the T04 local environment, T05 backend and T06 Next.js shell from the repository root in Windows PowerShell 5.1 or PowerShell 7. It runs Next.js and FastAPI on the host and MySQL in Docker Desktop. First-time setup needs internet access to download packages, the browser test engine and the MySQL image.
 
-T05 adds validated settings, async MySQL sessions, Alembic migrations, strict request validation, private error/log handling, and public health/version endpoints. Calendar, account/email flows, owner initialization, event storage/sync, offline support, CI and production deployment remain later tasks. See the [verification report](tasks/t05/review-and-verification.md) for actual results and outstanding acceptance checks.
+T05 adds validated settings, async MySQL sessions, Alembic migrations, strict request validation, private error/log handling, and public health/version endpoints. T06 provides the work and milestone calendar shells, navigation widget, account placeholder and email callback shells. Calendar records, real authentication, owner storage, sync, offline support, CI and production deployment remain later tasks. See the [T05 verification report](tasks/t05/review-and-verification.md) and the [T06 verification report](tasks/t06/review-and-verification.md) for results and remaining acceptance checks.
 
 ## 1. Install the pinned tools
 
@@ -126,7 +126,7 @@ Expected output:
 PASS: local HTTPS web, API and MySQL readiness
 ```
 
-The smoke checks `/`, `/api/v1/openapi.json`, `/api/v1/health` and `/api/v1/version` through the same HTTPS localhost origin. Health must return HTTP 200 with exactly `{"status":"ok"}`. Version must expose `api_major: 1`, `protocol_versions: [1]`, `reducer_versions: [1]`, a valid UTC millisecond timestamp, and the T03 limits: push operations 100, push request bytes 8388608, operation bytes 2097152, commands per operation 1000, page operations 200, page bytes 8388608 and page token TTL 1800 seconds. All four probes must pass before the success line appears.
+The smoke checks `/work` HTML, `/api/v1/openapi.json`, `/api/v1/health` and `/api/v1/version` through the same HTTPS localhost origin. T06 makes `/` redirect to `/work`; the probe requests `/work` directly and still refuses redirects. Health must return HTTP 200 with exactly `{"status":"ok"}`. Version must expose `api_major: 1`, `protocol_versions: [1]`, `reducer_versions: [1]`, a valid UTC millisecond timestamp, and the T03 limits: push operations 100, push request bytes 8388608, operation bytes 2097152, commands per operation 1000, page operations 200, page bytes 8388608 and page token TTL 1800 seconds. All four probes must pass before the success line appears.
 
 Health 503, a wrong version contract, HTML from an API proxy, invalid JSON, a missing/invalid CA or any redirect causes exit 1 without PASS. Response bodies and credentials are omitted from diagnostics. Never pass credentials in the CLI. The smoke verifies readiness; it does not establish login, cookies, CSRF, offline or calendar acceptance. Do not downgrade or drop an existing schema to manufacture a failing smoke.
 
@@ -148,9 +148,28 @@ Request session dependencies close their sessions but never auto-commit. A servi
 
 T09 must create a verified `User` and its fixed `WorkspaceSettings` in one transaction. T10 adds the owner lock, event store and domain data through Alembic; it must preserve User IDs and keep domain writes on the sync path instead of introducing bypass CRUD routes. The backend development user has schema privileges for local migration. Separate production migration/runtime privileges belong to T29.
 
-## 5. Build and probe the production Next.js server
+## 5. Verify T06 routes and the production Next.js server
 
-Stop `pnpm dev:web` with Ctrl+C before building. Then run:
+The public T06 shell has these routes:
+
+| Route | Current behavior |
+| --- | --- |
+| `/` | Redirects to `/work`. |
+| `/work?date=YYYY-MM-DD` | Work calendar shell; week view. |
+| `/milestones?date=YYYY-MM-DD&scale=week\|month\|year` | Milestone calendar shell with the requested scale. |
+| `/account` | Explicit account placeholder. |
+| `/verify-email#token=...`, `/reset-password#token=...` | Remove the full fragment into component memory and show a neutral placeholder; no token submission. |
+
+After the HTTPS smoke finishes, stop the terminal running `pnpm dev:web` with Ctrl+C. Playwright starts its own Next.js dev server on port `3010`, so do not keep `dev:web` running in the same checkout. Install the Playwright Chromium engine once, then run the browser suite before building production:
+
+```powershell
+pnpm --filter @dayforge/frontend exec playwright install chromium
+pnpm --filter @dayforge/frontend exec playwright test
+```
+
+By default Playwright starts and stops its own Next.js dev server on `http://127.0.0.1:3010`. The suite covers routes, UTC+07:00 boundaries, view URL/history/preferences, separate scroll restoration, widget dismissal/focus, reduced motion and callback token handling. It does not need the API to be running.
+
+With the development server stopped, run:
 
 ```powershell
 pnpm verify:env
@@ -158,15 +177,20 @@ pnpm build:web
 pnpm start:web
 ```
 
-`verify:env` runs the environment-generator and frontend origin-guard regression tests. The guard uses Next.js env parsing, including quoted values, and an existing process variable takes precedence over `frontend/.env.local`. `build:web` builds the Next.js server. `start:web` listens on loopback HTTP port `3001`; in another terminal, verify the response:
+`verify:env` runs the environment-generator, frontend origin-guard and smoke-probe regressions. The origin guard uses Next.js env parsing, including quoted values, and an existing process variable takes precedence over `frontend/.env.local`. `start:web` serves the build on loopback HTTP port `3001`. In another terminal, probe the direct calendar response and run the full browser suite against this production server:
 
 ```powershell
-$response = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3001/
+$response = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3001/work
 $response.StatusCode
 $response.Content.Contains('DAYFORGE')
+$env:PLAYWRIGHT_BASE_URL = 'http://127.0.0.1:3001'
+pnpm --filter @dayforge/frontend exec playwright test
+Remove-Item Env:PLAYWRIGHT_BASE_URL
 ```
 
-Expected output: `200` and `True`. Stop the server with Ctrl+C.
+The probe should print `200` and `True`. With `PLAYWRIGHT_BASE_URL` set to the built production server, both callback routes must return `Cache-Control` containing `private` and `no-store`, `Pragma: no-cache` and `Referrer-Policy: no-referrer`. Next.js dev forces its own `Cache-Control: no-store`, so the default dev suite checks that directive and the remaining headers; the production run enforces `private` too. Stop the production server with Ctrl+C after verification.
+
+The widget starts collapsed. Calendar date/scale and scroll preferences use separate `sessionStorage` keys, `dayforge:view:v1:work` and `dayforge:view:v1:milestones`; they contain UI preferences only. T08/T09 must move this temporary state to the device/owner model. Add controls remain disabled and explain that saving is unavailable. T06 adds no real account flow, calendar data, IndexedDB, sync or service worker; T13 must implement offline shell caching and exclude callbacks/private APIs.
 
 ## 6. Stop services and keep local data
 
@@ -201,5 +225,7 @@ This stops and removes the Compose container/network while retaining the named d
 - [T04 implementation plan](tasks/t04/plan.md)
 - [T05 implementation plan](tasks/t05/plan.md)
 - [T05 verification results and limits](tasks/t05/review-and-verification.md)
+- [T06 shell plan](tasks/t06/plan.md)
+- [T06 verification and handoff](tasks/t06/review-and-verification.md)
 - [Overall task status and dependencies](tasks/README.md)
 - [Project architecture](project-definition/04-technical-architecture.md)

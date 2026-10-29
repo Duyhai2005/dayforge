@@ -1,8 +1,5 @@
-export default function HomePage(): React.JSX.Element {
-  return (
-    <main>
-      <h1>DAYFORGE</h1>
-      <p>Môi trường phát triển đã sẵn sàng.</p>
-    </main>
-  );
+import { redirect } from "next/navigation";
+
+export default function HomePage(): never {
+  redirect("/work");
 }

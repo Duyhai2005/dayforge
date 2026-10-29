@@ -10,7 +10,7 @@
 
 **Spec:** [Thiết kế T01 đã duyệt](t01/design.md), [tổng quan hồ sơ](../project-definition/README.md), [yêu cầu chức năng](../project-definition/02-functional-requirements.md), [UX](../project-definition/03-ux-and-interactions.md), [kiến trúc](../project-definition/04-technical-architecture.md), [dữ liệu và đồng bộ](../project-definition/05-data-and-sync.md), [nghiệm thu](../project-definition/06-delivery-and-acceptance.md).
 
-Ngày cập nhật: **29/10/2026** · Trạng thái: **T01–T03 hoàn thành thiết kế/hợp đồng; T04 hoàn thành nền môi trường local; T05 hoàn thành theo [kế hoạch chi tiết](t05/plan.md). T06–T36 chưa hoàn thành; chưa triển khai các luồng sản phẩm. Các giới hạn kiểm chứng T05 được ghi trong báo cáo.**
+Ngày cập nhật: **29/10/2026** · Trạng thái: **T01–T03 hoàn thành thiết kế/hợp đồng; T04 hoàn thành nền môi trường local; T05 hoàn thành nền FastAPI/MySQL theo [báo cáo kiểm chứng](t05/review-and-verification.md); T06 hoàn thành khung Next.js. T07–T36 chưa hoàn thành; chưa triển khai các luồng dữ liệu, tài khoản hoặc offline thực.**
 
 ## 1. Cách dùng kế hoạch
 
@@ -20,7 +20,7 @@ Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hi
 - Mỗi task chỉ mô tả ngắn đầu việc; không liệt kê file code, chữ ký hàm hoặc lệnh thực hiện ở giai đoạn này, theo yêu cầu người dùng.
 - Mỗi task lập trình bao gồm kiểm chứng hành vi mình tạo ra và cập nhật tài liệu chịu ảnh hưởng. T28 là kiểm thử tích hợp/nghiệm thu, không thay cho việc kiểm tra từng task.
 - Đánh dấu xong khi có kết quả chạy/kiểm chứng được, không chỉ khi viết xong code.
-- Người dùng đã duyệt [Thiết kế T01](t01/design.md) và [Đặc tả T02 1.0](t02/design.md). [T03](t03/design.md) khóa hợp đồng dữ liệu/API và thuật toán theo quyền chọn kỹ thuật đã giao trong T01/T02; có rà soát và kiểm chứng schema, không diễn giải thành một lần phê duyệt riêng của người dùng. T01–T03 hoàn thành về thiết kế/hợp đồng. T04 hoàn thành bộ khung và hướng dẫn local; chưa có các luồng sản phẩm đã triển khai.
+- Người dùng đã duyệt [Thiết kế T01](t01/design.md) và [Đặc tả T02 1.0](t02/design.md). [T03](t03/design.md) khóa hợp đồng dữ liệu/API và thuật toán theo quyền chọn kỹ thuật đã giao trong T01/T02; có rà soát và kiểm chứng schema, không diễn giải thành một lần phê duyệt riêng của người dùng. T01–T03 hoàn thành về thiết kế/hợp đồng. T04 hoàn thành bộ khung và hướng dẫn local; T06 hoàn thành shell lịch/widget và callback trung tính. Các luồng dữ liệu, tài khoản và offline thực chưa được triển khai; xem [kết quả và giới hạn T06](t06/review-and-verification.md).
 
 ## 2. Ràng buộc chung
 
@@ -65,8 +65,8 @@ Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hi
 ### Nhóm 2 — Dựng nền dự án · T04–T07
 
 - [x] **T04 — Tổ chức dự án và môi trường phát triển.** Hoàn thành ngày **29/10/2026**: cấu trúc frontend/backend, runtime/dependency/image pins, cấu hình mẫu không chứa secrets, HTTPS cùng-origin và hướng dẫn tái lập trên Windows. Xem [kế hoạch và checklist](t04/plan.md), [runbook](../development.md) và [báo cáo kiểm chứng](t04/review-and-verification.md). Người dùng miễn direct check trên Cốc Cốc; browser trust ghi nhận là chưa xác minh.
-- [ ] **T05 — Dựng FastAPI và MySQL.** Đã triển khai kết nối, schema/migration ban đầu, validation, xử lý lỗi, health/version và log; kiểm thử MySQL và HTTPS trên DB cô lập đã chạy. Xem [kế hoạch chi tiết](t05/plan.md), [runbook](../development.md) và [báo cáo kiểm chứng/giới hạn](t05/review-and-verification.md). Chờ review/đủ điều kiện nghiệm thu; DB dev giữ nguyên vì chưa xác lập state/credentials, browser trust chưa xác minh.
-- [ ] **T06 — Dựng khung Next.js server.** Thiết lập runtime Node, hai route lịch, route tài khoản/email callback, nền giao diện, widget và cơ chế trạng thái/focus; tách shell có thể cache khỏi dữ liệu riêng.
+- [x] **T05 — Dựng FastAPI và MySQL.** Hoàn thành kết nối, schema/migration ban đầu, validation, xử lý lỗi, health/version và log; nghiệm thu MySQL, HTTPS trên DB cô lập và final review đã đạt. Xem [kế hoạch chi tiết](t05/plan.md), [runbook](../development.md) và [báo cáo kiểm chứng/giới hạn](t05/review-and-verification.md). Khả năng tương thích với volume DB dev và browser trust vẫn chưa xác minh.
+- [x] **T06 — Dựng khung Next.js server.** Hoàn thành shell ngày **29/10/2026**: hai route lịch, widget, URL/history và sở thích riêng từng lịch, route tài khoản/callback trung tính; không có dữ liệu riêng trong shell. Browser suite dev/production, build và kiểm tra môi trường đạt; HTTPS same-origin smoke chưa chạy trong checkout T06 do thiếu cấu hình local/API. Xem [kế hoạch](t06/plan.md) và [kiểm chứng, giới hạn, bàn giao](t06/review-and-verification.md).
 - [ ] **T07 — Thiết lập kiểm tra tự động.** Có lint, type check, test runner, môi trường MySQL kiểm thử và CI kiểm tra test/build trước khi phát hành.
 
 **Kết quả nhóm:** chạy được bộ khung frontend/backend và cơ sở dữ liệu từ hướng dẫn; các kiểm tra nền chạy được. T05 và T06 có thể làm song song sau T04.
@@ -147,7 +147,7 @@ Chỉ xong giao diện hoặc chạy `build` thành công chưa đạt một tro
 
 | Phần cần có | Task chịu trách nhiệm chính |
 | --- | --- |
-| Thiết kế tổng hợp, UI và hợp đồng kỹ thuật đã khóa | T01–T03 hoàn thành; T04 dựng môi trường; tiếp tục T05 |
+| Thiết kế tổng hợp, UI và hợp đồng kỹ thuật đã khóa | T01–T03 hoàn thành; T04–T06 đã dựng nền; tiếp tục T07 |
 | FastAPI, Next.js, MySQL và môi trường chạy | T04–T07, T29–T30 |
 | Kế hoạch, màu, công việc độc lập và nhập nhanh | T14–T15 |
 | Lịch công việc sáng/chiều/tối | T16, T19–T20 |
