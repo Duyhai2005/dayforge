@@ -17,7 +17,6 @@
 | Docker Engine / Compose | `29.5.3` / `5.1.4` |
 | MySQL image | `mysql:8.4.13@sha256:a0225d1ea6631c8bc2385dc4c2faba17bbf1834ecf369e1659a9a382bd8d5dd7` |
 | mkcert | `1.4.4` |
-| Cốc Cốc | Direct browser check was waived by the user on 29/10/2026; browser version and browser trust were not verified. |
 
 The verification checkout was a detached worktree at `.local/verification/Dayforge clean checkout`. It started from committed files and had no copied environment files, virtualenv, `node_modules`, TLS files or Next build output. The walkthrough created those local artifacts afresh. `COMPOSE_PROJECT_NAME=dayforge-t04-verify` isolated its database project from the main checkout.
 
@@ -52,8 +51,8 @@ An invalid `API_INTERNAL_ORIGIN` was also rejected by the `predev` check before 
 
 The final review fix added `scripts/tests/test_check_local_api_origin.py` to the existing `verify:env` discovery suite. Its temporary frontend env files cover quoted origins and exact-origin rejection. The quoted-origin regression failed before replacing literal line parsing with the `@next/env` parser shipped with pinned Next.js `16.4.3`, then passed after the fix. Existing process-variable precedence is preserved. No dependency or lockfile changed.
 
-## Waiver and limits
+## Limits
 
-The user waived opening the site in Cốc Cốc and verifying browser trust for this T04 implementation on 29/10/2026. The smoke check trusted the mkcert CA explicitly through `--ca-file`; this proves the local HTTPS/API path for the smoke client, not Cốc Cốc trust. No browser version or browser PASS is claimed.
+The smoke check trusted the mkcert CA explicitly through `--ca-file`; this verifies the local HTTPS/API path for the smoke client. Browser trust was not verified.
 
 The following remain outside T04 and have not been verified here: FastAPI database connection/settings/schema/migrations/health/logging (T05), calendar and account routes/UI (T06), CI and broader automated test infrastructure (T07), authentication/email, offline storage/sync, and acceptance criteria AC-01–AC-38. The T04 OpenAPI document is only a bootstrap probe.

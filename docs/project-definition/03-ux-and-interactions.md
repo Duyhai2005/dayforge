@@ -139,7 +139,7 @@ Các mặc định kỹ thuật đề xuất:
 - Font phải hỗ trợ đầy đủ tiếng Việt, được phục vụ cục bộ/cached để offline không đổi bố cục.
 - Không khóa tỷ lệ một canvas desktop rồi thu nhỏ trên mọi kích thước. Mobile sẽ có thiết kế riêng trong đợt sau.
 
-Cốc Cốc desktop đã được chọn làm trình duyệt nghiệm thu chính; cần kiểm chứng tương tác, lưu cục bộ và mở lại offline trên Next.js server/Node production.
+Cần kiểm chứng tương tác, lưu cục bộ và mở lại offline trên Next.js server/Node production.
 
 ## 10. Phản hồi offline và dữ liệu
 

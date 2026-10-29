@@ -55,7 +55,7 @@ Thêm một việc như “Gửi hồ sơ”, đặt vào một buổi trong tu�
 | Việc lặp | Hằng ngày hoặc các thứ đã chọn, có thể đặt trước buổi, lặp đến khi dừng; giữ lịch sử trước mốc khi sửa/dừng từ một mốc. |
 | Dữ liệu | Lịch local-first với IndexedDB, xem/sửa offline; tự đồng bộ khi ứng dụng đang mở/mở lại. Xung đột tự chọn bản có thời điểm sửa đã ghi mới nhất. |
 | Tài khoản | Có trong giai đoạn 1: đăng nhập bằng email, xác minh email, mật khẩu riêng; không có đăng nhập Google. Vẫn phục vụ một người dùng cá nhân. |
-| Nền tảng | Web desktop trước; Cốc Cốc desktop là trình duyệt nghiệm thu chính. |
+| Nền tảng | Web desktop trước. |
 | Máy chủ | Next.js server/Node chạy production, FastAPI và MySQL trên máy chủ độc lập với PC cá nhân. Chọn AWS hoặc Oracle vào lúc triển khai. |
 
 Đợt đầu có **hai trang lịch chính**. Cách nhập liệu được phát triển thành biểu mẫu nổi trên lịch; không cần một trang nhập liệu thứ ba riêng. Một chế độ xem ngày chi tiết, nếu giữ lại, chỉ là tiện ích bổ sung chứ không phải điều kiện để thấy việc trong tuần.
@@ -92,7 +92,7 @@ Thông báo nhắc việc, thống kê thói quen, điểm thưởng, AI tự ch
 - Frontend: **React + Next.js server/Node chạy production** (phương án B đã chọn; xuất tĩnh không phải kiến trúc hiện hành).
 - Cơ sở dữ liệu phía máy chủ: **MySQL**.
 - Máy chủ độc lập với PC cá nhân; dùng và đồng bộ được từ thiết bị khác khi PC tắt. Việc chọn **AWS hoặc Oracle hoãn đến lúc triển khai**, không phải điều kiện hoàn thành T01.
-- Lịch **local-first với IndexedDB**; cơ chế cache/mở lại offline phải được kiểm chứng trên Next.js server và Cốc Cốc desktop.
+- Lịch **local-first với IndexedDB**; cơ chế cache/mở lại offline phải được kiểm chứng trên Next.js server/Node production.
 - Chỉ yêu cầu tự đồng bộ khi ứng dụng đang mở hoặc mở lại; không yêu cầu đồng bộ khi ứng dụng đã đóng hẳn.
 - Xung đột tự chọn bản chỉnh sửa mới nhất theo thời điểm sửa đã ghi; không bắt người dùng chọn giữa hai bản. Đồng hồ, trường hợp bằng thời điểm, phạm vi áp dụng và xóa–sửa được cụ thể hóa tại T03.
 - Công nghệ phụ do người thực hiện đề xuất, ưu tiên đơn giản và phục vụ dùng riêng.

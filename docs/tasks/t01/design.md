@@ -10,7 +10,7 @@ Tài liệu này chốt phạm vi và các lựa chọn vận hành của T01. G
 
 DAYFORGE giúp một người nhìn toàn cảnh công việc cần chuẩn bị cho kỳ thi, báo cáo, thuyết trình và các việc học lặp lại. Mở lịch tuần là thấy những việc dự định làm theo sáng/chiều/tối; lịch dấu mốc cho thấy các ngày quan trọng ở quy mô tuần/tháng/năm.
 
-Giai đoạn đầu phải dùng được hằng ngày trên máy tính, xem/sửa offline, đồng bộ giữa thiết bị và chạy trên server độc lập với PC cá nhân. Cốc Cốc desktop là browser nghiệm thu chính.
+Giai đoạn đầu phải dùng được hằng ngày trên máy tính, xem/sửa offline, đồng bộ giữa thiết bị và chạy trên server độc lập với PC cá nhân.
 
 ## 2. Phạm vi đã chốt
 

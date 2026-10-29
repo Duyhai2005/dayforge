@@ -20,7 +20,7 @@
 - “`OWNER_EMAIL` chỉ ở cấu hình server; không đưa allowlist vào bundle hoặc response công khai.”
 - “Không log password, token email, cookie, CSRF, logout ticket, local key, note hoặc toàn bộ operation chứa dữ liệu cá nhân.”
 - “Không tự mua hạ tầng”; AWS/Oracle, domain và nhà cung cấp email giữ ở T29/T30.
-- “Cốc Cốc desktop” là browser nghiệm thu sản phẩm. Riêng kiểm tra browser trực tiếp của T04 được người dùng miễn ngày 29/10/2026; T04 chỉ ghi nhận smoke HTTPS có CA tường minh, không tuyên bố Cốc Cốc đã tin chứng chỉ.
+- T04 chỉ ghi nhận smoke HTTPS có CA tường minh; trust của browser chưa được kiểm chứng.
 - “Direct pushes to `main` and `develop` are prohibited.” Lúc triển khai dùng nhánh `feature/development-environment` theo Git Flow; do `develop` chưa có hợp đồng T01–T03 ở thời điểm bắt đầu, implementation branch được tạo từ `feature/project-design` để giữ đủ tài liệu ràng buộc; tái sử dụng checkout/worktree phù hợp, không tự chuyển hoặc bỏ thay đổi đang có.
 
 ## Review Focus
@@ -322,7 +322,7 @@ Expected: exit 1, thông báo ngắn về file CA; không traceback chứa respo
 
 - [x] **Step 3: Chuẩn bị chứng chỉ localhost riêng trên máy.**
 
-Xác nhận `mkcert -version` là `v1.4.4`; tạo cert/key riêng trong `.local/tls/`. Cài CA vào trust store chỉ cần nếu muốn Cốc Cốc mở không cảnh báo; người dùng đã miễn kiểm tra đó cho T04, nên không cài trust store. Lệnh cài vẫn được ghi là bước tùy chọn trong hướng dẫn:
+Xác nhận `mkcert -version` là `v1.4.4`; tạo cert/key riêng trong `.local/tls/`. Cài CA vào trust store chỉ cần nếu muốn browser mở không cảnh báo; T04 không cài trust store. Lệnh cài vẫn được ghi là bước tùy chọn trong hướng dẫn:
 
 ```powershell
 mkcert -install
@@ -338,7 +338,7 @@ Frontend `predev` gọi `scripts/check-local-api-origin.cjs` để kiểm tra `.
 
 [Next CLI](https://nextjs.org/docs/app/api-reference/cli/next) hỗ trợ các cờ HTTPS này cho development; [rewrites](https://nextjs.org/docs/app/api-reference/config/next-config-js/rewrites) là proxy URL. `next start` vẫn là probe HTTP công khai port 3001; TLS/reverse proxy production thuộc T29/T30.
 
-- [x] **Step 5: Chạy smoke thành công; ghi nhận miễn kiểm tra browser.**
+- [x] **Step 5: Chạy smoke thành công.**
 
 Mở hai terminal từ root: `pnpm dev:api` và `pnpm dev:web`. Terminal thứ ba:
 
@@ -347,7 +347,7 @@ $dayforgeCaFile = Join-Path (mkcert -CAROOT) 'rootCA.pem'
 pnpm smoke:local --ca-file "$dayforgeCaFile"
 ```
 
-Expected: exit 0, đúng dòng PASS; `/api/v1/openapi.json` trả JSON của FastAPI qua rewrite. Người dùng miễn bước mở Cốc Cốc/kiểm tra trust ngày 29/10/2026; ghi là waived/unverified, không ghi PASS browser. T04 không cấp cookie, nên chưa tuyên bố kiểm chứng session/CSRF/no-store auth.
+Expected: exit 0, đúng dòng PASS; `/api/v1/openapi.json` trả JSON của FastAPI qua rewrite. Trust của browser chưa được kiểm chứng; không ghi PASS browser. T04 không cấp cookie, nên chưa tuyên bố kiểm chứng session/CSRF/no-store auth.
 
 - [x] **Step 6: Kiểm chứng ba trường hợp lỗi của môi trường.**
 
@@ -379,7 +379,7 @@ Runbook giải thích: lần đầu cần mạng tải dependency/image; chưa c
 
 Dùng thư mục kiểm chứng riêng có dấu cách, cài từ manifest/lockfile được commit, không sao chép `.env`, `.venv`, `node_modules`, certificates hoặc `.next` từ checkout gốc. Dừng dịch vụ dev gốc trước để tránh xung đột cổng; trong một terminal kiểm chứng mới đặt `$env:COMPOSE_PROJECT_NAME = 'dayforge-t04-verify'` trước mọi command của lần diễn tập. Biến này ghi đè project name trong YAML, nên các command `pnpm db:up`/`pnpm db:down` vẫn dùng được và volume DB gốc không bị tác động. Sinh env mới rồi thực hiện lần lượt install locked, `setup:local`, TLS, `db:up`, hai server và smoke; kết thúc bằng `db:down`, dừng server và đóng terminal kiểm chứng. Ghi việc dùng project override vào báo cáo; trở lại checkout chính, chạy lại services/probe trước bước tiếp theo.
 
-Expected: mọi bước từ hướng dẫn chạy được; không phải sửa source hoặc lockfile. Không cài trust CA trong diễn tập vì kiểm tra Cốc Cốc đã được người dùng miễn; smoke dùng `rootCA.pem` tường minh.
+Expected: mọi bước từ hướng dẫn chạy được; không phải sửa source hoặc lockfile. Không cài trust CA trong diễn tập; smoke dùng `rootCA.pem` tường minh.
 
 - [x] **Step 3: Chạy lại kiểm chứng cuối trên checkout đang bàn giao.**
 
@@ -389,7 +389,7 @@ Expected: commands exit 0; 7 tests PASS (5 generator, 2 origin guard); smoke/bui
 
 - [x] **Step 4: Ghi báo cáo và ranh giới bàn giao.**
 
-`review-and-verification.md` ghi ngày/OS/tool versions, browser check được người dùng miễn (browser version không ghi như đã kiểm chứng), MySQL tag + digest, từng command/kết quả, 5 mục Review Focus, checkout sạch và các giới hạn. Không đưa secrets hoặc log đầy đủ chứa env vào báo cáo. Ghi rõ chưa kiểm chứng trust của Cốc Cốc, kết nối DB từ app/migration (T05), UI lịch (T06), CI (T07), auth/email/offline/sync và AC-01–AC-38.
+`review-and-verification.md` ghi ngày/OS/tool versions, MySQL tag + digest, từng command/kết quả, 5 mục Review Focus, checkout sạch và các giới hạn. Không đưa secrets hoặc log đầy đủ chứa env vào báo cáo. Ghi rõ chưa kiểm chứng browser trust, kết nối DB từ app/migration (T05), UI lịch (T06), CI (T07), auth/email/offline/sync và AC-01–AC-38.
 
 README root chỉ dẫn đến `docs/development.md`, task plan và hồ sơ thiết kế. Trong `docs/README.md` thêm link runbook/báo cáo. Chỉ đổi checkbox T04 và trạng thái tổng thể ở `docs/tasks/README.md` sau khi toàn bộ điều kiện hoàn thành dưới đây có bằng chứng; giữ T05–T36 chưa hoàn thành.
 
@@ -407,7 +407,7 @@ Push branch `feature/development-environment` and create a PR into `develop`; me
 - [x] Runtime/dependency/image được khóa; hai lần cài locked không đổi lockfiles; bài thử manifest/runtime lệch bị chặn.
 - [x] Templates không có secrets; khởi tạo đúng DB password ở hai nơi, không lộ root password cho backend/frontend, chạy lại không ghi đè, partial config có lỗi rõ ràng.
 - [x] MySQL healthy bằng app user, loopback port đúng, bản ghi dev còn qua down/up và không có quyền quản trị toàn server.
-- [x] HTTPS localhost và API proxy giữ prefix/cùng origin được smoke bằng CA tường minh; mất backend, sai TLS/origin và trùng cổng không bị báo thành công. Kiểm tra trust trực tiếp trong Cốc Cốc được người dùng miễn và ghi rõ là chưa xác minh.
+- [x] HTTPS localhost và API proxy giữ prefix/cùng origin được smoke bằng CA tường minh; mất backend, sai TLS/origin và trùng cổng không bị báo thành công. Browser trust chưa được xác minh.
 - [x] Checkout sạch dựng lại được từ hướng dẫn, kết quả và các phần chưa chạy được ghi trung thực.
 - [x] T05 nhận ASGI app + DB/config và tự làm settings/connection/schema/health; T06 nhận Next server để dựng routes/UI; T07 nhận lockfiles và các probe hẹp để tổ chức kiểm tra tự động.
 

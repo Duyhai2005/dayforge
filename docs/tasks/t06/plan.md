@@ -148,7 +148,7 @@ export function CalendarWidget(props: CalendarWidgetProps): React.JSX.Element;
 - [x] Chạy `pnpm verify:env`, `pnpm build:web`, `pnpm --filter @dayforge/frontend exec playwright test`; ghi lệnh và kết quả thực tế.
 - [x] Khởi chạy production server ở port `3001`, đặt `PLAYWRIGHT_BASE_URL=http://127.0.0.1:3001` và chạy toàn bộ suite production cuối sau fix review: 32/32 đạt, gồm callback headers chặt; lượt lỗi không lặp lại trước đó được ghi trong báo cáo.
 - [x] Ghi nhận HTTPS same-origin smoke T04 chưa chạy trong checkout T06: không có bộ `.env`, TLS leaf/key hoặc API listener; CA công khai mkcert có sẵn. Không bỏ qua TLS; chạy lại sau khi chuẩn bị local đúng runbook. Ngoại lệ được ghi trong báo cáo bàn giao.
-- [x] Đã kiểm tra focus/Escape, Back/Forward, reduced motion bằng browser suite; probe layout laptop/desktop trong Chromium. Cốc Cốc gốc không chạy theo yêu cầu người dùng; không tuyên bố nghiệm thu browser đó. Điểm thứ tự Tab còn mở được ghi cho final review.
+- [x] Đã kiểm tra focus/Escape, Back/Forward, reduced motion bằng browser suite; probe layout laptop/desktop trong Chromium. Không tuyên bố nghiệm thu sản phẩm trên browser desktop từ probe này. Điểm thứ tự Tab còn mở được ghi cho final review.
 - [x] Cập nhật development guide và trạng thái T06; chỉ đánh dấu hoàn thành khi checks bắt buộc đạt hoặc ngoại lệ được ghi rõ.
 - [x] Ghi bàn giao: T08/T09 chuyển trạng thái xem tạm sang lưu theo thiết bị/owner và làm auth thật; T13 làm cache shell offline; T07 tích hợp runner/CI.
 - [x] Commit `docs: record T06 verification and handoff`.

@@ -9,7 +9,7 @@ DAYFORGE là ứng dụng lập kế hoạch cá nhân, tập trung vào việc 
 - Nhu cầu và các lựa chọn trực tiếp của người dùng đã được tổng hợp.
 - Hướng giao diện và các thao tác thêm/sửa/kéo thả được người dùng đánh giá **tạm thời phù hợp**.
 - FastAPI/Python, React/Next.js và MySQL là công nghệ người dùng đã chọn.
-- **T01 đã hoàn thành ngày 28/10/2026.** Người dùng đã duyệt [bản tổng hợp T01](../tasks/t01/design.md), gồm kiến trúc B — Next.js server, tài khoản email/xác minh/mật khẩu, LWW, quy tắc chuỗi, Cốc Cốc và các mặc định nêu trong bản tổng hợp.
+- **T01 đã hoàn thành ngày 28/10/2026.** Người dùng đã duyệt [bản tổng hợp T01](../tasks/t01/design.md), gồm kiến trúc B — Next.js server, tài khoản email/xác minh/mật khẩu, LWW, quy tắc chuỗi và các mặc định nêu trong bản tổng hợp.
 - **T02 hoàn thành ngày 28/10/2026:** người dùng duyệt đặc tả giao diện/tương tác 1.0 bằng xác nhận “được rồi chốt T02”. Các mặc định UI được trình bày trong bản tổng hợp cũng được duyệt cùng lần này.
 - [T03 — hợp đồng 1.0](../tasks/t03/design.md) đã khóa dữ liệu, tài khoản, API, đồng bộ và thuật toán theo phạm vi được giao, kèm schema/ví dụ và rà soát độc lập. Không coi lựa chọn kỹ thuật này là một lần phê duyệt riêng chưa có của người dùng.
 - Nhà cung cấp AWS/Oracle chọn khi deploy; thư viện phụ/phiên bản khóa tại T04. Các chi tiết ngoài phạm vi T03 còn có nhãn **đề xuất**.

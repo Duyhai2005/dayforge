@@ -32,7 +32,6 @@ Cập nhật **28/10/2026 — T01–T03 hoàn thành thiết kế/hợp đồng*
 | D-24 | Đổi quy tắc lặp: giữ các lần tương lai đã chỉnh riêng thành task một lần, cùng kế hoạch/màu. | Người dùng đồng ý tình huống dời thứ sáu sang thứ bảy rồi đổi các thứ lặp. |
 | D-25 | Dừng chuỗi: gỡ từ mốc dừng những lần còn thuộc chuỗi kể cả đã dời; giữ lịch sử và task đã tách. | Người dùng đồng ý đề xuất dừng. |
 | D-26 | Email làm tài khoản, xác minh email, mật khẩu riêng, không Google. | Lựa chọn phương thức đăng nhập trực tiếp. |
-| D-27 | Cốc Cốc desktop là trình duyệt chính. | “tôi dự định dùng cốc cốc”. |
 | D-28 | Tự sync khi mở/đang mở; đóng hẳn trình duyệt chờ lần mở lại. | Người dùng đồng ý cơ chế này. |
 | D-29 | **Kiến trúc B: Next.js server + FastAPI + MySQL.** | Người dùng chọn “B” sau khi so sánh hai phương án. |
 | D-30 | **Phê duyệt bản tổng hợp T01 và đánh dấu T01 hoàn thành ngày 28/10/2026.** | “Tôi duyệt bản tổng hợp này, hãy đánh dấu T01 hoàn thành.” Bao gồm các mặc định đã nêu trong thiết kế T01; không đánh dấu các task tiếp theo hoàn thành. |
@@ -72,7 +71,7 @@ Các mặc định về hành vi/tài khoản có trong thiết kế T01 đã đ
 | O-04 — Xung đột | **Đã đóng hợp đồng:** tự giữ sửa mới nhất theo [T03](../tasks/t03/sync-contract.md), bao gồm clock repair/tie-break/nhóm/xóa–sửa. | T10–T12 thực hiện và kiểm chứng. |
 | O-05 — Task–milestone | **Đã đóng:** chỉ tạo milestone riêng. | T03/T17 triển khai cùng một record ở hai lịch. |
 | O-06 — Ngoại lệ lặp | **Đã đóng hợp đồng:** D-24/D-25 và [T03](../tasks/t03/data-contract.md), ngày gốc/detach/suppression/stop/Undo nguyên tử. | T21–T23 thực hiện và kiểm chứng. |
-| O-07 — Browser và sync khi đóng | **Đã đóng về mục tiêu:** Cốc Cốc; sync khi mở/mở lại. | Ghi phiên bản/hệ điều hành thực khi nghiệm thu. |
+| O-07 — Sync khi đóng | **Đã đóng về mục tiêu:** sync khi mở/mở lại. | Kiểm chứng khi nghiệm thu. |
 | O-08 — Palette/mục độc lập | **Đã chốt trong T02:** trung tính mặc định và chọn màu riêng cho mục độc lập; đã đồng ý bảng chín màu có sẵn, dấu chọn và xem trước qua bản thử v2. | T02 ghi bộ token; kiểm chứng toàn bộ trạng thái khi triển khai. |
 | O-09 — Email delivery/domain | **Hoãn cùng deploy:** chọn SMTP/API, địa chỉ gửi, domain, hạn mức và thử inbox thật. | T29/T30/T32. |
 

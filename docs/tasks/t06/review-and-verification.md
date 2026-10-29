@@ -3,7 +3,7 @@
 **Date:** 29/10/2026  
 **Branch:** `feature/nextjs-calendar-shell`<br>
 **Task 5 base:** `5a60f5d9f6a8bc49993a51f83a75941e46a0ffd2`  
-**Result:** the T06 framework shell is implemented; the final environment, build and browser runs below pass. One preceding production browser failure did not reproduce and is recorded with its investigation below. Native Cốc Cốc acceptance was skipped at the user direction. The configured HTTPS/API smoke was unavailable in this checkout and is not claimed as passed.
+**Result:** the T06 framework shell is implemented; the final environment, build and browser runs below pass. One preceding production browser failure did not reproduce and is recorded with its investigation below. Full browser acceptance remains outstanding. The configured HTTPS/API smoke was unavailable in this checkout and is not claimed as passed.
 
 ## Delivered scope
 
@@ -76,13 +76,13 @@ The initial production failure's root cause is **inconclusive and nonreproducibl
 
 The full browser runs cover root/calendar/account routes, UTC+07:00 midnight, URL precedence and invalid fields, month-end/leap-day movement, malformed/blocked storage, separate calendar preferences and scroll restoration, Back/Forward, widget toggle/Escape/outside dismissal, destination-main focus, view controls, disabled add actions, reduced motion, token cleanup/leakage and same-origin scripts.
 
-A transient Playwright layout probe rendered both calendar routes with the widget expanded at `1024×768` and `1920×1080`. Document scroll width equaled viewport width in all four cases. The widget stayed 16px above the viewport bottom, and the expanded panel remained entirely inside the viewport. The milestone laptop and work desktop screenshots were visually inspected; controls and Vietnamese labels were visible without overlap. This proves those Chromium layouts, not native Cốc Cốc acceptance.
+A transient Playwright layout probe rendered both calendar routes with the widget expanded at `1024×768` and `1920×1080`. Document scroll width equaled viewport width in all four cases. The widget stayed 16px above the viewport bottom, and the expanded panel remained entirely inside the viewport. The milestone laptop and work desktop screenshots were visually inspected; controls and Vietnamese labels were visible without overlap. This verifies those Chromium layouts; full browser acceptance remains outstanding.
 
 Known minor from Task 3 review: the expanded panel precedes its toggle in DOM order, so forward Tab from the toggle skips the panel; Shift+Tab reaches it. Escape/dismissal and destination-main focus pass. Final review accepted deferring this keyboard sequence refinement to T26.
 
 ## Explicit exceptions and limits
 
-- **Native Cốc Cốc: not run at the user direction.** No native-browser PASS, version, certificate trust or end-to-end acceptance is claimed.
+- **Full browser acceptance: not run.** No browser certificate trust or end-to-end acceptance is claimed.
 - **One initial production token-cleanup failure remains inconclusive/nonreproducible.** The later 5/5 isolated runs, 16-document diagnostic and fresh 32/32 full production run passed without code/assertion changes; the earlier failure is preserved above.
 - **Configured HTTPS same-origin smoke: not run in the T06 checkout.** The `.env`, `backend/.env` and `frontend/.env.local` files and local TLS leaf certificate/key are absent; neither API port `8000` nor HTTPS port `3000` was listening at preflight. The global mkcert public CA exists. No config, credentials, database volume or trust store was created or changed for this task. After preparing the runbook inputs, run `pnpm dev:api`, `pnpm dev:web` and `pnpm smoke:local --ca-file <rootCA.pem>`; this remains an unverified integration item for this checkout.
 - Browser suites ran with the API absent and the shell remained usable. They do not establish API/DB behavior, authentication, actual email delivery, owner isolation, IndexedDB, synchronization, service-worker caching or offline reopen behavior.
@@ -98,6 +98,6 @@ Known minor from Task 3 review: the expanded panel precedes its toggle in DOM or
 | T09 | Neutral account/callback routes and verified production response headers; implement real auth/session/token-confirmation flows and owner-aware persistence against T03. Preserve fragment cleanup, no token leakage and no shared auth cache. |
 | T10–T12 | No sync implementation exists in T06; build server/client sync and LWW on the later data/auth foundations. |
 | T13 | Public calendar shell has no private payload; implement offline shell/resource caching while keeping callbacks and private APIs network-only and preserving pending data through upgrades. |
-| T24/T26/T28 | Complete feature-level visual/keyboard acceptance and native Cốc Cốc verification after the functional flows exist; the recorded Tab-order minor is deferred to T26. |
+| T24/T26/T28 | Complete feature-level visual/keyboard acceptance and browser desktop verification after the functional flows exist; the recorded Tab-order minor is deferred to T26. |
 
 At the time of the original Task 5 verification, all commits were local and no pull request or merge had been performed.
