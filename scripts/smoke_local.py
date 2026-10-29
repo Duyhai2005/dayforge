@@ -111,6 +111,7 @@ def _get(
                 raise SmokeError("A local probe response exceeded the size limit.")
             return response.status, response.headers.get("Content-Type", ""), body
     except HTTPError as exc:
+        exc.close()
         raise SmokeError(
             f"The local {label} probe returned HTTP {exc.code}."
         ) from None
@@ -139,7 +140,7 @@ def smoke_local(
 
     opener = build_opener(_NoRedirect(), HTTPSHandler(context=tls_context))
     web_status, web_content_type, web_body = _get(
-        opener, origin + "/", "web", timeout_seconds
+        opener, origin + "/work", "web", timeout_seconds
     )
     if web_status != 200:
         raise SmokeError("The local web probe did not return HTTP 200.")

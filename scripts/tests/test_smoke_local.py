@@ -1,17 +1,24 @@
 import copy
+import importlib
 import io
 import json
+import ssl
 import sys
 import tempfile
+import threading
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
+from urllib.parse import urlsplit
+from urllib.request import build_opener
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import smoke_local
-
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT))
+smoke_local = importlib.import_module("scripts.smoke_local")
+from scripts.smoke_local import SmokeError, _get, _NoRedirect
 
 VERSION = {
     "api_major": 1, "protocol_versions": [1], "reducer_versions": [1],
@@ -31,7 +38,7 @@ class SmokeTests(unittest.TestCase):
         self.ca = Path(self.temp.name) / "ca.pem"
         self.ca.touch()
         self.responses = {
-            "/": (200, "text/html", b"<h1>DAYFORGE</h1>"),
+            "/work": (200, "text/html", b"<h1>DAYFORGE</h1>"),
             "/api/v1/openapi.json": (200, "application/json", json.dumps({
                 "info": {"title": "DAYFORGE API"}, "paths": {}}).encode()),
             "/api/v1/health": (200, "application/json", b'{"status":"ok"}'),
@@ -60,7 +67,7 @@ class SmokeTests(unittest.TestCase):
     def test_success_requires_all_four_probes(self):
         result, stdout, stderr = self.run_cli()
         self.assertEqual(result, 0)
-        self.assertEqual(self.seen, ["/", "/api/v1/openapi.json", "/api/v1/health", "/api/v1/version"])
+        self.assertEqual(self.seen, ["/work", "/api/v1/openapi.json", "/api/v1/health", "/api/v1/version"])
         self.assertEqual(stdout, "PASS: local HTTPS web, API and MySQL readiness\n")
         self.assertEqual(stderr, "")
 
@@ -157,5 +164,80 @@ class SmokeTests(unittest.TestCase):
         self.assertNotIn("private", str(error.exception))
 
 
+class FixtureResponse(io.BytesIO):
+    def __init__(self, body: bytes, content_type: str, status: int = 200) -> None:
+        super().__init__(body)
+        self.status = status
+        self.headers = {"Content-Type": content_type}
+
+
+class T06RouteFixture:
+    """External transport fixture: root redirects, calendar and API are direct."""
+
+    def open(self, request, timeout):
+        path = urlsplit(request.full_url).path
+        if path == "/work":
+            return FixtureResponse(b"<h1>DAYFORGE</h1>", "text/html")
+        if path == "/api/v1/openapi.json":
+            document = {"info": {"title": "DAYFORGE API"}, "paths": {}}
+            return FixtureResponse(json.dumps(document).encode(), "application/json")
+        if path == "/api/v1/health":
+            return FixtureResponse(b'{"status":"ok"}', "application/json")
+        if path == "/api/v1/version":
+            return FixtureResponse(json.dumps(VERSION).encode(), "application/json")
+        if path == "/":
+            return FixtureResponse(b"Redirect", "text/html", 307)
+        return FixtureResponse(b"Not Found", "text/html", 404)
+
+
+class SmokeLocalTests(unittest.TestCase):
+    def test_reads_calendar_route_without_following_root_redirect(self) -> None:
+        # TLS loading is outside this path regression; keep real probe validation
+        # and replace only the external transport/configuration boundary.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ca_file = Path(temp_dir) / "fixture-ca.pem"
+            ca_file.write_text("transport fixture", encoding="utf-8")
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            with (
+                patch("scripts.smoke_local.ssl.create_default_context", return_value=context),
+                patch("scripts.smoke_local.build_opener", return_value=T06RouteFixture()),
+            ):
+                try:
+                    smoke_local.smoke_local("https://localhost:3000", ca_file)
+                except SmokeError as error:
+                    self.fail(f"The direct calendar/API fixture must pass: {error}")
+
+    def test_rejects_redirect_without_requesting_destination(self) -> None:
+        visited: list[str] = []
+
+        class RedirectHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                visited.append(self.path)
+                if self.path == "/work":
+                    self.send_response(307)
+                    self.send_header("Location", "/destination")
+                    self.end_headers()
+                else:
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b"DAYFORGE")
+
+            def log_message(self, format, *args):
+                pass
+
+        with ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler) as server:
+            worker = threading.Thread(target=server.serve_forever, daemon=True)
+            worker.start()
+            try:
+                opener = build_opener(_NoRedirect())
+                with self.assertRaisesRegex(SmokeError, "web probe returned HTTP 307"):
+                    _get(opener, f"http://127.0.0.1:{server.server_port}/work", "web", 2)
+            finally:
+                server.shutdown()
+                worker.join()
+        self.assertEqual(visited, ["/work"])
+
+
 if __name__ == "__main__":
     unittest.main()
+
