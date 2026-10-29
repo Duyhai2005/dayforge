@@ -22,7 +22,7 @@ ENV_FIELDS = {
 
 
 class Settings(BaseModel):
-    model_config = ConfigDict(frozen=True, hide_input_in_errors=True)
+    model_config = ConfigDict(frozen=True, hide_input_in_errors=True, extra="forbid")
 
     app_env: Literal["development", "test", "production"]
     public_origin: str
@@ -33,7 +33,7 @@ class Settings(BaseModel):
     db_password: SecretStr
 
     def __init__(self, **values):
-        invalid = set()
+        invalid = set(values) - ENV_FIELDS.keys()
         for field in ENV_FIELDS:
             value = values.get(field)
             if isinstance(value, SecretStr):
@@ -67,12 +67,12 @@ class Settings(BaseModel):
             if values.get("app_env") == "development" and values["public_origin"] != "https://localhost:3000":
                 invalid.add("public_origin")
         if invalid:
-            raise SettingsError(", ".join(ENV_FIELDS[field] for field in ENV_FIELDS if field in invalid))
+            raise SettingsError(", ".join(ENV_FIELDS.get(field, field) for field in sorted(invalid)))
         try:
             super().__init__(**values)
         except ValidationError as error:
             fields = {entry["loc"][0] for entry in error.errors()}
-            raise SettingsError(", ".join(ENV_FIELDS[field] for field in ENV_FIELDS if field in fields)) from None
+            raise SettingsError(", ".join(ENV_FIELDS.get(field, field) for field in sorted(fields))) from None
 
 
 def load_settings(environ: Mapping[str, str] | None = None) -> Settings:

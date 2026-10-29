@@ -76,3 +76,21 @@ def test_oversized_port_is_rejected_with_only_field_name(settings_factory):
     with pytest.raises(SettingsError) as caught:
         settings_factory(db_port="9" * 5000)
     assert str(caught.value) == "DB_PORT"
+
+
+def test_unknown_constructor_field_is_rejected_without_echo(settings_factory):
+    with pytest.raises(SettingsError) as caught:
+        settings_factory(unknown_option="test-only-private-option")
+    assert str(caught.value) == "unknown_option"
+    assert "test-only-private-option" not in str(caught.value)
+
+
+def test_unrelated_environment_variables_are_ignored():
+    settings = load_settings({
+        "APP_ENV": "test", "PUBLIC_ORIGIN": "https://localhost:3000",
+        "DB_HOST": "127.0.0.1", "DB_PORT": "3306", "DB_NAME": "dayforge_t05_test",
+        "DB_USER": "dayforge_test", "DB_PASSWORD": "test-only-password",
+        "UNKNOWN_OPTION": "unrelated-process-value",
+    })
+    assert settings.app_env == "test"
+    assert not hasattr(settings, "unknown_option")
