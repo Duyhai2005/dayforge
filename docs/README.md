@@ -13,6 +13,7 @@
 | Dựng môi trường local | [Hướng dẫn Windows/PowerShell](development.md) |
 | Kiểm chứng T04 | [Rà soát, kết quả và giới hạn](tasks/t04/review-and-verification.md) |
 | Kiểm chứng T05 | [FastAPI/MySQL, HTTPS và giới hạn còn lại](tasks/t05/review-and-verification.md) |
+| Khung Next.js T06 | [Kế hoạch chi tiết](tasks/t06/plan.md), [kiểm chứng và bàn giao](tasks/t06/review-and-verification.md) |
 | Quy ước phát triển | [Coding convention](CONVENTION.md), [Git Flow](GITFLOW.md) |
 
 ## Quy ước tổ chức
@@ -21,4 +22,4 @@
 - `tasks/README.md`: danh sách task tổng thể, thứ tự, phụ thuộc và trạng thái hoàn thành.
 - `tasks/tXX/`: tài liệu riêng của từng task, ví dụ `tasks/t01/design.md`.
 
-T01–T03 hoàn thành phần thiết kế/hợp đồng ngày **28/10/2026**. T04 hoàn thành bộ khung môi trường local ngày **29/10/2026**; direct check trong Cốc Cốc được người dùng miễn và được ghi là chưa xác minh. T05 đã triển khai nền FastAPI/MySQL và kiểm chứng trên DB test cô lập; vẫn chờ review/điều kiện nghiệm thu còn lại trong [báo cáo](tasks/t05/review-and-verification.md), chưa đánh dấu hoàn thành. T06–T36 chưa hoàn thành; chưa triển khai các luồng sản phẩm.
+T01–T03 hoàn thành phần thiết kế/hợp đồng ngày **28/10/2026**. T04 hoàn thành bộ khung môi trường local ngày **29/10/2026**; direct check trong Cốc Cốc được người dùng miễn và được ghi là chưa xác minh. T05 đã triển khai nền FastAPI/MySQL và kiểm chứng trên DB test cô lập; vẫn chờ review/điều kiện nghiệm thu trong [báo cáo T05](tasks/t05/review-and-verification.md). T06 hoàn thành khung Next.js ngày **29/10/2026**, gồm shell hai lịch/widget và callback trung tính; kết quả và ngoại lệ nằm trong [báo cáo T06](tasks/t06/review-and-verification.md). T07–T36 và các luồng sản phẩm còn lại chưa hoàn thành. Bước tiếp theo theo thứ tự là hoàn tất nghiệm thu T05; dữ liệu lịch, tài khoản và offline thực chưa được triển khai.

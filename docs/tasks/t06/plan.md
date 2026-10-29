@@ -1,6 +1,6 @@
 # T06 — Dựng khung Next.js server Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]` for incomplete and `- [x]` for complete) syntax for tracking.
 
 **Goal:** Dựng hai route lịch, route tài khoản và callback email, nền giao diện cùng widget điều hướng có quản lý trạng thái/focus; tạo shell công khai để T13 bổ sung cache offline.
 
@@ -43,12 +43,12 @@
 **Interfaces:**
 - Produces: `/` redirect tới `/work`; route `/work`, `/milestones`; layout lịch với vùng nội dung chính có `id="calendar-main"`, `tabIndex={-1}` và tiêu đề trang.
 
-- [ ] Thêm dev dependency `@playwright/test@1.64.1`; cấu hình webServer Next dev trên port `3010`, `API_INTERNAL_ORIGIN=http://127.0.0.1:8000`, baseURL `http://127.0.0.1:3010`; nếu đặt `PLAYWRIGHT_BASE_URL`, dùng server production đã chạy.
-- [ ] Viết test Playwright cho `/`, `/work`, `/milestones`: root redirect tới `/work`; hai trang lịch 200, có tiêu đề tiếng Việt và không chứa dữ liệu lịch giả.
-- [ ] Chạy `pnpm --filter @dayforge/frontend exec playwright test tests/routes.spec.ts` trước triển khai; xác nhận root/route assertion thất bại.
-- [ ] Tạo shell và route khung, không thêm nội dung lịch giả; route lịch dùng chung layout và metadata tiếng Việt.
-- [ ] Tạo token/layout desktop theo Global Constraints; không có header/sidebar cố định, vùng lịch cuộn ngang khi cần, có đệm cuối trang cho widget.
-- [ ] Chạy `pnpm --filter @dayforge/frontend exec playwright test tests/routes.spec.ts` và `pnpm build:web`; cả hai phải đạt. Commit deliverable với subject `feat: add calendar route shell`.
+- [x] Thêm dev dependency `@playwright/test@1.64.1`; cấu hình webServer Next dev trên port `3010`, `API_INTERNAL_ORIGIN=http://127.0.0.1:8000`, baseURL `http://127.0.0.1:3010`; nếu đặt `PLAYWRIGHT_BASE_URL`, dùng server production đã chạy.
+- [x] Viết test Playwright cho `/`, `/work`, `/milestones`: root redirect tới `/work`; hai trang lịch 200, có tiêu đề tiếng Việt và không chứa dữ liệu lịch giả.
+- [x] Chạy `pnpm --filter @dayforge/frontend exec playwright test tests/routes.spec.ts` trước triển khai; xác nhận root/route assertion thất bại.
+- [x] Tạo shell và route khung, không thêm nội dung lịch giả; route lịch dùng chung layout và metadata tiếng Việt.
+- [x] Tạo token/layout desktop theo Global Constraints; không có header/sidebar cố định, vùng lịch cuộn ngang khi cần, có đệm cuối trang cho widget.
+- [x] Chạy `pnpm --filter @dayforge/frontend exec playwright test tests/routes.spec.ts` và `pnpm build:web`; cả hai phải đạt. Commit deliverable với subject `feat: add calendar route shell`.
 
 ### Task 2: Ngày, URL và lịch sử điều hướng
 
@@ -76,12 +76,12 @@ export function moveAnchor(view: ViewState, direction: -1 | 1): ViewState;
 - Query thay đổi tạo history entry và Back/Forward phục hồi route/ngày/scale.
 - Sở thích lưu riêng từng lịch bằng `sessionStorage`, không lưu nội dung nghiệp vụ; khóa chính xác `dayforge:view:v1:work` và `dayforge:view:v1:milestones`, JSON shape `{anchor,scale,scrollY}`; work luôn scale `week`. Storage lỗi/hỏng thì bỏ qua và dùng mặc định.
 
-- [ ] Viết test với các assertion cụ thể: `todayInUtc7RollsAtBangkokMidnight` (`2026-10-29T16:59:59.999Z` → `2026-10-29`; `2026-10-29T17:00:00.000Z` → `2026-10-30`); `parseViewStateUsesPreferenceOnlyForMissingFields` (`/milestones?scale=year` + preference `{anchor:"2026-01-31",scale:"month",scrollY:80}` → anchor `2026-01-31`, scale `year`); `parseViewStateDefaultsInvalidFields` (`/milestones?date=2026-02-30&scale=decade`, now `2026-10-29T00:00:00.000Z` → anchor `2026-10-29`, scale `month`, bỏ preference); `moveAnchorPreservesEndOfMonth` (`2026-01-31` + month → `2026-02-28`); `moveAnchorClampsLeapDay` (`2024-02-29` + year → `2025-02-28`); `readPreferenceRejectsMalformedOrUnavailableStorage` (JSON hỏng hoặc `getItem` throw → `null`); `writePreferenceUsesCalendarSpecificKey` (work writes `dayforge:view:v1:work`, milestones writes `dayforge:view:v1:milestones`, scroll `80.8` writes `81`). Playwright `calendarHistoryRestoresRouteDateAndScale`: navigate work `?date=2026-01-31`, then milestones `?date=2026-02-28&scale=year`, browser back restores first URL and forward restores second.
-- [ ] Chạy `pnpm --filter @dayforge/frontend exec playwright test tests/view-state.spec.ts` trước triển khai; xác nhận các test hàm/route thất bại vì module hoặc route wiring chưa có.
-- [ ] Cài đặt sáu hàm trong `view-state.ts`; phép tính dùng UTC calendar date, `week` cộng/trừ 7 ngày, `month` cộng/trừ một tháng và giữ ngày trong tháng (clamp tới ngày cuối nếu thiếu), `year` giữ tháng/ngày và clamp 29/2 sang 28/2 ở năm không nhuận.
-- [ ] Nối trạng thái vào hai route và URL; lùi/tiến thay đổi khoảng phù hợp scale chỉ áp dụng dấu mốc.
-- [ ] Đọc preference all-or-nothing; validate `anchor` là ngày lịch thực, `scale` thuộc enum (work phải `week`), `scrollY` là số hữu hạn không âm. Khi ghi, làm tròn/clamp `scrollY` thành số nguyên không âm; JSON lỗi và mọi exception từ storage đều không được throw ra UI.
-- [ ] Chạy `pnpm --filter @dayforge/frontend exec playwright test tests/view-state.spec.ts` và `pnpm build:web`; xác nhận ngày, scale, storage, Back/Forward và TypeScript/build đạt. Commit `feat: add calendar view state navigation`.
+- [x] Viết test với các assertion cụ thể: `todayInUtc7RollsAtBangkokMidnight` (`2026-10-29T16:59:59.999Z` → `2026-10-29`; `2026-10-29T17:00:00.000Z` → `2026-10-30`); `parseViewStateUsesPreferenceOnlyForMissingFields` (`/milestones?scale=year` + preference `{anchor:"2026-01-31",scale:"month",scrollY:80}` → anchor `2026-01-31`, scale `year`); `parseViewStateDefaultsInvalidFields` (`/milestones?date=2026-02-30&scale=decade`, now `2026-10-29T00:00:00.000Z` → anchor `2026-10-29`, scale `month`, bỏ preference); `moveAnchorPreservesEndOfMonth` (`2026-01-31` + month → `2026-02-28`); `moveAnchorClampsLeapDay` (`2024-02-29` + year → `2025-02-28`); `readPreferenceRejectsMalformedOrUnavailableStorage` (JSON hỏng hoặc `getItem` throw → `null`); `writePreferenceUsesCalendarSpecificKey` (work writes `dayforge:view:v1:work`, milestones writes `dayforge:view:v1:milestones`, scroll `80.8` writes `81`). Playwright `calendarHistoryRestoresRouteDateAndScale`: navigate work `?date=2026-01-31`, then milestones `?date=2026-02-28&scale=year`, browser back restores first URL and forward restores second.
+- [x] Chạy `pnpm --filter @dayforge/frontend exec playwright test tests/view-state.spec.ts` trước triển khai; xác nhận các test hàm/route thất bại vì module hoặc route wiring chưa có.
+- [x] Cài đặt sáu hàm trong `view-state.ts`; phép tính dùng UTC calendar date, `week` cộng/trừ 7 ngày, `month` cộng/trừ một tháng và giữ ngày trong tháng (clamp tới ngày cuối nếu thiếu), `year` giữ tháng/ngày và clamp 29/2 sang 28/2 ở năm không nhuận.
+- [x] Nối trạng thái vào hai route và URL; lùi/tiến thay đổi khoảng phù hợp scale chỉ áp dụng dấu mốc.
+- [x] Đọc preference all-or-nothing; validate `anchor` là ngày lịch thực, `scale` thuộc enum (work phải `week`), `scrollY` là số hữu hạn không âm. Khi ghi, làm tròn/clamp `scrollY` thành số nguyên không âm; JSON lỗi và mọi exception từ storage đều không được throw ra UI.
+- [x] Chạy `pnpm --filter @dayforge/frontend exec playwright test tests/view-state.spec.ts` và `pnpm build:web`; xác nhận ngày, scale, storage, Back/Forward và TypeScript/build đạt. Commit `feat: add calendar view state navigation`.
 
 ### Task 3: Widget, tương tác và focus
 
@@ -106,13 +106,13 @@ export function CalendarWidget(props: CalendarWidgetProps): React.JSX.Element;
 ```
 `CalendarView` owns the existing route/query/preference lifecycle and renders the route heading, current-period label and `CalendarWidget`; the two page routes wrap it in `Suspense`. `CalendarWidget` renders controls and calls its callbacks; it does not own or persist calendar state.
 
-- [ ] Write Playwright tests with exact outcomes: `widgetOpensAndClosesByToggleEscapeAndOutsideClick` (toggle sets `aria-expanded`, Escape/outside click hides panel and restores focus to toggle); `calendarSwitchClosesAndFocusesMain` (with saved milestones preference `{anchor:"2026-02-28",scale:"year"}`, switch to milestones navigates to that view, closes panel, focuses `main#calendar-main`); `viewControlsKeepWidgetOpen` (next/today/date/scale update the expected URL while panel stays open); `quickAddActionsAreDisabledWithExplanation` (all three add actions are disabled and their visible explanation says saving is not available yet); `widgetHonorsReducedMotion` (with reduced motion, no translate/scale and transition duration is at most `80ms`).
-- [ ] Run `pnpm --filter @dayforge/frontend exec playwright test tests/calendar-widget.spec.ts` before implementation; confirm the widget assertions fail.
-- [ ] Move the Task 2 route-state lifecycle from `view-navigation.tsx` into `CalendarView`; render its state through a presentational `CalendarWidget`; remove `view-navigation.tsx` after both calendar pages use the replacement.
-- [ ] Place the widget centered on the bottom edge. Start collapsed on each page load and do not persist its open state. Collapsed state shows a disabled quick-add control, current calendar name, an accessible `Chưa kết nối dữ liệu` status, and the open toggle. Expanded panel includes add-work/add-milestone/add-plan controls, route switches, milestone-only week/month/year scale, today/previous/next/current-range controls, and `/account`.
-- [ ] Keep add controls disabled with visible explanatory text; implement route, date, scale and today controls using the Task 2 callbacks. Switching calendar loads the saved date/scale for that destination (never carries the current calendar view), closes the widget and focuses the destination main region; Escape/outside click closes without changing view and returns focus to the toggle; range/scale changes keep the widget open.
-- [ ] Apply T02 motion: hover/press `120ms`, widget open/close `180ms`, route/scale transition `260ms`, opacity/transform with `6–10px` movement; reduced motion removes movement/scale and uses immediate change or fade of at most `80ms`. Keep the visible `2px` focus outline with `3px` offset and retain keyboard operation.
-- [ ] Run `pnpm --filter @dayforge/frontend exec playwright test tests/calendar-widget.spec.ts`, the full Playwright suite, and `pnpm build:web`; all must pass. Commit `feat: add calendar navigation widget`.
+- [x] Write Playwright tests with exact outcomes: `widgetOpensAndClosesByToggleEscapeAndOutsideClick` (toggle sets `aria-expanded`, Escape/outside click hides panel and restores focus to toggle); `calendarSwitchClosesAndFocusesMain` (with saved milestones preference `{anchor:"2026-02-28",scale:"year"}`, switch to milestones navigates to that view, closes panel, focuses `main#calendar-main`); `viewControlsKeepWidgetOpen` (next/today/date/scale update the expected URL while panel stays open); `quickAddActionsAreDisabledWithExplanation` (all three add actions are disabled and their visible explanation says saving is not available yet); `widgetHonorsReducedMotion` (with reduced motion, no translate/scale and transition duration is at most `80ms`).
+- [x] Run `pnpm --filter @dayforge/frontend exec playwright test tests/calendar-widget.spec.ts` before implementation; confirm the widget assertions fail.
+- [x] Move the Task 2 route-state lifecycle from `view-navigation.tsx` into `CalendarView`; render its state through a presentational `CalendarWidget`; remove `view-navigation.tsx` after both calendar pages use the replacement.
+- [x] Place the widget centered on the bottom edge. Start collapsed on each page load and do not persist its open state. Collapsed state shows a disabled quick-add control, current calendar name, an accessible `Chưa kết nối dữ liệu` status, and the open toggle. Expanded panel includes add-work/add-milestone/add-plan controls, route switches, milestone-only week/month/year scale, today/previous/next/current-range controls, and `/account`.
+- [x] Keep add controls disabled with visible explanatory text; implement route, date, scale and today controls using the Task 2 callbacks. Switching calendar loads the saved date/scale for that destination (never carries the current calendar view), closes the widget and focuses the destination main region; Escape/outside click closes without changing view and returns focus to the toggle; range/scale changes keep the widget open.
+- [x] Apply T02 motion: hover/press `120ms`, widget open/close `180ms`, route/scale transition `260ms`, opacity/transform with `6–10px` movement; reduced motion removes movement/scale and uses immediate change or fade of at most `80ms`. Keep the visible `2px` focus outline with `3px` offset and retain keyboard operation.
+- [x] Run `pnpm --filter @dayforge/frontend exec playwright test tests/calendar-widget.spec.ts`, the full Playwright suite, and `pnpm build:web`; all must pass. Commit `feat: add calendar navigation widget`.
 ### Task 4: Route tài khoản và callback email an toàn
 
 **Files:**
@@ -122,25 +122,27 @@ export function CalendarWidget(props: CalendarWidgetProps): React.JSX.Element;
 **Interfaces:**
 - Produces: `/account`, `/verify-email`, `/reset-password`; callback reads `token` from the URL fragment into component memory, removes the full fragment using `history.replaceState` while preserving pathname/query, then renders only a neutral incomplete status. It does not POST, consume, display, or persist the token.
 
-- [ ] Write Playwright tests with exact outcomes: `accountRouteIsAnExplicitPlaceholder` (`/account` is 200, heading `Tài khoản`, text `Chức năng tài khoản chưa được kết nối.`, no login/password form); `callbackRoutesCarryNoStoreHeaders` (both callback routes return `Cache-Control` with `no-store` in development; when `PLAYWRIGHT_BASE_URL` points to the built production server, require both `private` and `no-store`; in both modes require `Pragma: no-cache` and `Referrer-Policy: no-referrer`. Task 5 runs the full suite against production to enforce the strict header requirement.); `callbackScrubsTokenWithoutPersistingOrPosting` (open `/verify-email#token=dayforge-test-token`, wait until hash is empty, then assert token is absent from DOM, localStorage, sessionStorage, and all requests; no POST to `/api/**`); `resetCallbackScrubsTokenToo` (same assertions for `/reset-password#token=dayforge-test-token`); `callbackWithoutTokenRemainsNeutral` (missing token keeps incomplete status and creates no request); `callbacksLoadNoThirdPartyScripts` (every external script URL is same-origin).
-- [ ] Run `pnpm --filter @dayforge/frontend exec playwright test tests/auth-routes.spec.ts` before implementation; confirm missing routes or callback/header assertions fail.
-- [ ] Create a separate account route-group layout using the established dark tokens. `/account` and callback pages are explicit placeholders with the exact status text above; add no login, password, reset or verification form controls.
-- [ ] Implement `EmailCallback({ purpose: "verify-email" | "reset-password" })` in `frontend/components/account/email-callback.tsx`: on mount, parse only the fragment `token`, keep its value only in a ref, replace the current URL with pathname plus search and no fragment, and never include the token in rendered text, storage, analytics, API requests or error output.
-- [ ] Add Next.js `headers()` rules for exact paths `/verify-email` and `/reset-password`: `Cache-Control: private, no-store`, `Pragma: no-cache`, `Referrer-Policy: no-referrer`. Preserve `/api/v1/*` rewrite; add no third-party scripts or analytics.
-- [ ] Run `pnpm --filter @dayforge/frontend exec playwright test tests/auth-routes.spec.ts`, the full Playwright suite, and `pnpm build:web`; all must pass. Verify the same callback headers against the production server in Task 5. Commit `feat: add account and email callback shells`.
+- [x] Write Playwright tests with exact outcomes: `accountRouteIsAnExplicitPlaceholder` (`/account` is 200, heading `Tài khoản`, text `Chức năng tài khoản chưa được kết nối.`, no login/password form); `callbackRoutesCarryNoStoreHeaders` (both callback routes return `Cache-Control` with `no-store` in development; when `PLAYWRIGHT_BASE_URL` points to the built production server, require both `private` and `no-store`; in both modes require `Pragma: no-cache` and `Referrer-Policy: no-referrer`. Task 5 runs the full suite against production to enforce the strict header requirement.); `callbackScrubsTokenWithoutPersistingOrPosting` (open `/verify-email#token=dayforge-test-token`, wait until hash is empty, then assert token is absent from DOM, localStorage, sessionStorage, and all requests; no POST to `/api/**`); `resetCallbackScrubsTokenToo` (same assertions for `/reset-password#token=dayforge-test-token`); `callbackWithoutTokenRemainsNeutral` (missing token keeps incomplete status and creates no request); `callbacksLoadNoThirdPartyScripts` (every external script URL is same-origin).
+- [x] Run `pnpm --filter @dayforge/frontend exec playwright test tests/auth-routes.spec.ts` before implementation; confirm missing routes or callback/header assertions fail.
+- [x] Create a separate account route-group layout using the established dark tokens. `/account` and callback pages are explicit placeholders with the exact status text above; add no login, password, reset or verification form controls.
+- [x] Implement `EmailCallback({ purpose: "verify-email" | "reset-password" })` in `frontend/components/account/email-callback.tsx`: on mount, parse only the fragment `token`, keep its value only in a ref, replace the current URL with pathname plus search and no fragment, and never include the token in rendered text, storage, analytics, API requests or error output.
+- [x] Add Next.js `headers()` rules for exact paths `/verify-email` and `/reset-password`: `Cache-Control: private, no-store`, `Pragma: no-cache`, `Referrer-Policy: no-referrer`. Preserve `/api/v1/*` rewrite; add no third-party scripts or analytics.
+- [x] Run `pnpm --filter @dayforge/frontend exec playwright test tests/auth-routes.spec.ts`, the full Playwright suite, and `pnpm build:web`; all must pass. Verify the same callback headers against the production server in Task 5. Commit `feat: add account and email callback shells`.
 ### Task 5: Kiểm chứng tích hợp và bàn giao T06
 
 **Files:**
-- Create: `docs/tasks/t06/review-and-verification.md`
-- Modify: `docs/development.md`, `docs/tasks/README.md`
+- Create: `docs/tasks/t06/review-and-verification.md`, `scripts/tests/test_smoke_local.py`
+- Modify: `docs/development.md`, `docs/tasks/README.md`, `docs/README.md`, `docs/tasks/t06/plan.md`, `scripts/smoke_local.py`
 
 **Interfaces:**
 - Consumes: route, view-state, widget và callback deliverables từ Tasks 1–4.
 - Produces: báo cáo kết quả T06 và mô tả phạm vi bàn giao cho T07–T13.
 
-- [ ] Chạy `pnpm verify:env`, `pnpm build:web`, `pnpm --filter @dayforge/frontend exec playwright test`; ghi lệnh và kết quả thực tế.
-- [ ] Khởi chạy production server ở port `3001`, đặt `PLAYWRIGHT_BASE_URL=http://127.0.0.1:3001` để chạy route/callback tests với production build; chạy lại smoke HTTPS same-origin T04 với API hoạt động.
-- [ ] Kiểm tra bàn phím, focus, Escape, Back/Forward, reduced motion, layout laptop/desktop và Cốc Cốc nếu môi trường có; ghi rõ mục chưa chạy.
-- [ ] Cập nhật development guide và trạng thái T06; chỉ đánh dấu hoàn thành khi checks bắt buộc đạt hoặc ngoại lệ được ghi rõ.
-- [ ] Ghi bàn giao: T08/T09 chuyển trạng thái xem tạm sang lưu theo thiết bị/owner và làm auth thật; T13 làm cache shell offline; T07 tích hợp runner/CI.
-- [ ] Commit `docs: record T06 verification and handoff`.
+- [x] Add a failing regression for the HTTPS smoke web probe using direct `/work` after the root redirect and preserve the no-redirect policy. Change only the web probe path from `/` to `/work`, retain TLS validation and `/api/v1/openapi.json`, and close an HTTP error response before raising its safe error. Run the focused smoke tests and `pnpm verify:env`; commit `fix: align local smoke probe with T06 routes`.
+- [x] Chạy `pnpm verify:env`, `pnpm build:web`, `pnpm --filter @dayforge/frontend exec playwright test`; ghi lệnh và kết quả thực tế.
+- [x] Khởi chạy production server ở port `3001`, đặt `PLAYWRIGHT_BASE_URL=http://127.0.0.1:3001` và chạy toàn bộ suite production: 26/26 đạt, gồm callback headers chặt.
+- [x] Ghi nhận HTTPS same-origin smoke T04 chưa chạy trong checkout T06: không có bộ `.env`, TLS leaf/key hoặc API listener; CA công khai mkcert có sẵn. Không bỏ qua TLS; chạy lại sau khi chuẩn bị local đúng runbook. Ngoại lệ được ghi trong báo cáo bàn giao.
+- [x] Đã kiểm tra focus/Escape, Back/Forward, reduced motion bằng browser suite; probe layout laptop/desktop trong Chromium. Cốc Cốc gốc không chạy theo yêu cầu người dùng; không tuyên bố nghiệm thu browser đó. Điểm thứ tự Tab còn mở được ghi cho final review.
+- [x] Cập nhật development guide và trạng thái T06; chỉ đánh dấu hoàn thành khi checks bắt buộc đạt hoặc ngoại lệ được ghi rõ.
+- [x] Ghi bàn giao: T08/T09 chuyển trạng thái xem tạm sang lưu theo thiết bị/owner và làm auth thật; T13 làm cache shell offline; T07 tích hợp runner/CI.
+- [x] Commit `docs: record T06 verification and handoff`.
