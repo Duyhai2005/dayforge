@@ -259,7 +259,7 @@ git commit -m "feat: add owner workspace schema and Alembic migrations"
 - Produces `ProblemHTTPException(HTTPException)` tại `core/errors.py`, constructor `(*, status_code: int, code: str, field_errors: list[FieldError] | None = None, retry_after_seconds: int | None = None)`; `make_problem(request: Request, *, status_code: int, code: str, field_errors: list[FieldError] | None = None, retry_after_seconds: int | None = None) -> JSONResponse`; `register_exception_handlers(app: FastAPI) -> None`.
 - Produces pure-ASGI `RequestLoggingMiddleware(app: ASGIApp)` và `configure_logging() -> None` tại `core/request_logging.py`. Request ID ở `scope["state"]["request_id"]`/`request.state.request_id`; tạo mới UUID v4 tại server và gửi `X-Request-ID` ở mọi HTTP response, gồm 500.
 
-- [ ] **Step 1: Viết tests lỗi/log qua test-only routes.**
+- [x] **Step 1: Viết tests lỗi/log qua test-only routes.**
 
 Routes `/api/v1/_test/*` chỉ tạo trong test, không mount vào app production. Dùng `TestClient` context manager để thực sự chạy lifespan. Tạo route validation với `ContractModel`, route raise `ProblemHTTPException(503, ...)` bằng keyword args và route raise `RuntimeError("test-only-secret")`.
 
@@ -281,25 +281,25 @@ def test_unexpected_error_returns_sanitized_problem(error_client, caplog):
 
 `test_sensitive_request_never_enters_logs` gửi body/password/note, Cookie, Authorization, CSRF và query token với sentinel riêng; assert không sentinel nào xuất hiện trong response lỗi/log. `test_request_completion_is_logged_once_even_on_500` assert đúng một event hoàn thành và cùng request ID trên response/log. Lấy response 500 bằng cả `raise_server_exceptions=False` lẫn mặc định để phát hiện exception vô tình thoát khỏi middleware.
 
-- [ ] **Step 2: Chạy tests mới và xác nhận RED.**
+- [x] **Step 2: Chạy tests mới và xác nhận RED.**
 
 Run: `pnpm test:api -- tests/api/test_errors_and_logging.py -v`.
 
 Expected: FAIL do thiếu Problem/handlers/middleware hoặc FastAPI còn trả lỗi mặc định; lỗi test fixture/dependency phải được sửa trước khi coi RED hợp lệ.
 
-- [ ] **Step 3: Implement `ContractModel`, `FieldError`, `Problem` và error handlers.**
+- [x] **Step 3: Implement `ContractModel`, `FieldError`, `Problem` và error handlers.**
 
 Giữ chính xác field/required/additionalProperties theo T03; optional fields không có thì loại khỏi JSON, không thêm `operation_id` vào Problem. `make_problem` dùng text tĩnh theo code, `type=/api/v1/problems/{code}`, `instance=/api/v1/requests/{request_id}`, UTC `.mmmZ`, media type chuẩn và `Cache-Control: no-store`. `retryable=true` cho 429/503, false cho lỗi khác. `retry_after_seconds` chỉ tạo cho 429 và phải khớp `Retry-After`; mặc định 503 không thêm hai field/header này.
 
 Map `RequestValidationError` sang 422/`validation_failed` (JSON syntax sang 400/`malformed_request` khi parser Task 4 lắp vào), dùng error location/code đã lọc, JSON Pointer escape `~` → `~0`, `/` → `~1`. Body field dùng `/field`, query/path dùng `/query/field`, `/path/field`; root dùng chuỗi rỗng. Chỉ đưa tên field/alias đã khai báo trong schema và array index vào path; lỗi extra key dùng pointer của parent đã biết, không echo tên key tùy ý. Không copy `input`, `ctx`, message tùy ý vào lỗi. Handler Starlette `HTTPException` giữ header protocol cần thiết như `Allow`, map 404 `not_found`, 405 `method_not_allowed`, không echo `detail` lạ. Unexpected exception/response validation lỗi trả 500 `internal_error`; không map mọi `IntegrityError` thành 503 hoặc 409. Service T09/T10 sau này phân loại lỗi DB theo nghiệp vụ.
 
-- [ ] **Step 4: Implement request context/log và lắp vào `create_app`.**
+- [x] **Step 4: Implement request context/log và lắp vào `create_app`.**
 
 Dùng middleware ASGI thuần, không `BaseHTTPMiddleware`; logger JSON stdout theo allowlist `event`, `request_id`, `method`, `route`, `status_code`, `duration_ms`, `error_code`. `route` lấy template đã match, route lạ dùng `unmatched`, không dùng raw path/query. Không log headers, body, DSN, SQL parameters, exception message/traceback có dữ liệu; SQLAlchemy echo/debug tắt. Owner ID chưa auth nên chưa ghi. Mỗi request chỉ một completion event; startup/shutdown/error event dùng mã tĩnh.
 
 Middleware context nằm ngoài middleware parser Task 4, giữ request ID tới lúc gửi response và reset ContextVar trong `finally`. Bắt exception chưa bắt đầu response, gửi Problem 500 qua cùng factory và không rethrow làm TestClient/Uvicorn ghi lại exception nhạy cảm. Nếu response đã bắt đầu thì không gửi response thứ hai; log code tĩnh `response_interrupted`. Uvicorn vẫn `--no-access-log` như T04. Không tự gắn CORS, cookie hoặc auth placeholder.
 
-- [ ] **Step 5: Kiểm chứng và commit.**
+- [x] **Step 5: Kiểm chứng và commit.**
 
 Run: `pnpm test:api -- tests/api/test_errors_and_logging.py -v`.
 
