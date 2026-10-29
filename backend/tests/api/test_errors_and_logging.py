@@ -149,7 +149,7 @@ def test_404_and_405_are_problem_json(error_client):
     missing = error_client.get("/api/v1/_test/test-only-missing")
     assert missing.status_code == 404
     assert _validate_problem(missing)["code"] == "not_found"
-    wrong_method = error_client.post("/api/v1/_test/crash")
+    wrong_method = error_client.post("/api/v1/_test/crash", json={})
     assert wrong_method.status_code == 405
     assert _validate_problem(wrong_method)["code"] == "method_not_allowed"
     assert wrong_method.headers["allow"] == "GET"

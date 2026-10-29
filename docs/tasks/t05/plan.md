@@ -319,7 +319,7 @@ git commit -m "feat: add consistent API problems and private request logging"
 - Produces `parse_json_bytes(data: bytes) -> Any` (chỉ JSON-compatible Python values; invalid raises `ProblemHTTPException` 400); pure-ASGI `StrictJSONMiddleware(app: ASGIApp)` giới hạn body và validate syntax trước routing/handler.
 - Produces scalar aliases trong `schemas/common.py`: `WireUUID` giữ chuỗi lowercase v4/v5; `LocalDate` giữ chuỗi Gregorian; `WireTimestamp` giữ chuỗi UTC millisecond; `Cursor` chuỗi canonical trong `[0,18446744073709551615]`; `DeviceSequence` trong `[1,18446744073709551615]`; `OrderKey` trong `[-9223372036854775808,9223372036854775807]`. Dùng `Annotated[str, ...]` và helpers Task 2, không đổi chuỗi wire thành JSON number.
 
-- [ ] **Step 1: Viết tests scalar biên và JSON trước implementation.**
+- [x] **Step 1: Viết tests scalar biên và JSON trước implementation.**
 
 ```python
 @pytest.mark.parametrize("value", ["0001-01-01", "2000-02-29", "9999-12-31"])
@@ -338,25 +338,25 @@ API probe test-only dùng model này và spy đếm số lần handler chạy. `
 
 `test_streaming_body_limit_counts_actual_bytes` gửi không Content-Length và có Content-Length sai, assert giới hạn dựa byte thực: auth **16.384**, các JSON mutation còn lại **8.388.608** byte. Body JSON hợp lệ có kích thước đúng giới hạn đi qua; thêm một byte trả 413/`payload_too_large`, spy 0, không đọc toàn bộ stream vô hạn. Có case Unicode nhiều byte để không nhầm code point với byte. `test_parser_preserves_original_body_bytes` assert handler đọc lại đúng raw bytes ban đầu, khoảng trắng/key order không đổi. `test_field_error_pointer_escapes_known_alias_only` dùng schema probe có alias `known/~field`, assert path `/known~1~0field`; với extra key `test-only-private-key` assert pointer parent `""`, không có tên key đó trong response/log.
 
-- [ ] **Step 2: Chạy tests mới và xác nhận RED.**
+- [x] **Step 2: Chạy tests mới và xác nhận RED.**
 
 Run: `pnpm test:api -- tests/unit/test_wire_values.py tests/api/test_strict_json.py -v`.
 
 Expected: FAIL do thiếu aliases/parser hoặc JSON mặc định chấp nhận dữ liệu bị cấm; không coi 404 do quên probe route là RED hợp lệ.
 
-- [ ] **Step 3: Implement aliases strict theo Interfaces.**
+- [x] **Step 3: Implement aliases strict theo Interfaces.**
 
 Validators kiểm tra cú pháp và miền số thật, không chỉ length/regex. Không tự lowercase UUID, sửa số decimal, cắt text hoặc thêm default vào DTO đã gửi. Number trong JSON chỉ nhận giá trị hữu hạn; numeric integer vượt safe integer bị từ chối vì mọi số lớn trong contract v1 phải là chuỗi. Field có miền nhỏ hơn vẫn do Pydantic/DTO task sở hữu kiểm tra.
 
 T05 chưa tạo `TaskData`/`Command`/auth request DTO: normalization NFC/trim, password policy, enum/limits nghiệp vụ được làm ở task sở hữu. Các operation đã ký/hash ở T10 chỉ được validate canonical, không normalize/rewrite lúc retry hoặc lưu.
 
-- [ ] **Step 4: Implement decoder và middleware streaming rồi lắp sau request context.**
+- [x] **Step 4: Implement decoder và middleware streaming rồi lắp sau request context.**
 
 Decoder dùng UTF-8 strict, `json.loads` có `object_pairs_hook` kiểm tra duplicate mọi mức, `parse_constant` từ chối NaN/Infinity, kiểm tra float hữu hạn/int bounds và recursive kiểm tra surrogate cả key/value. Từ chối BOM/JSON lỗi, không sửa payload. Middleware áp dụng POST/PUT/PATCH thuộc `/api/v1/`; auth prefix `/api/v1/auth/` dùng 16 KiB, còn lại 8 MiB. Từ chối Content-Length rõ ràng vượt giới hạn sớm, nhưng vẫn đếm từng chunk dù header vắng/sai. Khi hợp lệ, replay nguyên body cho downstream, không chèn parsed object vào request bằng private attribute.
 
 Lỗi body dùng `make_problem` và request ID Task 3, không echo parser exception. Không xử lý body cho GET/HEAD, không gọi DB và không thay kiểm tra Origin/CSRF mà T09 phải bổ sung trước mọi mutation thật. Middleware xử lý `http.disconnect` kết thúc an toàn, không coi body dang dở là request hợp lệ.
 
-- [ ] **Step 5: Kiểm chứng toàn bộ pipeline HTTP và commit.**
+- [x] **Step 5: Kiểm chứng toàn bộ pipeline HTTP và commit.**
 
 Run: `pnpm test:api -- tests/unit/test_wire_values.py tests/api/test_strict_json.py tests/api/test_errors_and_logging.py -v`.
 
