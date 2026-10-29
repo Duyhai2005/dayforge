@@ -87,7 +87,7 @@ export function moveAnchor(view: ViewState, direction: -1 | 1): ViewState;
 
 **Files:**
 - Create: `frontend/components/calendar/calendar-widget.tsx`, `frontend/components/calendar/calendar-view.tsx`, `frontend/tests/calendar-widget.spec.ts`
-- Modify: `frontend/app/(calendar)/layout.tsx`, `frontend/app/(calendar)/work/page.tsx`, `frontend/app/(calendar)/milestones/page.tsx`, `frontend/app/globals.css`, `frontend/tests/routes.spec.ts`
+- Modify: `frontend/app/(calendar)/layout.tsx`, `frontend/app/(calendar)/work/page.tsx`, `frontend/app/(calendar)/milestones/page.tsx`, `frontend/app/globals.css`, `frontend/tests/routes.spec.ts`, `frontend/tests/view-state.spec.ts`
 - Delete after migration: `frontend/components/calendar/view-navigation.tsx`
 
 **Interfaces:**
