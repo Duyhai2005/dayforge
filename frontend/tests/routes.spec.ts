@@ -18,6 +18,7 @@ for (const [route, heading] of [
     await expect(main).toHaveAttribute("id", "calendar-main");
     await expect(main).toHaveAttribute("tabindex", "-1");
     await expect(main.getByRole("heading", { name: heading, level: 1 })).toBeVisible();
-    await expect(main.getByRole("navigation", { name: "Điều hướng lịch" })).toBeVisible();
+    await expect(main.getByRole("button", { name: "Mở hoặc đóng điều hướng lịch" })).toHaveAttribute("aria-expanded", "false");
+    await expect(main.getByRole("status")).toHaveText("Chưa kết nối dữ liệu");
   });
 }

@@ -10,7 +10,7 @@ export default function CalendarLayout({
   children,
 }: Readonly<{ children: ReactNode }>): React.JSX.Element {
   return (
-    <main id="calendar-main" className="calendar-main" tabIndex={-1}>
+    <main id="calendar-main" className="calendar-main" aria-labelledby="calendar-title" tabIndex={-1}>
       <div className="calendar-content">{children}</div>
     </main>
   );

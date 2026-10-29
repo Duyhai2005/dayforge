@@ -1,5 +1,12 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { todayInUtc7, parseViewState, moveAnchor, readPreference, writePreference, serializeViewState } from "../lib/calendar/view-state";
+
+async function openWidget(page: Page): Promise<void> {
+  const toggle = page.getByRole("button", { name: "Mở hoặc đóng điều hướng lịch" });
+  await expect(toggle).toBeVisible();
+  if (await toggle.getAttribute("aria-expanded") === "false") await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+}
 
 const now = new Date("2026-10-29T00:00:00.000Z");
 const preference = { anchor: "2026-01-31", scale: "month" as const, scrollY: 80 };
@@ -51,41 +58,52 @@ test("serializeViewStateOrdersDateBeforeScale", () => {
 });
 test("calendarHistoryRestoresRouteDateAndScale", async ({ page }) => {
   await page.goto("/work?date=2026-01-31");
+  await openWidget(page);
   await expect(page.getByLabel("Ngày đang xem")).toHaveValue("2026-01-31");
   await page.getByRole("link", { name: "Lịch dấu mốc", exact: true }).click();
   await expect(page).toHaveURL(/\/milestones\?date=\d{4}-\d{2}-\d{2}&scale=month$/);
+  await openWidget(page);
   await expect(page.getByLabel("Quy mô")).toHaveValue("month");
   await page.getByLabel("Ngày đang xem").fill("2026-02-28");
   await expect(page).toHaveURL(/\/milestones\?date=2026-02-28&scale=month$/);
   await page.getByLabel("Quy mô").selectOption("year");
   await expect(page).toHaveURL(/\/milestones\?date=2026-02-28&scale=year$/);
   await page.goBack();
+  await openWidget(page);
   await expect(page.getByLabel("Quy mô")).toHaveValue("month");
   await page.goBack();
   await page.goBack();
   await expect(page).toHaveURL(/\/work\?date=2026-01-31$/);
+  await openWidget(page);
   await expect(page.getByLabel("Ngày đang xem")).toHaveValue("2026-01-31");
   await page.goForward();
   await page.goForward();
   await page.goForward();
   await expect(page).toHaveURL(/\/milestones\?date=2026-02-28&scale=year$/);
+  await openWidget(page);
   await expect(page.getByLabel("Ngày đang xem")).toHaveValue("2026-02-28");
+  await openWidget(page);
   await expect(page.getByLabel("Quy mô")).toHaveValue("year");
 });
 
 
 test("calendarPreferencesSurviveReloadAndRemainSeparate", async ({ page }) => {
   await page.goto("/milestones?date=2026-01-31&scale=month");
+  await openWidget(page);
   await expect(page.getByLabel("Ngày đang xem")).toHaveValue("2026-01-31");
   await page.getByRole("button", { name: "Tiến", exact: true }).click();
   await expect(page).toHaveURL(/\/milestones\?date=2026-02-28&scale=month$/);
   await page.reload();
+  await openWidget(page);
   await expect(page.getByLabel("Ngày đang xem")).toHaveValue("2026-02-28");
   await page.goto("/work?date=2026-06-01");
+  await openWidget(page);
   await expect(page.getByLabel("Ngày đang xem")).toHaveValue("2026-06-01");
   await page.getByRole("link", { name: "Lịch dấu mốc", exact: true }).click();
   await expect(page).toHaveURL(/\/milestones\?date=\d{4}-\d{2}-\d{2}&scale=month$/);
+  await openWidget(page);
   await expect(page.getByLabel("Ngày đang xem")).toHaveValue("2026-02-28");
+  await openWidget(page);
   await expect(page.getByLabel("Quy mô")).toHaveValue("month");
   expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("dayforge:view:v1:work")!))).toEqual({ anchor: "2026-06-01", scale: "week", scrollY: 0 });
 });
@@ -95,10 +113,12 @@ test("historyRestoresInitialPreferenceAfterDateChanges", async ({ page }) => {
     sessionStorage.setItem("dayforge:view:v1:milestones", JSON.stringify({ anchor: "2026-01-31", scale: "month", scrollY: 0 }));
   });
   await page.goto("/milestones");
+  await openWidget(page);
   await expect(page.getByLabel("Ngày đang xem")).toHaveValue("2026-01-31");
   await page.getByRole("button", { name: "Tiến", exact: true }).click();
   await expect(page).toHaveURL(/\/milestones\?date=2026-02-28&scale=month$/);
   await page.goBack();
+  await openWidget(page);
   await expect(page.getByLabel("Ngày đang xem")).toHaveValue("2026-01-31");
 });
 
@@ -119,6 +139,7 @@ test("calendarScrollPreferencesRestoreAndPersistSeparately", async ({ page }) =>
   });
 
   await page.goto("/work?date=2026-01-31");
+  await openWidget(page);
   await expect(page.getByLabel("Ngày đang xem")).toHaveValue("2026-01-31");
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(120);
   await page.reload();
@@ -129,6 +150,7 @@ test("calendarScrollPreferencesRestoreAndPersistSeparately", async ({ page }) =>
   expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("dayforge:view:v1:milestones")!))).toEqual({ anchor: "2026-02-28", scale: "year", scrollY: 640 });
 
   await page.goto("/milestones?date=2026-02-28&scale=year");
+  await openWidget(page);
   await expect(page.getByLabel("Quy mô")).toHaveValue("year");
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(640);
   await page.evaluate(() => window.scrollTo(0, 1100));
