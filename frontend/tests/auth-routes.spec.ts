@@ -62,6 +62,31 @@ test("resetCallbackScrubsTokenToo", async ({ page }) => {
   await expectNeutralCallback(page, "/reset-password");
 });
 
+for (const route of callbackRoutes) {
+  test(`${route.slice(1)}ScrubsTokenAfterSameDocumentHashChange`, async ({ page }) => {
+    const tokens = ["dayforge-first-token", "dayforge-second-token"];
+    const requests = observeRequests(page);
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    page.on("console", message => errors.push(message.text()));
+    await page.goto(`${route}?source=email#token=${tokens[0]}&extra=discard`, { waitUntil: "networkidle" });
+    const scrubbedUrl = new RegExp(`${route}\\?source=email$`);
+    await expect(page).toHaveURL(scrubbedUrl);
+    await page.evaluate(nextToken => { window.location.hash = `token=${nextToken}&extra=discard`; }, tokens[1]);
+    await expect(page).toHaveURL(scrubbedUrl);
+    await expect(page.getByRole("status")).toHaveText(incompleteStatus);
+    const markup = await page.locator("html").innerHTML();
+    const storage = await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }));
+    for (const secret of tokens) {
+      expect(markup).not.toContain(secret);
+      expect(JSON.stringify(storage)).not.toContain(secret);
+      expect(JSON.stringify(requests)).not.toContain(secret);
+      expect(errors.join("\n")).not.toContain(secret);
+    }
+    expect(requests.filter(request => request.method === "POST" && new URL(request.url).pathname.startsWith("/api/"))).toEqual([]);
+  });
+}
+
 test("callbackWithoutTokenRemainsNeutral", async ({ page }) => {
   for (const route of callbackRoutes) {
     const requests = observeRequests(page);

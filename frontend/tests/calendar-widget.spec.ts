@@ -73,6 +73,29 @@ test("viewControlsKeepWidgetOpen", async ({ page }) => {
   await expect(page.getByLabel("Khoảng đang xem").first()).toHaveText("Năm 2026");
 });
 
+test("viewControlsEnforceT03DomainBounds", async ({ page }) => {
+  for (const route of ["/work", "/milestones?scale=week", "/milestones?scale=month", "/milestones?scale=year"]) {
+    const separator = route.includes("?") ? "&" : "?";
+    for (const anchor of ["0001-01-01", "9999-12-31"]) {
+      await page.goto(`${route}${separator}date=${anchor}`);
+      await page.getByRole("button", { name: toggleName }).click();
+      const date = page.getByLabel("Ngày đang xem");
+      await expect(date).toHaveValue(anchor);
+      await expect(date).toHaveAttribute("min", "0001-01-01");
+      await expect(date).toHaveAttribute("max", "9999-12-31");
+      const previous = page.getByRole("button", { name: "Lùi", exact: true });
+      const next = page.getByRole("button", { name: "Tiến", exact: true });
+      if (anchor === "0001-01-01") {
+        await expect(previous).toBeDisabled();
+        await expect(next).toBeEnabled();
+      } else {
+        await expect(previous).toBeEnabled();
+        await expect(next).toBeDisabled();
+      }
+    }
+  }
+});
+
 test("quickAddActionsAreDisabledWithExplanation", async ({ page }) => {
   await page.goto("/work?date=2026-01-31");
   await expect(page.getByRole("button", { name: "Thêm nhanh", exact: true })).toBeDisabled();

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
-import { moveAnchor, parseViewState, todayInUtc7, type CalendarKind, type MilestoneScale, type ViewState } from "../../lib/calendar/view-state";
+import { MAX_CALENDAR_DATE, MIN_CALENDAR_DATE, moveAnchor, parseViewState, todayInUtc7, type CalendarKind, type MilestoneScale, type ViewState } from "../../lib/calendar/view-state";
 
 export type CalendarWidgetProps = {
   calendar: CalendarKind;
@@ -29,6 +29,8 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch }: Calenda
   const toggle = useRef<HTMLButtonElement>(null);
   const panelId = useId();
   const explanationId = useId();
+  const previousView = moveAnchor(view, -1);
+  const nextView = moveAnchor(view, 1);
   const close = () => {
     setOpen(false);
     toggle.current?.focus({ preventScroll: true });
@@ -76,12 +78,12 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch }: Calenda
           <option value="week">Tuần</option><option value="month">Tháng</option><option value="year">Năm</option>
         </select></label>}
         <div className="widget-range-actions">
-          <button type="button" onClick={() => onNavigate(moveAnchor(view, -1))}>Lùi</button>
+          <button type="button" disabled={previousView.anchor === view.anchor} onClick={() => onNavigate(previousView)}>Lùi</button>
           <button type="button" onClick={() => onNavigate({ ...view, anchor: todayInUtc7(new Date()) })}>Hôm nay</button>
-          <button type="button" onClick={() => onNavigate(moveAnchor(view, 1))}>Tiến</button>
+          <button type="button" disabled={nextView.anchor === view.anchor} onClick={() => onNavigate(nextView)}>Tiến</button>
         </div>
         <p className="widget-period" aria-label="Khoảng đang xem">{currentPeriod(view)}</p>
-        <label className="widget-field">Ngày đang xem<input type="date" value={view.anchor} onChange={event => {
+        <label className="widget-field">Ngày đang xem<input type="date" min={MIN_CALENDAR_DATE} max={MAX_CALENDAR_DATE} value={view.anchor} onChange={event => {
           if (!event.target.value) return;
           onNavigate(parseViewState(`/${calendar}`, new URLSearchParams({ date: event.target.value, scale: view.scale }), new Date(), null));
         }} /></label>

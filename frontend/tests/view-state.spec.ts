@@ -26,6 +26,24 @@ test("parseViewStateDefaultsInvalidFields", () => {
   expect(parseViewState("/milestones", new URLSearchParams("date=2026-02-30&scale=decade"), now, preference)).toEqual({ calendar: "milestones", anchor: "2026-10-29", scale: "month" });
   expect(parseViewState("/milestones", new URLSearchParams("date=&scale="), now, preference)).toEqual({ calendar: "milestones", anchor: "2026-10-29", scale: "month" });
 });
+test("parseViewStateEnforcesT03Domain", () => {
+  for (const anchor of ["0001-01-01", "9999-12-31"]) {
+    expect(parseViewState("/work", new URLSearchParams({ date: anchor }), now, null).anchor).toBe(anchor);
+  }
+  for (const anchor of ["0000-01-01", "10000-01-01"]) {
+    expect(parseViewState("/work", new URLSearchParams({ date: anchor }), now, null).anchor).toBe("2026-10-29");
+  }
+});
+test("preferencesEnforceT03Domain", () => {
+  const storage = memoryStorage();
+  const invalid = { anchor: "0000-01-01", scale: "month" as const, scrollY: 0 };
+  expect(parseViewState("/milestones", new URLSearchParams(), now, invalid).anchor).toBe("2026-10-29");
+  storage.setItem("dayforge:view:v1:milestones", JSON.stringify(invalid));
+  expect(readPreference("milestones", storage)).toBeNull();
+  storage.clear();
+  writePreference("milestones", invalid, storage);
+  expect(storage.getItem("dayforge:view:v1:milestones")).toBeNull();
+});
 test("moveAnchorPreservesEndOfMonth", () => {
   expect(moveAnchor({ calendar: "milestones", anchor: "2026-01-31", scale: "month" }, 1).anchor).toBe("2026-02-28");
   expect(moveAnchor({ calendar: "milestones", anchor: "2026-03-31", scale: "month" }, -1).anchor).toBe("2026-02-28");
@@ -33,6 +51,14 @@ test("moveAnchorPreservesEndOfMonth", () => {
 test("moveAnchorClampsLeapDay", () => {
   expect(moveAnchor({ calendar: "milestones", anchor: "2024-02-29", scale: "year" }, 1).anchor).toBe("2025-02-28");
   expect(moveAnchor({ calendar: "work", anchor: "2026-12-28", scale: "week" }, 1).anchor).toBe("2027-01-04");
+});
+test("moveAnchorStopsAtT03DomainBounds", () => {
+  for (const scale of ["week", "month", "year"] as const) {
+    expect(moveAnchor({ calendar: "milestones", anchor: "0001-01-01", scale }, -1).anchor).toBe("0001-01-01");
+    expect(moveAnchor({ calendar: "milestones", anchor: "9999-12-31", scale }, 1).anchor).toBe("9999-12-31");
+  }
+  expect(moveAnchor({ calendar: "work", anchor: "0001-01-01", scale: "week" }, -1).anchor).toBe("0001-01-01");
+  expect(moveAnchor({ calendar: "work", anchor: "9999-12-31", scale: "week" }, 1).anchor).toBe("9999-12-31");
 });
 test("readPreferenceRejectsMalformedOrUnavailableStorage", () => {
   const storage = memoryStorage();

@@ -6,14 +6,17 @@ type EmailCallbackProps = Readonly<{ purpose: "verify-email" | "reset-password" 
 
 export function EmailCallback({ purpose }: EmailCallbackProps): React.JSX.Element {
   const tokenRef = useRef<string | null>(null);
-  const fragmentReadRef = useRef(false);
 
   useEffect(() => {
-    if (!fragmentReadRef.current) {
-      tokenRef.current = new URLSearchParams(window.location.hash.slice(1)).get("token");
-      fragmentReadRef.current = true;
-    }
-    window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
+    const scrubFragment = () => {
+      if (window.location.hash) {
+        tokenRef.current = new URLSearchParams(window.location.hash.slice(1)).get("token");
+      }
+      window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
+    };
+    window.addEventListener("hashchange", scrubFragment);
+    scrubFragment();
+    return () => window.removeEventListener("hashchange", scrubFragment);
   }, []);
 
   return (

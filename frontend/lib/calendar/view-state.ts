@@ -2,9 +2,12 @@ export type CalendarKind = "work" | "milestones";
 export type MilestoneScale = "week" | "month" | "year";
 export type ViewState = { calendar: CalendarKind; anchor: string; scale: MilestoneScale };
 export type ViewPreference = { anchor: string; scale: MilestoneScale; scrollY: number };
+export const MIN_CALENDAR_DATE = "0001-01-01";
+export const MAX_CALENDAR_DATE = "9999-12-31";
 
 function calendarDate(value: unknown): value is string {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  if (value < MIN_CALENDAR_DATE || value > MAX_CALENDAR_DATE) return false;
   const date = new Date(`${value}T00:00:00.000Z`);
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
@@ -66,5 +69,6 @@ export function moveAnchor(view: ViewState, direction: -1 | 1): ViewState {
     last.setUTCMonth(last.getUTCMonth() + 1, 0);
     date.setUTCDate(Math.min(day, last.getUTCDate()));
   }
-  return { ...view, anchor: date.toISOString().slice(0, 10) };
+  const anchor = date.toISOString().slice(0, 10);
+  return calendarDate(anchor) ? { ...view, anchor } : view;
 }
