@@ -57,16 +57,16 @@
 
 **Interfaces:**
 ```ts
-type CalendarKind = "work" | "milestones";
-type MilestoneScale = "week" | "month" | "year";
-type ViewState = { calendar: CalendarKind; anchor: string; scale: MilestoneScale };
-function todayInUtc7(now: Date): string;
-type ViewPreference = { anchor: string; scale: MilestoneScale; scrollY: number };
-function parseViewState(pathname: string, search: URLSearchParams, now: Date, preference: ViewPreference | null): ViewState;
-function readPreference(calendar: CalendarKind, storage: Storage): ViewPreference | null;
-function writePreference(calendar: CalendarKind, preference: ViewPreference, storage: Storage): void;
-function serializeViewState(view: ViewState): string;
-function moveAnchor(view: ViewState, direction: -1 | 1): ViewState;
+export type CalendarKind = "work" | "milestones";
+export type MilestoneScale = "week" | "month" | "year";
+export type ViewState = { calendar: CalendarKind; anchor: string; scale: MilestoneScale };
+export function todayInUtc7(now: Date): string;
+export type ViewPreference = { anchor: string; scale: MilestoneScale; scrollY: number };
+export function parseViewState(pathname: string, search: URLSearchParams, now: Date, preference: ViewPreference | null): ViewState;
+export function readPreference(calendar: CalendarKind, storage: Storage): ViewPreference | null;
+export function writePreference(calendar: CalendarKind, preference: ViewPreference, storage: Storage): void;
+export function serializeViewState(view: ViewState): string;
+export function moveAnchor(view: ViewState, direction: -1 | 1): ViewState;
 ```
 - Ngày dùng định dạng `YYYY-MM-DD`; lịch công việc luôn scale `week`; lịch dấu mốc nhận `week|month|year`. `serializeViewState` trả pathname kèm query đã sắp theo thứ tự `date`, rồi `scale` (chỉ lịch dấu mốc).
 - Ngày query phải hợp lệ theo lịch thực; query field hiện diện nhưng sai dùng mặc định hôm nay UTC+07:00 hoặc scale `month` cho field đó.
@@ -80,7 +80,7 @@ function moveAnchor(view: ViewState, direction: -1 | 1): ViewState;
 - [ ] Cài đặt sáu hàm trong `view-state.ts`; phép tính dùng UTC calendar date, `week` cộng/trừ 7 ngày, `month` cộng/trừ một tháng và giữ ngày trong tháng (clamp tới ngày cuối nếu thiếu), `year` giữ tháng/ngày và clamp 29/2 sang 28/2 ở năm không nhuận.
 - [ ] Nối trạng thái vào hai route và URL; lùi/tiến thay đổi khoảng phù hợp scale chỉ áp dụng dấu mốc.
 - [ ] Đọc preference all-or-nothing; validate `anchor` là ngày lịch thực, `scale` thuộc enum (work phải `week`), `scrollY` là số hữu hạn không âm. Khi ghi, làm tròn/clamp `scrollY` thành số nguyên không âm; JSON lỗi và mọi exception từ storage đều không được throw ra UI.
-- [ ] Chạy `pnpm --filter @dayforge/frontend exec playwright test tests/view-state.spec.ts`; xác nhận ngày, scale, storage và Back/Forward đạt. Commit `feat: add calendar view state navigation`.
+- [ ] Chạy `pnpm --filter @dayforge/frontend exec playwright test tests/view-state.spec.ts` và `pnpm build:web`; xác nhận ngày, scale, storage, Back/Forward và TypeScript/build đạt. Commit `feat: add calendar view state navigation`.
 
 ### Task 3: Widget, tương tác và focus
 
