@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 test("root redirects to the work calendar", async ({ page }) => {
   await page.goto("/");
-  await expect(page).toHaveURL(/\/work$/);
+  await expect(page).toHaveURL(/\/work(?:\?date=\d{4}-\d{2}-\d{2})?$/);
 });
 
 for (const [route, heading] of [
@@ -18,7 +18,6 @@ for (const [route, heading] of [
     await expect(main).toHaveAttribute("id", "calendar-main");
     await expect(main).toHaveAttribute("tabindex", "-1");
     await expect(main.getByRole("heading", { name: heading, level: 1 })).toBeVisible();
-    // Until real calendars are supplied, the route contains only its heading.
-    await expect(main).toHaveText(heading);
+    await expect(main.getByRole("navigation", { name: "Điều hướng lịch" })).toBeVisible();
   });
 }
