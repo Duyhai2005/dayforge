@@ -1,7 +1,7 @@
 # T06 — Verification and handoff
 
 **Date:** 29/10/2026  
-**Branch:** `feature/t06-nextjs-shell`  
+**Branch:** `feature/nextjs-calendar-shell`<br>
 **Task 5 base:** `5a60f5d9f6a8bc49993a51f83a75941e46a0ffd2`  
 **Result:** the T06 framework shell is implemented; the final environment, build and browser runs below pass. One preceding production browser failure did not reproduce and is recorded with its investigation below. Native Cốc Cốc acceptance was skipped at the user direction. The configured HTTPS/API smoke was unavailable in this checkout and is not claimed as passed.
 
@@ -27,6 +27,8 @@
 | Production test origin | `http://127.0.0.1:3001` |
 
 ## Commands and results
+
+These original Task 5 checks ran before the branch was rebased onto the completed T05 foundation. Commit references below describe that earlier verification state.
 
 Node/uv binaries were added to the verification process PATH. The pnpm commands below used the npm package runner shown above; `FORCE_COLOR` and `NO_COLOR` were cleared for browser runs. No environment secret values were printed or copied.
 
@@ -90,7 +92,7 @@ Known minor from Task 3 review: the expanded panel precedes its toggle in DOM or
 
 | Task | Receives / remaining responsibility |
 | --- | --- |
-| T05 | Existing FastAPI bootstrap and API rewrite; implement settings, MySQL connection, schema/migrations, health and logs. T05 remains the next task in the existing sequence. |
+| T05 | The FastAPI/MySQL foundation, migrations, health and logs are already on `develop`; isolated acceptance and review passed. Consult the [T05 report](../t05/review-and-verification.md) for the remaining environment-specific limits. |
 | T07 | Pinned Playwright dependency/config/tests and Python regression discovery; integrate appropriate lint, type checks, broader test organization and CI. T06 did not add CI. |
 | T08 | Calendar shells and view-state helpers; implement device/owner-aware local data and migrate temporary view preferences deliberately. |
 | T09 | Neutral account/callback routes and verified production response headers; implement real auth/session/token-confirmation flows and owner-aware persistence against T03. Preserve fragment cleanup, no token leakage and no shared auth cache. |
@@ -98,4 +100,4 @@ Known minor from Task 3 review: the expanded panel precedes its toggle in DOM or
 | T13 | Public calendar shell has no private payload; implement offline shell/resource caching while keeping callbacks and private APIs network-only and preserving pending data through upgrades. |
 | T24/T26/T28 | Complete feature-level visual/keyboard acceptance and native Cốc Cốc verification after the functional flows exist; the recorded Tab-order minor is deferred to T26. |
 
-All commits remain local. No push, pull request or merge was performed during Task 5.
+At the time of the original Task 5 verification, all commits were local and no pull request or merge had been performed.
