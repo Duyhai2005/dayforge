@@ -67,8 +67,12 @@ def test_production_hides_openapi(settings_factory):
 
 
 def test_required_revision_is_discovered_from_packaged_scripts():
+    from pathlib import Path
+    from alembic.script import ScriptDirectory
     from app.services.readiness import required_schema_revision
-    assert required_schema_revision() == "0001_owner_workspace"
+    scripts = ScriptDirectory(str(Path(__file__).resolve().parents[2] / "migrations"))
+    head, = scripts.get_heads()
+    assert required_schema_revision() == head
 
 
 @pytest.mark.parametrize("revisions", [[], ["first", "second"], None])

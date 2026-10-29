@@ -31,13 +31,22 @@ class _NoRedirect(HTTPRedirectHandler):
         return None
 
 
+def _unique_object(pairs):
+    document = {}
+    for key, value in pairs:
+        if key in document:
+            raise ValueError("duplicate_json_key")
+        document[key] = value
+    return document
+
+
 def _get_json(opener, url: str, label: str, timeout_seconds: float):
     status, content_type, body = _get(opener, url, label, timeout_seconds)
     if status != 200 or "application/json" not in content_type.lower():
         raise SmokeError(f"The local {label} probe must return HTTP 200 and JSON.")
     try:
-        return json.loads(body)
-    except (json.JSONDecodeError, UnicodeDecodeError):
+        return json.loads(body, object_pairs_hook=_unique_object)
+    except ValueError:
         raise SmokeError(f"The local {label} probe returned invalid JSON.") from None
 
 
@@ -58,7 +67,12 @@ def _validate_version(document) -> None:
     if not valid:
         raise SmokeError("The local version probe does not match the system contract.")
     try:
-        datetime.fromisoformat(document["server_time"])
+        timestamp = document["server_time"]
+        datetime(
+            int(timestamp[0:4]), int(timestamp[5:7]), int(timestamp[8:10]),
+            int(timestamp[11:13]), int(timestamp[14:16]), int(timestamp[17:19]),
+            int(timestamp[20:23]) * 1000,
+        )
     except ValueError:
         raise SmokeError("The local version probe has an invalid UTC timestamp.") from None
 
