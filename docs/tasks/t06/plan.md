@@ -17,6 +17,7 @@
 - Múi giờ làm việc: `UTC+07:00`; tuần bắt đầu thứ hai và kết thúc chủ nhật.
 - Token UI theo T02: nền `#141C22`, lớp ngoài `#10171C`, panel `#202C30`, chữ chính `#E6ECE7`; font `Segoe UI, Arial, sans-serif`; max content khoảng `1540px`.
 - Không header/sidebar cố định; bố cục desktop 1024–1920px; vùng lịch hẹp được cuộn ngang, widget không che cuối trang.
+- Motion theo T02: hover/press `120ms`, widget/modal `180ms`, route/scale `260ms`, focus outline `2px` offset `3px`; reduced motion dùng trạng thái tức thì hoặc fade tối đa `80ms` và bỏ translate/scale.
 - Shell chung chỉ có code/tài nguyên và trạng thái UI công khai; không cache/render dữ liệu owner, session, token hoặc nội dung lịch riêng.
 - T06 không triển khai auth/API nghiệp vụ, IndexedDB, sync hay service worker; không hiển thị trạng thái lưu/sync thành công giả. Các phần đó thuộc T08/T09/T13.
 - Kiểm thử tương tác trình duyệt dùng `@playwright/test` `1.64.1` như dev dependency, không thêm dependency runtime.
@@ -85,22 +86,33 @@ export function moveAnchor(view: ViewState, direction: -1 | 1): ViewState;
 ### Task 3: Widget, tương tác và focus
 
 **Files:**
-- Create: `frontend/components/calendar/calendar-widget.tsx`, `frontend/components/calendar/calendar-view.tsx`
-- Modify: `frontend/app/(calendar)/layout.tsx`, `frontend/app/(calendar)/work/page.tsx`, `frontend/app/(calendar)/milestones/page.tsx`, `frontend/app/globals.css`
-- Test: `frontend/tests/calendar-widget.spec.ts` (Playwright browser test; Playwright là dev dependency từ Task 1)
+- Create: `frontend/components/calendar/calendar-widget.tsx`, `frontend/components/calendar/calendar-view.tsx`, `frontend/tests/calendar-widget.spec.ts`
+- Modify: `frontend/app/(calendar)/layout.tsx`, `frontend/app/(calendar)/work/page.tsx`, `frontend/app/(calendar)/milestones/page.tsx`, `frontend/app/globals.css`, `frontend/tests/routes.spec.ts`
+- Delete after migration: `frontend/components/calendar/view-navigation.tsx`
 
 **Interfaces:**
-- Consumes: `ViewState`, `serializeViewState`, `moveAnchor` từ Task 2.
-- Produces: widget thu gọn/mở, điều hướng lịch/khoảng/scale, focus theo route; link `/account`.
+- Consumes: exported `CalendarKind`, `ViewState`, `serializeViewState`, `moveAnchor`, `todayInUtc7`, `parseViewState`, `readPreference`, `writePreference` from Task 2.
+- Produces:
+```ts
+type CalendarViewProps = { calendar: CalendarKind };
+export function CalendarView(props: CalendarViewProps): React.JSX.Element;
+type CalendarWidgetProps = {
+  calendar: CalendarKind;
+  view: ViewState;
+  onNavigate(next: ViewState): void;
+  onSwitch(nextCalendar: CalendarKind): void;
+};
+export function CalendarWidget(props: CalendarWidgetProps): React.JSX.Element;
+```
+`CalendarView` owns the existing route/query/preference lifecycle and renders the route heading, current-period label and `CalendarWidget`; the two page routes wrap it in `Suspense`. `CalendarWidget` renders controls and calls its callbacks; it does not own or persist calendar state.
 
-- [ ] Viết kiểm thử cho mở/thu widget, Escape, click ngoài, chuyển lịch, lùi/tiến, hôm nay, scale dấu mốc, focus đích và focus trả về.
-- [ ] Chạy `pnpm --filter @dayforge/frontend exec playwright test tests/calendar-widget.spec.ts` trước triển khai; xác nhận test thất bại.
-- [ ] Tạo widget giữa cạnh dưới theo T02; panel mở chứa chuyển lịch, điều hướng, scale dấu mốc, mục thêm và tài khoản.
-- [ ] Chỉ bật tương tác đã có: chuyển route, thời gian, scale, mở `/account`; thao tác tạo chưa triển khai phải disabled và giải thích ngắn, không tạo kết quả giả.
-- [ ] Chuyển lịch thu panel và focus vùng nội dung đích; Escape/click ngoài trả focus nút mở; đổi khoảng/scale giữ panel mở.
-- [ ] Dùng button native, accessible name, `aria-expanded`, focus ring 2px offset 3px; reduced-motion vẫn giữ chức năng.
-- [ ] Chạy `pnpm --filter @dayforge/frontend exec playwright test tests/calendar-widget.spec.ts`; xác nhận bàn phím/chuột, focus và trạng thái reduced-motion. Commit `feat: add calendar navigation widget`.
-
+- [ ] Write Playwright tests with exact outcomes: `widgetOpensAndClosesByToggleEscapeAndOutsideClick` (toggle sets `aria-expanded`, Escape/outside click hides panel and restores focus to toggle); `calendarSwitchClosesAndFocusesMain` (switch to milestones navigates `/milestones`, closes panel, focuses `main#calendar-main`); `viewControlsKeepWidgetOpen` (next/today/date/scale update the expected URL while panel stays open); `quickAddActionsAreDisabledWithExplanation` (all three add actions are disabled and their visible explanation says saving is not available yet); `widgetHonorsReducedMotion` (with reduced motion, no translate/scale and transition duration is at most `80ms`).
+- [ ] Run `pnpm --filter @dayforge/frontend exec playwright test tests/calendar-widget.spec.ts` before implementation; confirm the widget assertions fail.
+- [ ] Move the Task 2 route-state lifecycle from `view-navigation.tsx` into `CalendarView`; render its state through a presentational `CalendarWidget`; remove `view-navigation.tsx` after both calendar pages use the replacement.
+- [ ] Place the widget centered on the bottom edge. Collapsed state shows a disabled quick-add control, current calendar name, an accessible `Chưa kết nối dữ liệu` status, and the open toggle. Expanded panel includes add-work/add-milestone/add-plan controls, route switches, milestone-only week/month/year scale, today/previous/next/current-range controls, and `/account`.
+- [ ] Keep add controls disabled with visible explanatory text; implement route, date, scale and today controls using the Task 2 callbacks. Switching calendar closes the widget and focuses the destination main region; Escape/outside click closes without changing view and returns focus to the toggle; range/scale changes keep the widget open.
+- [ ] Apply T02 motion: hover/press `120ms`, widget open/close `180ms`, route/scale transition `260ms`, opacity/transform with `6–10px` movement; reduced motion removes movement/scale and uses immediate change or fade of at most `80ms`. Keep the visible `2px` focus outline with `3px` offset and retain keyboard operation.
+- [ ] Run `pnpm --filter @dayforge/frontend exec playwright test tests/calendar-widget.spec.ts`, the full Playwright suite, and `pnpm build:web`; all must pass. Commit `feat: add calendar navigation widget`.
 ### Task 4: Route tài khoản và callback email an toàn
 
 **Files:**
