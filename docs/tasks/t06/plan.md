@@ -116,20 +116,18 @@ export function CalendarWidget(props: CalendarWidgetProps): React.JSX.Element;
 ### Task 4: Route tài khoản và callback email an toàn
 
 **Files:**
-- Create: `frontend/app/(account)/account/page.tsx`, `frontend/app/(account)/verify-email/page.tsx`, `frontend/app/(account)/reset-password/page.tsx`
-- Modify: `frontend/next.config.ts`; `headers()` áp callback headers chính xác cho `/verify-email` và `/reset-password`.
-- Test: `frontend/tests/auth-routes.spec.ts` (Playwright route/header/browser test)
+- Create: `frontend/app/(account)/layout.tsx`, `frontend/app/(account)/account/page.tsx`, `frontend/app/(account)/verify-email/page.tsx`, `frontend/app/(account)/reset-password/page.tsx`, `frontend/components/account/email-callback.tsx`, `frontend/tests/auth-routes.spec.ts`
+- Modify: `frontend/next.config.ts`, `frontend/app/globals.css`
 
 **Interfaces:**
-- Produces: `/account`, `/verify-email`, `/reset-password`; callback loại token khỏi URL ngay khi khởi tạo, chưa gọi API hoặc consume token.
+- Produces: `/account`, `/verify-email`, `/reset-password`; callback reads `token` from the URL fragment into component memory, removes the full fragment using `history.replaceState` while preserving pathname/query, then renders only a neutral incomplete status. It does not POST, consume, display, or persist the token.
 
-- [ ] Viết HTTP test cho ba route trả 200; callback trả `Cache-Control: private, no-store`, `Pragma: no-cache`, `Referrer-Policy: no-referrer`.
-- [ ] Viết browser test mở URL có `#token=...`; sau hydrate fragment bị xóa, token không có trong DOM/storage/network request; GET không gọi API.
-- [ ] Chạy `pnpm --filter @dayforge/frontend exec playwright test tests/auth-routes.spec.ts` trước triển khai; xác nhận route/header/callback chưa đạt.
-- [ ] Tạo trang tài khoản và callback nền, copy tiếng Việt báo luồng đang được hoàn thiện; callback đọc token chỉ trong memory nếu cần và xóa fragment bằng `history.replaceState` ngay khi mount, không lưu token.
-- [ ] Đặt header no-store/no-referrer chính xác cho callback; giữ nguyên rewrite `/api/v1/*`; không thêm analytics/script bên thứ ba.
-- [ ] Chạy kiểm thử HTTP/trình duyệt và xác nhận trên production build. Commit `feat: add account and email callback shells`.
-
+- [ ] Write Playwright tests with exact outcomes: `accountRouteIsAnExplicitPlaceholder` (`/account` is 200, heading `Tài khoản`, text `Chức năng tài khoản chưa được kết nối.`, no login/password form); `callbackRoutesCarryNoStoreHeaders` (both callback routes return `Cache-Control` including `private` and `no-store`, `Pragma: no-cache`, `Referrer-Policy: no-referrer`); `callbackScrubsTokenWithoutPersistingOrPosting` (open `/verify-email#token=dayforge-test-token`, wait until hash is empty, then assert token is absent from DOM, localStorage, sessionStorage, and all requests; no POST to `/api/**`); `resetCallbackScrubsTokenToo` (same assertions for `/reset-password#token=dayforge-test-token`); `callbackWithoutTokenRemainsNeutral` (missing token keeps incomplete status and creates no request); `callbacksLoadNoThirdPartyScripts` (every external script URL is same-origin).
+- [ ] Run `pnpm --filter @dayforge/frontend exec playwright test tests/auth-routes.spec.ts` before implementation; confirm missing routes or callback/header assertions fail.
+- [ ] Create a separate account route-group layout using the established dark tokens. `/account` and callback pages are explicit placeholders with the exact status text above; add no login, password, reset or verification form controls.
+- [ ] Implement `EmailCallback({ purpose: "verify-email" | "reset-password" })` in `frontend/components/account/email-callback.tsx`: on mount, parse only the fragment `token`, keep its value only in a ref, replace the current URL with pathname plus search and no fragment, and never include the token in rendered text, storage, analytics, API requests or error output.
+- [ ] Add Next.js `headers()` rules for exact paths `/verify-email` and `/reset-password`: `Cache-Control: private, no-store`, `Pragma: no-cache`, `Referrer-Policy: no-referrer`. Preserve `/api/v1/*` rewrite; add no third-party scripts or analytics.
+- [ ] Run `pnpm --filter @dayforge/frontend exec playwright test tests/auth-routes.spec.ts`, the full Playwright suite, and `pnpm build:web`; all must pass. Verify the same callback headers against the production server in Task 5. Commit `feat: add account and email callback shells`.
 ### Task 5: Kiểm chứng tích hợp và bàn giao T06
 
 **Files:**
