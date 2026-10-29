@@ -9,6 +9,7 @@
 | Kiểm tra bản T02 | [Rà soát và kiểm tra giao diện tổng hợp](tasks/t02/review-and-verification.md) |
 | Hợp đồng T03 | [Dữ liệu, tài khoản, API và đồng bộ 1.0](tasks/t03/design.md) |
 | Kế hoạch T04 | [Tổ chức dự án và môi trường phát triển](tasks/t04/plan.md) |
+| Kế hoạch T05 | [Dựng nền FastAPI và MySQL](tasks/t05/plan.md) |
 | Dựng môi trường local | [Hướng dẫn Windows/PowerShell](development.md) |
 | Kiểm chứng T04 | [Rà soát, kết quả và giới hạn](tasks/t04/review-and-verification.md) |
 | Quy ước phát triển | [Coding convention](CONVENTION.md), [Git Flow](GITFLOW.md) |

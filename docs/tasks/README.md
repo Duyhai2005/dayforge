@@ -10,7 +10,7 @@
 
 **Spec:** [Thiết kế T01 đã duyệt](t01/design.md), [tổng quan hồ sơ](../project-definition/README.md), [yêu cầu chức năng](../project-definition/02-functional-requirements.md), [UX](../project-definition/03-ux-and-interactions.md), [kiến trúc](../project-definition/04-technical-architecture.md), [dữ liệu và đồng bộ](../project-definition/05-data-and-sync.md), [nghiệm thu](../project-definition/06-delivery-and-acceptance.md).
 
-Ngày cập nhật: **29/10/2026** · Trạng thái: **T01–T03 hoàn thành thiết kế/hợp đồng; T04 hoàn thành nền môi trường local. T05–T36 chưa hoàn thành; chưa triển khai các luồng sản phẩm.**
+Ngày cập nhật: **29/10/2026** · Trạng thái: **T01–T03 hoàn thành thiết kế/hợp đồng; T04 hoàn thành nền môi trường local; T05 đang triển khai theo [kế hoạch chi tiết](t05/plan.md). T06–T36 chưa hoàn thành; chưa triển khai các luồng sản phẩm.**
 
 ## 1. Cách dùng kế hoạch
 
@@ -65,7 +65,7 @@ Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hi
 ### Nhóm 2 — Dựng nền dự án · T04–T07
 
 - [x] **T04 — Tổ chức dự án và môi trường phát triển.** Hoàn thành ngày **29/10/2026**: cấu trúc frontend/backend, runtime/dependency/image pins, cấu hình mẫu không chứa secrets, HTTPS cùng-origin và hướng dẫn tái lập trên Windows. Xem [kế hoạch và checklist](t04/plan.md), [runbook](../development.md) và [báo cáo kiểm chứng](t04/review-and-verification.md). Người dùng miễn direct check trên Cốc Cốc; browser trust ghi nhận là chưa xác minh.
-- [ ] **T05 — Dựng FastAPI và MySQL.** Thiết lập kết nối, schema/migration ban đầu, validation, xử lý lỗi, health check và log cần thiết.
+- [ ] **T05 — Dựng FastAPI và MySQL.** Thiết lập kết nối, schema/migration ban đầu, validation, xử lý lỗi, health check và log cần thiết. Cần đầu vào T04; đang triển khai theo [kế hoạch chi tiết](t05/plan.md).
 - [ ] **T06 — Dựng khung Next.js server.** Thiết lập runtime Node, hai route lịch, route tài khoản/email callback, nền giao diện, widget và cơ chế trạng thái/focus; tách shell có thể cache khỏi dữ liệu riêng.
 - [ ] **T07 — Thiết lập kiểm tra tự động.** Có lint, type check, test runner, môi trường MySQL kiểm thử và CI kiểm tra test/build trước khi phát hành.
 
