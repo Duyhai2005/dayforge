@@ -70,15 +70,16 @@ function moveAnchor(view: ViewState, direction: -1 | 1): ViewState;
 ```
 - Ngày dùng định dạng `YYYY-MM-DD`; lịch công việc luôn scale `week`; lịch dấu mốc nhận `week|month|year`. `serializeViewState` trả pathname kèm query đã sắp theo thứ tự `date`, rồi `scale` (chỉ lịch dấu mốc).
 - Ngày query phải hợp lệ theo lịch thực; query field hiện diện nhưng sai dùng mặc định hôm nay UTC+07:00 hoặc scale `month` cho field đó.
+- Với query field bị thiếu, `parseViewState` dùng field tương ứng từ preference hợp lệ; nếu không có preference thì ngày hôm nay/scale `month`. Query field hiện diện nhưng không hợp lệ dùng mặc định kể cả khi preference có giá trị.
 - Query dùng `date=YYYY-MM-DD` và, ở lịch dấu mốc, `scale=week|month|year`. Giá trị hợp lệ trong URL ưu tiên trường tương ứng; thiếu giá trị khôi phục từ sở thích nếu hợp lệ, nếu không dùng hôm nay/`month`; giá trị hiện diện nhưng sai dùng mặc định cho trường đó.
 - Query thay đổi tạo history entry và Back/Forward phục hồi route/ngày/scale.
 - Sở thích lưu riêng từng lịch bằng `sessionStorage`, không lưu nội dung nghiệp vụ; khóa chính xác `dayforge:view:v1:work` và `dayforge:view:v1:milestones`, JSON shape `{anchor,scale,scrollY}`; work luôn scale `week`. Storage lỗi/hỏng thì bỏ qua và dùng mặc định.
 
-- [ ] Viết kiểm thử cho UTC+07:00 hai phía nửa đêm UTC; tuần thứ hai–chủ nhật qua năm; tháng ngắn/năm nhuận; query sai; lùi/tiến khoảng.
-- [ ] Chạy `pnpm --filter @dayforge/frontend exec playwright test tests/view-state.spec.ts` trước triển khai; xác nhận test thất bại vì hàm chưa có.
-- [ ] Cài đặt sáu hàm trong `view-state.ts`, dùng UTC cố định, validation ngày theo lịch thực.
+- [ ] Viết các test `todayInUtc7RollsAtBangkokMidnight` (2026-10-29T16:59:59.999Z → 2026-10-29; 2026-10-29T17:00:00.000Z → 2026-10-30), `parseViewStateUsesPreferenceOnlyForMissingFields`, `parseViewStateDefaultsInvalidFields`, `moveAnchorPreservesEndOfMonth` (2026-01-31 + 1 month → 2026-02-28), `moveAnchorClampsLeapDay` (2024-02-29 + 1 year → 2025-02-28), `readPreferenceRejectsMalformedOrUnavailableStorage` và Playwright `calendarHistoryRestoresRouteDateAndScale`.
+- [ ] Chạy `pnpm --filter @dayforge/frontend exec playwright test tests/view-state.spec.ts` trước triển khai; xác nhận các test hàm/route thất bại vì module hoặc route wiring chưa có.
+- [ ] Cài đặt sáu hàm trong `view-state.ts`; phép tính dùng UTC calendar date, `week` cộng/trừ 7 ngày, `month` cộng/trừ một tháng và giữ ngày trong tháng (clamp tới ngày cuối nếu thiếu), `year` giữ tháng/ngày và clamp 29/2 sang 28/2 ở năm không nhuận.
 - [ ] Nối trạng thái vào hai route và URL; lùi/tiến thay đổi khoảng phù hợp scale chỉ áp dụng dấu mốc.
-- [ ] Lưu/khôi phục sở thích từng lịch và scroll qua sessionStorage; xử lý JSON lỗi, quota/security exception bằng mặc định.
+- [ ] Đọc preference all-or-nothing; validate `anchor` là ngày lịch thực, `scale` thuộc enum (work phải `week`), `scrollY` là số hữu hạn không âm. Khi ghi, làm tròn/clamp `scrollY` thành số nguyên không âm; JSON lỗi và mọi exception từ storage đều không được throw ra UI.
 - [ ] Chạy `pnpm --filter @dayforge/frontend exec playwright test tests/view-state.spec.ts`; xác nhận ngày, scale, storage và Back/Forward đạt. Commit `feat: add calendar view state navigation`.
 
 ### Task 3: Widget, tương tác và focus
