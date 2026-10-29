@@ -7,6 +7,72 @@ import pytest
 
 
 @pytest.fixture
+def contract_validator():
+    import json
+    from pathlib import Path
+    from jsonschema import Draft202012Validator, FormatChecker
+
+    schema = json.loads((Path(__file__).resolve().parents[2] / "docs/tasks/t03/contract.schema.json").read_text(encoding="utf-8"))
+    def validator(definition):
+        return Draft202012Validator({"$ref": f"#/$defs/{definition}", "$defs": schema["$defs"]},
+                                    format_checker=FormatChecker())
+    return validator
+
+
+@pytest.fixture
+def system_client(settings_factory):
+    import warnings
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="Using `httpx` with `starlette.testclient` is deprecated.*")
+        from fastapi.testclient import TestClient
+    from app.main import create_app
+
+    with TestClient(create_app(settings_factory(db_port=1))) as client:
+        yield client
+
+
+@pytest.fixture
+def mysql_control(t05_mysql_settings):
+    import subprocess
+    from time import monotonic, sleep
+
+    container = os.environ["DAYFORGE_T05_TEST_CONTAINER_ID"]
+    project = os.environ["DAYFORGE_T05_TEST_PROJECT"]
+
+    def docker(*arguments, timeout=15):
+        try:
+            result = subprocess.run(["docker", *arguments], capture_output=True, text=True, timeout=timeout)
+        except (OSError, subprocess.TimeoutExpired):
+            pytest.fail("Isolated MySQL control unavailable")
+        code, output = result.returncode, result.stdout.strip()
+        del result
+        if code:
+            pytest.fail("Isolated MySQL control failed (details suppressed)")
+        return output
+
+    actual_project = docker("inspect", "--format", '{{ index .Config.Labels "com.docker.compose.project" }}', container)
+    if actual_project != project:
+        pytest.fail("Isolated MySQL container project mismatch")
+    initial_endpoint = docker("port", container, "3306/tcp")
+
+    def control(action):
+        if action not in ("stop", "start"):
+            raise ValueError("invalid_mysql_control_action")
+        deadline = monotonic() + 120
+        docker(action, container)
+        if action == "start":
+            while monotonic() < deadline:
+                if docker("inspect", "--format", "{{.State.Health.Status}}", container,
+                          timeout=min(15, deadline - monotonic())) == "healthy":
+                    if docker("port", container, "3306/tcp", timeout=min(15, deadline - monotonic())) != initial_endpoint:
+                        pytest.fail("Isolated MySQL published endpoint changed across container restart")
+                    return
+                sleep(1)
+            pytest.fail("Isolated MySQL did not become healthy")
+    return control
+
+
+@pytest.fixture
 def user_factory():
     from app.models.owner import User
 

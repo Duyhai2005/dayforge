@@ -168,7 +168,7 @@ Chỉ chọn các biến được khai báo từ môi trường; validate port n
 
 `scripts/test_backend.py::main(argv: Sequence[str] | None = None) -> int`: mặc định gọi `python -m pytest -m "not mysql"`; `--mysql` gọi `-m mysql` và nhận các pytest args còn lại (bỏ separator `--` nếu có). Dùng `sys.executable`, cwd tuyệt đối `backend/`, truyền argv list, không shell string.
 
-Nhánh MySQL lấy **chỉ image** từ `docker compose --env-file .env config --images` của T04, phải là một image MySQL có digest. Sinh project `dayforge-t05-<uuid4hex>`, password app/root độc lập trong memory và test-run ID. `backend/tests/compose.mysql.yaml` dùng image đó qua env, DB `dayforge_t05_test`, user `dayforge_test`, mapping `127.0.0.1::3306`, anonymous volume riêng tại `/var/lib/mysql`, không named volume hoặc bind mount; healthcheck SELECT 1 như T04. Anonymous volume giữ schema qua stop/start trong bài thử outage và bị gỡ khi cleanup project test. Compose dùng env file rỗng tạm thời và env test riêng, không dùng credentials development để mở DB test.
+Nhánh MySQL lấy **chỉ image** từ `docker compose --env-file .env config --images` của T04, phải là một image MySQL có digest. Sinh project `dayforge-t05-<uuid4hex>`, password app/root độc lập trong memory và test-run ID. `backend/tests/compose.mysql.yaml` dùng image đó qua env, DB `dayforge_t05_test`, user `dayforge_test`, anonymous volume riêng tại `/var/lib/mysql`, không named volume hoặc bind mount; healthcheck SELECT 1 như T04. Theo kiểm chứng Task 5, Docker cấp lại host port của mapping rỗng `127.0.0.1::3306` khi stop/start; runner thay bằng một port loopback đang rảnh do OS chọn, truyền qua env test và bind host port tường minh, rồi assert `compose port` khớp trước pytest. Endpoint phải giữ nguyên để kiểm chứng cùng app/engine hồi phục thật; nếu port bị chiếm giữa lúc chọn và Compose up thì runner fail có cleanup, không tái sử dụng DB khác. Anonymous volume giữ schema qua stop/start trong bài thử outage và bị gỡ khi cleanup project test. Compose dùng env file rỗng tạm thời và env test riêng, không dùng credentials development để mở DB test.
 
 Runner `up -d --wait --wait-timeout 120`, lấy mapped port qua `compose port` và container ID qua `compose ps -q mysql`; đặt `APP_ENV=test`/`DB_*`, `DAYFORGE_T05_TEST_RUN_ID`, `DAYFORGE_T05_TEST_PROJECT`, `DAYFORGE_T05_TEST_CONTAINER_ID` cho pytest. Mọi SQL test dùng app user; không root. `finally` gọi `down --volumes --remove-orphans` **chỉ** với file/project UUID vừa tạo đã kiểm tra prefix, kể cả pytest/startup lỗi. Không đổi/dừng project `dayforge-dev`. Không in config, env, raw container inspect hoặc output có secret; lỗi Docker/timeout/test phải exit khác 0, không giả thành skip. Runner chỉ là scaffold cho các test T05; T07 có thể hợp nhất sau.
 
@@ -378,7 +378,7 @@ git commit -m "feat: enforce strict JSON and canonical wire scalar validation"
 - `async health(request: Request) -> HealthResponse`: 200 `{"status":"ok"}` khi ready, ngược lại raise 503 `service_unavailable`. `async version() -> VersionInfo`: 200 thông tin tương thích, không phụ thuộc DB. Hai GET không tạo dữ liệu/cookie/owner.
 - Test fixture `mysql_control: Callable[[Literal["stop", "start"]], None]` trong `conftest.py` chỉ điều khiển container ID do runner Task 1 cung cấp sau khi xác nhận run ID/project UUID khớp. `stop` gọi Docker stop đúng ID; `start` gọi Docker start đúng ID rồi chờ health qua `docker inspect --format` chỉ lấy `.State.Health.Status`, timeout 120 giây; không đọc/in full inspect hoặc thao tác project dev.
 
-- [ ] **Step 1: Viết tests endpoint và readiness thật.**
+- [x] **Step 1: Viết tests endpoint và readiness thật.**
 
 ```python
 def test_version_matches_contract_without_database(system_client, contract_validator):
@@ -402,28 +402,30 @@ def test_version_matches_contract_without_database(system_client, contract_valid
 
 Integration `test_empty_database_is_not_ready` assert 503 và không sinh bảng. `test_behind_revision_or_missing_table_is_not_ready` tạo revision cũ và case drop bảng `workspace_settings` trên DB test, assert 503, giữ revision/data còn lại. `test_migrated_database_is_ready` assert 200 sau migration, số owner vẫn 0. `test_database_outage_recovers_without_api_restart` giữ cùng TestClient/lifespan, stop/start **chỉ container MySQL test**, request lúc dừng trả 503 trong tối đa 3 giây (timeout logic 2 giây + tolerance), request sau Compose healthy trả 200; không dispose/recreate app để làm test xanh. Dùng pool đã từng hoạt động để kiểm tra stale connection/pre-ping.
 
-- [ ] **Step 2: Chạy tests mới và xác nhận RED.**
+- [x] **Step 2: Chạy tests mới và xác nhận RED.**
 
 Run riêng `pnpm test:api -- tests/api/test_system.py -v`, `pnpm test:api:mysql -- tests/integration/test_readiness.py -v`.
 
 Expected: FAIL vì thiếu route/readiness, không pass bằng stub luôn true.
 
-- [ ] **Step 3: Implement readiness service theo Interfaces.**
+- [x] **Step 3: Implement readiness service theo Interfaces.**
 
 Trong `asyncio.timeout(2)`, mở connection mới từ pool, `SELECT 1`, kiểm tra `alembic_version` có đúng revision single-head, và đọc zero rows từ cột tối thiểu `users.id`/`workspace_settings.owner_id` để phát hiện stamp có nhưng thiếu bảng. Xác nhận session timezone `+00:00`, charset `utf8mb4`, strict SQL mode. Timeout/lỗi kết nối/schema không sẵn sàng trả false và log mã tĩnh, không raw SQL/exception/DSN. Hủy probe giải phóng/invalidates connection đúng theo driver; không để probe treo giữ pool. Không mutate DB hoặc dùng cache ready cũ. Owner chưa được tạo không phải lỗi readiness.
 
-- [ ] **Step 4: Implement schema/router và lắp app factory.**
+- [x] **Step 4: Implement schema/router và lắp app factory.**
 
 `VersionInfo`/limits đúng test/schema T03, `server_time` là UTC millisecond tại mỗi response, không lộ runtime patch/config/email/DSN. Health/version đều `Cache-Control: no-store`, không auth; chỉ mount hai endpoint này. App giữ title và OpenAPI path development T04; production tắt docs/OpenAPI public. Startup config sai fail rõ, DB down vẫn lên process để health trả 503, startup không tự chạy Alembic/seed. Probe Next.js T04 tiếp tục đọc OpenAPI JSON hợp lệ, không yêu cầu `paths == {}` sau T05.
 
-- [ ] **Step 5: Chạy tests và commit.**
+- [x] **Step 5: Chạy tests và commit.**
 
 Run: `pnpm test:api -- tests/api/test_system.py -v`, `pnpm test:api:mysql -- tests/integration/test_readiness.py -v`.
 
 Expected: PASS; outage→recovery không restart API, không skip, không tác động DB dev. `/version` không phải bằng chứng auth/sync hoặc reducer nghiệp vụ đã được triển khai.
 
+Kiểm chứng sau sửa port test ổn định: focused API 18 passed; focused readiness MySQL 13 passed, gồm outage/recovery giữ cùng app/engine. Toàn bộ `pnpm test:api` 200 passed / 37 deselected và `pnpm test:api:mysql` 37 passed / 200 deselected; không warning/skip. Runner cleanup project UUID test thành công; không thao tác DB/volume development.
+
 ```bash
-git add backend/app/services/__init__.py backend/app/services/readiness.py backend/app/schemas/system.py backend/app/api/__init__.py backend/app/api/system.py backend/app/main.py backend/tests/conftest.py backend/tests/api/test_system.py backend/tests/integration/test_readiness.py
+git add backend/app/services/__init__.py backend/app/services/readiness.py backend/app/schemas/system.py backend/app/api/__init__.py backend/app/api/system.py backend/app/main.py backend/tests/conftest.py backend/tests/api/test_system.py backend/tests/integration/test_readiness.py backend/tests/compose.mysql.yaml scripts/test_backend.py docs/tasks/t05/plan.md
 git commit -m "feat: expose database readiness and API compatibility version"
 ```
 

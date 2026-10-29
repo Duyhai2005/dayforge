@@ -11,7 +11,7 @@ services:
       MYSQL_PASSWORD: ${DAYFORGE_T05_MYSQL_PASSWORD:?missing test password}
       MYSQL_ROOT_PASSWORD: ${DAYFORGE_T05_MYSQL_ROOT_PASSWORD:?missing test root password}
     ports:
-      - 127.0.0.1::3306
+      - 127.0.0.1:${DAYFORGE_T05_MYSQL_PORT:?missing isolated test port}:3306
     volumes:
       - /var/lib/mysql
     healthcheck:

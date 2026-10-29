@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import socket
 import subprocess
 import sys
 import tempfile
@@ -54,10 +55,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             images = _docker(["compose", "--env-file", ".env", "config", "--images"], environ).splitlines()
             if len(images) != 1 or not re.fullmatch(r"mysql:[^\s@]+@sha256:[0-9a-f]{64}", images[0]):
                 raise RunnerError("Expected exactly one digest-pinned MySQL image")
+            # Docker may reassign an empty published port after stop/start.
+            # Select an available OS port once and bind it explicitly so the
+            # same application engine can prove outage recovery at one endpoint.
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                probe.bind(("127.0.0.1", 0))
+                test_port = str(probe.getsockname()[1])
             environ.update(
                 DAYFORGE_T05_MYSQL_IMAGE=images[0],
                 DAYFORGE_T05_MYSQL_PASSWORD=secrets.token_hex(32),
                 DAYFORGE_T05_MYSQL_ROOT_PASSWORD=secrets.token_hex(32),
+                DAYFORGE_T05_MYSQL_PORT=test_port,
             )
             compose = ["compose", "--env-file", str(env_file), "-f",
                        str(BACKEND / "tests" / "compose.mysql.yaml"), "--project-name", project]
@@ -65,7 +73,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             port = _docker([*compose, "port", "mysql", "3306"], environ)
             match = re.fullmatch(r"127\.0\.0\.1:([0-9]+)", port)
             container = _docker([*compose, "ps", "-q", "mysql"], environ)
-            if not match or not re.fullmatch(r"[0-9a-f]{12,64}", container):
+            if (not match or match[1] != test_port
+                    or not re.fullmatch(r"[0-9a-f]{12,64}", container)):
                 raise RunnerError("Invalid isolated MySQL endpoint")
             environ.update(
                 APP_ENV="test", PUBLIC_ORIGIN="https://localhost:3000", DB_HOST="127.0.0.1",
