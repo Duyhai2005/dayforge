@@ -114,7 +114,7 @@ Mọi package Python mới có `__init__.py` cần thiết, cùng task tạo mod
 - Produces `create_app(settings: Settings | None = None) -> FastAPI` và `app = create_app()` tại `app.main`. Load env/create engine trong lifespan, không ở import; runtime truy cập `request.app.state.database`.
 - Test interfaces tại `conftest.py`: fixture `settings_factory: Callable[..., Settings]` tạo config test hợp lệ rồi áp dụng override; `t05_mysql_settings: Settings` chỉ nhận env có test-run ID do runner sinh. Test async dùng `asyncio.run()` và tạo/dispose engine trong cùng event loop, không thêm plugin async.
 
-- [ ] **Step 1: Bổ sung dependency và khóa lại bằng uv.**
+- [x] **Step 1: Bổ sung dependency và khóa lại bằng uv.**
 
 Run riêng từ root:
 
@@ -125,7 +125,7 @@ uv add --directory backend --dev --bounds exact pytest httpx jsonschema
 
 Với Pydantic có constraint, lấy phiên bản v2 uv vừa resolve trong `uv.lock`, rồi chạy `uv add --directory backend "pydantic==<phiên bản vừa resolve>"` để manifest chỉ giữ pin exact. Không để placeholder trong file được commit. Giữ nguyên các pin T04; nếu resolver không giữ được chúng, xác minh nguyên nhân/compatibility trước khi thay. Expected: resolver thành công và không thay FastAPI/Uvicorn/Python ngoài chủ đích.
 
-- [ ] **Step 2: Viết tests settings/transaction và fixture kiểm thử hẹp.**
+- [x] **Step 2: Viết tests settings/transaction và fixture kiểm thử hẹp.**
 
 Test config có tên/assertion:
 
@@ -150,21 +150,21 @@ Thêm `test_missing_required_env_is_not_defaulted`: mapping rỗng phải lỗi,
 
 Đặt pytest `pythonpath=["."]`, `testpaths=["tests"]`, khai báo marker `mysql`. Unit/API tests tự tạo settings giả; fixture MySQL phải fail nếu thiếu run ID hoặc DB name khác `dayforge_t05_test`, không skip xanh hoặc dùng `backend/.env`. Fixture bảng probe chỉ tạo/drop trong database kiểm thử đã xác nhận, ngoài transaction đang được kiểm tra.
 
-- [ ] **Step 3: Chạy tests mới để thấy thiếu implementation.**
+- [x] **Step 3: Chạy tests mới để thấy thiếu implementation.**
 
 Run: `uv run --directory backend --locked pytest tests/unit/test_config.py -v`.
 
 Expected: FAIL do chưa có `app.core.config` hoặc các interface; không chấp nhận lỗi thiếu pytest/dependency làm bằng chứng RED của tính năng.
 
-- [ ] **Step 4: Implement `Settings`, `load_settings`, `build_database_url` theo Interfaces.**
+- [x] **Step 4: Implement `Settings`, `load_settings`, `build_database_url` theo Interfaces.**
 
 Chỉ chọn các biến được khai báo từ môi trường; validate port nguyên 1–65535, required string không rỗng, không nhận marker `__GENERATE_*__`. `PUBLIC_ORIGIN` là HTTPS origin không credentials/path/query/fragment; development phải khớp `https://localhost:3000`. Settings giữ secret bằng `SecretStr`, bất biến và không echo input trong lỗi. Dùng `URL.create("mysql+aiomysql", ...)`, không ghép DSN bằng f-string hoặc in DSN. CLI/application chỉ báo tên env lỗi, không in `ValidationError` chứa input.
 
-- [ ] **Step 5: Implement `Database`, dependency session và lifespan theo Interfaces.**
+- [x] **Step 5: Implement `Database`, dependency session và lifespan theo Interfaces.**
 
 Áp dụng pool/timeout mục 1.3, `expire_on_commit=False`, `autoflush=False`; không chia sẻ một `AsyncSession` giữa request/task song song. `get_session` rollback phần transaction chưa kết thúc và close trong `finally`, không tự commit khi response thành công. Service tương lai phải dùng `async with session.begin():`; không rollback thay cho một commit mà service đã hoàn tất. Shutdown dispose engine. DB unavailable không ngăn process lên để `/health` chẩn đoán; config sai làm startup fail với lỗi đã làm sạch. Import `app.main` không đọc/ghi DB, tạo schema hoặc mở kết nối.
 
-- [ ] **Step 6: Implement runner MySQL kiểm thử cô lập và command root.**
+- [x] **Step 6: Implement runner MySQL kiểm thử cô lập và command root.**
 
 `scripts/test_backend.py::main(argv: Sequence[str] | None = None) -> int`: mặc định gọi `python -m pytest -m "not mysql"`; `--mysql` gọi `-m mysql` và nhận các pytest args còn lại (bỏ separator `--` nếu có). Dùng `sys.executable`, cwd tuyệt đối `backend/`, truyền argv list, không shell string.
 
@@ -174,7 +174,7 @@ Runner `up -d --wait --wait-timeout 120`, lấy mapped port qua `compose port` v
 
 Thêm root scripts `test:api = uv run --directory backend --locked python ../scripts/test_backend.py`, `test:api:mysql` là cùng command thêm `--mysql`.
 
-- [ ] **Step 7: Kiểm chứng deliverable và commit.**
+- [x] **Step 7: Kiểm chứng deliverable và commit.**
 
 Run riêng: `uv sync --directory backend --locked`, `pnpm test:api -- tests/unit/test_config.py -v`, `pnpm test:api:mysql -- tests/integration/test_database.py -v`.
 
@@ -195,7 +195,7 @@ git commit -m "feat: add async MySQL connection and transaction foundation"
 - Produces `validate_local_date(value: str) -> str`, `parse_wire_uuid(value: str) -> UUID`, `parse_wire_timestamp(value: str) -> datetime`, `format_utc_timestamp(value: datetime) -> str`, `validate_decimal(value: str, *, minimum: int, maximum: int) -> str` tại `core/values.py`. Hàm parse/validate lỗi bằng `ValueError` với mã cố định, không kèm giá trị; trả nguyên chuỗi canonical khi đúng.
 - Migration revision `0001_owner_workspace`, `down_revision=None`; `upgrade() -> None`, `downgrade() -> None`. Test fixture bổ sung `user_factory: Callable[..., User]` tạo row chưa persist, dùng UUID test, email `.test`, PHC placeholder chỉ cho storage test và timestamp UTC cố định; không seed vào DB development.
 
-- [ ] **Step 1: Viết tests migration và round-trip theo schema quyết định dưới đây.**
+- [x] **Step 1: Viết tests migration và round-trip theo schema quyết định dưới đây.**
 
 `test_upgrade_from_empty_and_repeat_upgrade`: sau `upgrade head`, schema có đúng `alembic_version`, `users`, `workspace_settings`, current revision `0001_owner_workspace`; hai bảng business rỗng; chạy lại upgrade không đổi schema/dữ liệu. Không assert đây là toàn bộ schema sau khi T09/T10 thêm migration; cập nhật test danh sách revision/bảng khi task sau mở rộng.
 
@@ -211,17 +211,17 @@ def test_local_date_round_trip_has_no_year_1000_floor(t05_mysql_settings, value)
 
 Thêm `test_alembic_check_has_no_metadata_drift`, `test_downgrade_upgrade_on_disposable_db`: downgrade base chỉ trên DB test, mất đúng hai bảng, nâng lại tạo đúng schema/rỗng. Mỗi case migration cần DB test rỗng hoặc teardown/reset đúng các bảng của nó trong project test, không dựa thứ tự pytest.
 
-- [ ] **Step 2: Chạy tests để thấy thiếu migration/model.**
+- [x] **Step 2: Chạy tests để thấy thiếu migration/model.**
 
 Run: `pnpm test:api:mysql -- tests/integration/test_initial_migration.py tests/integration/test_sql_types.py -v`.
 
 Expected: FAIL do chưa có migration/type/model hoặc chưa có revision; fixture không được tự `create_all()` làm test pass.
 
-- [ ] **Step 3: Implement scalar helpers và SQL types theo Interfaces.**
+- [x] **Step 3: Implement scalar helpers và SQL types theo Interfaces.**
 
 `LocalDateSQL` là `CHAR(10, charset="ascii", collation="ascii_bin")`, validate regex đúng padding và Gregorian bằng `datetime.date` cả bind/result. UUID storage `BINARY(16)` theo `UUID.bytes`, chỉ nhận UUID object ở bind; timestamp storage `DATETIME(3)`, bind cần aware datetime có precision millisecond, convert UTC trước khi bỏ tzinfo, read gắn UTC. Không dùng MySQL `TIMESTAMP` với miền hẹp hơn hoặc ngày nghiệp vụ kiểu UTC datetime. Wire UUID chỉ nhận lowercase v4/v5 đúng schema; wire timestamp đúng `YYYY-MM-DDTHH:mm:ss.mmmZ`, parse semantic, không nhận offset thay `Z`. `format_utc_timestamp` dùng padding 4 chữ số năm, không dựa `%Y` cho năm trước 1000. Decimal canonical không `+`, leading zero hoặc `-0`, kiểm tra numeric bounds theo tham số.
 
-- [ ] **Step 4: Implement metadata, model và revision đầu.**
+- [x] **Step 4: Implement metadata, model và revision đầu.**
 
 Mọi bảng InnoDB, mặc định `utf8mb4` (hỗ trợ đầy đủ Unicode theo [MySQL utf8mb4](https://dev.mysql.com/doc/refman/8.4/en/charset-unicode-utf8mb4.html)); cột định danh/canonical override binary như dưới. Đặt tên constraint rõ ràng; không FK cascade xóa owner hoặc dữ liệu con.
 
@@ -232,13 +232,13 @@ Mọi bảng InnoDB, mặc định `utf8mb4` (hỗ trợ đầy đủ Unicode th
 
 `User.email_canonical` là bytes UTF-8 để so sánh binary; T09 canonical hóa email rồi encode, không lower toàn bộ email. PHC/created/updated/verified do service T09 cung cấp; DB không tự kích hoạt tài khoản, không lưu password plaintext. Hai bảng được tạo rỗng. Mặc định SQL phải khớp ORM để `alembic check` không sinh drift; không thêm field nghiệp vụ chưa có trong hợp đồng.
 
-- [ ] **Step 5: Nối Alembic với settings và thêm command migration.**
+- [x] **Step 5: Nối Alembic với settings và thêm command migration.**
 
 `alembic.ini` không chứa `sqlalchemy.url` có credential; `env.py` load settings qua Task 1, tạo engine `NullPool`, dùng `run_sync` cho context migration, dispose trong `finally`. `target_metadata=Base.metadata` sau import models; bật compare type/server default. Offline `--sql` dùng dialect MySQL, không literalize dữ liệu riêng. Không đưa DSN có `%` vào `ConfigParser` bằng chuỗi chưa escape; ưu tiên truyền URL/connection trực tiếp cho context/engine.
 
 Thêm `db:migrate`, `db:current` đúng mục 1.3. Test subprocess Alembic truyền env test và cwd `backend/`, không có `--env-file .env`. MySQL DDL có implicit commit: lỗi giữa migration không được coi là đã rollback nguyên khối; ghi cách kiểm tra revision/tables và sửa có chủ đích, không tự drop DB dev để retry. Không stamp head để che thiếu schema.
 
-- [ ] **Step 6: Kiểm chứng migration thật và commit.**
+- [x] **Step 6: Kiểm chứng migration thật và commit.**
 
 Run: `pnpm test:api:mysql -- tests/integration/test_initial_migration.py tests/integration/test_sql_types.py -v`; sau đó trên DB dev của T04 chạy riêng `pnpm db:migrate`, `pnpm db:current`, `pnpm db:migrate`.
 
