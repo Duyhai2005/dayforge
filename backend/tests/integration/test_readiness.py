@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 from pathlib import Path
 import subprocess
@@ -18,6 +19,17 @@ from app.main import create_app
 from app.services.readiness import check_readiness, required_schema_revision
 
 pytestmark = pytest.mark.mysql
+
+
+@pytest.fixture
+def assert_readiness_logs(caplog):
+    caplog.set_level(logging.WARNING, logger="app.services.readiness")
+
+    def check(count=1):
+        records = [record for record in caplog.records if record.name == "app.services.readiness"]
+        assert [(record.levelname, record.getMessage(), record.args, record.exc_info, record.stack_info)
+                for record in records] == [("WARNING", "database_not_ready", (), None, None)] * count
+    return check
 
 
 def migrate():
@@ -51,14 +63,15 @@ def isolated_schema(t05_mysql_settings):
         reset()
 
 
-def test_empty_database_is_not_ready(isolated_schema):
+def test_empty_database_is_not_ready(isolated_schema, assert_readiness_logs):
     with TestClient(create_app(isolated_schema)) as client:
         assert client.get("/api/v1/health").status_code == 503
     assert asyncio.run(query(isolated_schema, "SHOW TABLES")) == []
+    assert_readiness_logs()
 
 
 @pytest.mark.parametrize("damage", ["stale", "missing_table", "missing_column", "no_revision", "multiple_revisions"])
-def test_behind_revision_or_missing_table_is_not_ready(isolated_schema, damage):
+def test_behind_revision_or_missing_table_is_not_ready(isolated_schema, damage, assert_readiness_logs):
     migrate()
     statements = {
         "stale": "UPDATE alembic_version SET version_num = 'stale_test_revision'",
@@ -73,17 +86,19 @@ def test_behind_revision_or_missing_table_is_not_ready(isolated_schema, damage):
     assert asyncio.run(query(isolated_schema, "SELECT COUNT(*) FROM users")) == [(0,)]
     if damage in ("missing_table", "missing_column"):
         assert asyncio.run(query(isolated_schema, "SELECT version_num FROM alembic_version")) == [(required_schema_revision(),)]
+    assert_readiness_logs()
 
 
-def test_migrated_database_is_ready(isolated_schema):
+def test_migrated_database_is_ready(isolated_schema, assert_readiness_logs):
     migrate()
     with TestClient(create_app(isolated_schema)) as client:
         assert client.get("/api/v1/health").json() == {"status": "ok"}
     assert asyncio.run(query(isolated_schema, "SELECT COUNT(*) FROM users")) == [(0,)]
     assert asyncio.run(query(isolated_schema, "SELECT COUNT(*) FROM workspace_settings")) == [(0,)]
+    assert_readiness_logs(0)
 
 
-def test_database_outage_recovers_without_api_restart(isolated_schema, mysql_control):
+def test_database_outage_recovers_without_api_restart(isolated_schema, mysql_control, assert_readiness_logs):
     migrate()
     app = create_app(isolated_schema)
     with TestClient(app) as client:
@@ -101,9 +116,10 @@ def test_database_outage_recovers_without_api_restart(isolated_schema, mysql_con
         assert app.state.database.engine is engine
         assert client.get("/api/v1/health").status_code == 200
         assert engine.pool.checkedout() == 0
+    assert_readiness_logs()
 
 
-def test_timeout_releases_connection_and_readiness_is_not_cached(isolated_schema):
+def test_timeout_releases_connection_and_readiness_is_not_cached(isolated_schema, assert_readiness_logs):
     migrate()
     async def check():
         database = create_database(isolated_schema)
@@ -121,10 +137,11 @@ def test_timeout_releases_connection_and_readiness_is_not_cached(isolated_schema
         finally:
             await database.engine.dispose()
     asyncio.run(check())
+    assert_readiness_logs()
 
 
 @pytest.mark.parametrize("setting", ["SET SESSION time_zone = '+01:00'", "SET SESSION sql_mode = ''", "SET NAMES latin1"])
-def test_changed_session_invariants_are_not_ready(isolated_schema, setting):
+def test_changed_session_invariants_are_not_ready(isolated_schema, setting, assert_readiness_logs):
     migrate()
     async def check():
         database = create_database(isolated_schema)
@@ -136,9 +153,10 @@ def test_changed_session_invariants_are_not_ready(isolated_schema, setting):
         finally:
             await database.engine.dispose()
     asyncio.run(check())
+    assert_readiness_logs()
 
 
-def test_pool_wait_is_bounded_and_recovers(isolated_schema):
+def test_pool_wait_is_bounded_and_recovers(isolated_schema, assert_readiness_logs):
     migrate()
     async def check():
         database = create_database(isolated_schema)
@@ -160,3 +178,28 @@ def test_pool_wait_is_bounded_and_recovers(isolated_schema):
                 await connection.close()
             await database.engine.dispose()
     asyncio.run(check())
+    assert_readiness_logs()
+
+
+def test_database_error_log_excludes_private_details(isolated_schema, assert_readiness_logs, caplog):
+    from sqlalchemy.exc import SQLAlchemyError
+
+    private_details = "mysql+aiomysql://private_user:private_password@private_host/private_db SELECT private_note"
+
+    async def check():
+        database = create_database(isolated_schema)
+
+        def fail_probe(*args):
+            raise SQLAlchemyError(private_details)
+
+        event.listen(database.engine.sync_engine, "before_cursor_execute", fail_probe)
+        try:
+            assert not await check_readiness(database, required_revision=required_schema_revision())
+        finally:
+            await database.engine.dispose()
+
+    asyncio.run(check())
+    assert_readiness_logs()
+    assert "private_" not in caplog.text
+    assert "SELECT" not in caplog.text
+    assert "mysql+aiomysql://" not in caplog.text

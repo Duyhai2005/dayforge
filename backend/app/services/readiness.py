@@ -1,6 +1,7 @@
 """Read-only readiness probes against the packaged schema contract."""
 
 import asyncio
+import logging
 from pathlib import Path
 
 from alembic.config import Config
@@ -11,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.database import Database
 
 ALEMBIC_CONFIG = Path(__file__).resolve().parents[2] / "alembic.ini"
+_logger = logging.getLogger(__name__)
 
 
 def required_schema_revision() -> str:
@@ -27,6 +29,13 @@ def required_schema_revision() -> str:
 
 
 async def check_readiness(database: Database, *, required_revision: str) -> bool:
+    ready = await _probe_readiness(database, required_revision=required_revision)
+    if not ready:
+        _logger.warning("database_not_ready")
+    return ready
+
+
+async def _probe_readiness(database: Database, *, required_revision: str) -> bool:
     try:
         async with asyncio.timeout(2):
             async with database.engine.connect() as connection:
