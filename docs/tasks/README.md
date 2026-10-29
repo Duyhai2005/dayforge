@@ -10,7 +10,7 @@
 
 **Spec:** [Thiết kế T01 đã duyệt](t01/design.md), [tổng quan hồ sơ](../project-definition/README.md), [yêu cầu chức năng](../project-definition/02-functional-requirements.md), [UX](../project-definition/03-ux-and-interactions.md), [kiến trúc](../project-definition/04-technical-architecture.md), [dữ liệu và đồng bộ](../project-definition/05-data-and-sync.md), [nghiệm thu](../project-definition/06-delivery-and-acceptance.md).
 
-Ngày cập nhật: **29/10/2026** · Trạng thái: **T01–T03 hoàn thành thiết kế/hợp đồng; T04 hoàn thành nền môi trường local; T05 đang triển khai theo [kế hoạch chi tiết](t05/plan.md). T06–T36 chưa hoàn thành; chưa triển khai các luồng sản phẩm.**
+Ngày cập nhật: **29/10/2026** · Trạng thái: **T01–T03 hoàn thành thiết kế/hợp đồng; T04 hoàn thành nền môi trường local; T05 hoàn thành theo [kế hoạch chi tiết](t05/plan.md). T06–T36 chưa hoàn thành; chưa triển khai các luồng sản phẩm. Các giới hạn kiểm chứng T05 được ghi trong báo cáo.**
 
 ## 1. Cách dùng kế hoạch
 

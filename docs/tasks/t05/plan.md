@@ -486,13 +486,15 @@ Các lệnh commit trong plan là bước của lần **triển khai sau**, chư
 
 ## 4. Điều kiện hoàn thành T05
 
-- [ ] App khởi động theo T04, import không kết nối/ghi DB; settings bắt buộc và secret không rò qua repr/error/log.
-- [ ] Driver/async pool/session chạy trên Python/MySQL đã khóa; explicit commit/rollback, charset, timezone và strict mode được kiểm chứng thật.
-- [ ] Alembic tạo hai bảng rỗng đúng constraints, upgrade lặp không đổi dữ liệu, metadata không drift; vòng downgrade/upgrade chỉ thử trên DB cô lập.
-- [ ] UUID/UTC millisecond/LocalDate round-trip đúng; parser/scalar từ chối các dữ liệu biên liệt kê trong Review Focus.
-- [ ] Problem đúng T03, 404/405/validation/503/500 có mã/request ID nhất quán; log không chứa sentinel nhạy cảm.
-- [ ] Health không ready khi DB/schema lỗi, phục hồi không restart API; version đúng DTO và giới hạn, không lộ cấu hình.
-- [ ] Test runner không dùng DB dev, cleanup đúng project riêng kể cả failure; smoke HTTPS và runbook có kết quả, báo cáo ghi đủ giới hạn.
+- [x] App khởi động theo T04, import không kết nối/ghi DB; settings bắt buộc và secret không rò qua repr/error/log.
+- [x] Driver/async pool/session chạy trên Python/MySQL đã khóa; explicit commit/rollback, charset, timezone và strict mode được kiểm chứng thật.
+- [x] Alembic tạo hai bảng rỗng đúng constraints, upgrade lặp không đổi dữ liệu, metadata không drift; vòng downgrade/upgrade chỉ thử trên DB cô lập.
+- [x] UUID/UTC millisecond/LocalDate round-trip đúng; parser/scalar từ chối các dữ liệu biên liệt kê trong Review Focus.
+- [x] Problem đúng T03, 404/405/validation/503/500 có mã/request ID nhất quán; log không chứa sentinel nhạy cảm.
+- [x] Health không ready khi DB/schema lỗi, phục hồi không restart API; version đúng DTO và giới hạn, không lộ cấu hình.
+- [x] Test runner không dùng DB dev, cleanup đúng project riêng kể cả failure; smoke HTTPS và runbook có kết quả, báo cáo ghi đủ giới hạn.
+
+**Ghi chú nghiệm thu:** các lệnh migration root và live HTTPS được chạy trên MySQL dùng project UUID, anonymous volume và cleanup riêng; volume phát triển không được truy cập. Direct Cốc Cốc/browser trust vẫn waived và chưa xác minh. Các giới hạn này được ghi trong [báo cáo kiểm chứng](review-and-verification.md); chúng không được tính là kiểm thử đã chạy.
 
 ## 5. Tự rà soát kế hoạch
 

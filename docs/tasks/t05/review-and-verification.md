@@ -2,7 +2,7 @@
 
 Date: **29 October 2026**, Windows 11 build **26300** (win32), timezone Asia/Bangkok. Task 6 base: `744dd4da2637115e7c9e29593c6130539ab9d1e0`, branch `feature/fastapi-mysql-foundation`. See the [plan](plan.md) and [Windows runbook](../../development.md).
 
-**Status: implementation and isolated verification complete; final whole-branch review pending.** Development-volume operations were not run; the root migration wrappers passed against fresh disposable MySQL instead.
+**Status: implementation, isolated verification, and final whole-branch review complete.** The reviewer found no Critical/Important issues; all three Minor findings were fixed in `6e442c9` and the scoped re-review passed. Fresh final checks passed `verify:env` (15), `test:api` (200; 38 MySQL cases deselected), and focused system API tests (18). Development-volume operations were not run; root migration wrappers passed against fresh disposable MySQL instead.
 
 ## Runtime and dependencies
 
@@ -30,8 +30,9 @@ Commands ran from the root with the pinned tools. The disposable harness invoked
 | `uv sync --directory backend --locked` | PASS, 0; resolved 39 packages, checked 38; lockfiles unchanged. |
 | New smoke tests before implementation: `python -m unittest discover -s scripts/tests -p test_smoke_local.py -v` | Expected RED, 1; six tests ran, 20 failing assertions/subtests because health/version were not probed; two existing safety cases passed. |
 | Same smoke tests after implementation | PASS, 0; 6 tests. |
-| `pnpm verify:env` | PASS, 0; 13 tests, including all six smoke regressions. |
-| `pnpm test:api` | PASS, 0; 200 passed, 38 MySQL cases deliberately deselected, 4.38s. |
+| `pnpm verify:env` | PASS, 0; 15 tests, including duplicate-key and invalid-timestamp smoke regressions (fresh final run: 0.607s). |
+| `pnpm test:api` | PASS, 0; 200 passed, 38 MySQL cases deliberately deselected (fresh final run: 4.00s). |
+| `pnpm test:api -- tests/api/test_system.py -v` | PASS, 0; 18 passed after the packaged Alembic head assertion was made dynamic. |
 | `pnpm test:api:mysql` | PASS, 0; 38 passed, 200 non-MySQL cases deliberately deselected, 101.88s; no skips or warnings. Runner completed scoped cleanup. Together the backend commands cover all 238 collected tests. |
 | Isolated live HTTPS harness | PASS, 0, after all checks and exact cleanup below. |
 | Isolated `python -m alembic upgrade head`, `current`, repeated `upgrade head` | PASS, each 0; current `0001_owner_workspace (head)`, both application tables empty. |
@@ -62,7 +63,7 @@ The existing `dayforge-dev` resource and `dayforge-dev_mysql-data` were never at
 | Outage/recovery, bounded readiness and transactions | Real MySQL integration cases passed: outage to 503 and recovery to 200 on the same engine, timeout/cancellation, exhausted-pool recovery, explicit commit/rollback and no request auto-commit. Live graceful shutdown released pooled connections. |
 | Empty/stale/missing schema and migration safety | Empty, stale/multiple/missing revision and missing table/column cases passed; API does not repair schema. Real clean migration, repeat upgrade, metadata drift check and test-only downgrade/upgrade passed. Live HTTPS separately confirmed empty schema 503 then migrated empty-owner readiness. |
 | Canonical dates/UUID/decimal and strict integer types | Unit/API and real SQL-type cases passed, including year 0001 LocalDate round-trip, UTC milliseconds, UUID bytes and invalid canonical/type/boundary rejection. |
-| Duplicate JSON keys, lone surrogates, nonfinite numbers and chunked byte limits | Strict parser/API suite passed; malformed JSON and oversized bodies fail before handlers/database writes. New smoke regressions also reject wrong health/version, booleans in integer constants, invalid UTC timestamps and HTML/invalid JSON from proxies. |
+| Duplicate JSON keys, lone surrogates, nonfinite numbers and chunked byte limits | Strict parser/API suite passed; malformed JSON and oversized bodies fail before handlers/database writes. The smoke decoder now also rejects duplicate keys recursively, alongside wrong health/version, booleans in integer constants, invalid UTC timestamps and HTML/invalid JSON from proxies. |
 | Secrets in errors and logs | Error/log sentinel cases passed for private password/cookie/token/note/URL/query/SQL/exception values. Readiness logs exactly the fixed `database_not_ready` warning with no arguments/exception/stack information. New smoke errors omit response bodies. |
 
 ## Handoff and limits
@@ -71,4 +72,4 @@ The runbook documents explicit migration before API startup, unit/API and isolat
 
 Services own `session.begin()` transactions; request dependencies do not auto-commit and background/concurrent work needs separate sessions. T09 owns atomic verified User plus fixed WorkspaceSettings initialization. T10 adds owner locking, event store and domain tables through Alembic while preserving User IDs and the sync write path. Production migration/runtime privilege separation belongs to T29.
 
-Auth/email/owner initialization, calendars, event log/reducer/sync, offline support, CI and production are not implemented or accepted by this foundation. T06–T36 retain their actual pending status; the existing T04 browser waiver/status is unchanged. Overall T05 awaits final whole-branch review; functional acceptance passed on isolated MySQL. The deferred Task 5 minor remains: its packaged-head test pins the initial revision and needs updating with a later migration. Task 6 also has one deferred smoke JSON duplicate-key minor for final review. No Task 1–5 production behavior changed in Task 6.
+Auth/email/owner initialization, calendars, event log/reducer/sync, offline support, CI and production are not implemented or accepted by this foundation. T06–T36 retain their actual pending status; the existing T04 browser waiver/status is unchanged. T05 acceptance passed on the isolated MySQL setup and its final branch review is complete. The final review fixes made the packaged-head assertion dynamic and hardened the smoke checks against duplicate JSON keys and normalized `24:00` timestamps. Development-volume compatibility, direct Cốc Cốc/browser trust, and literal interactive Ctrl+C remain unverified as recorded above.
