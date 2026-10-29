@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError, ResponseValidationError
-from pydantic import TypeAdapter
+from pydantic import BaseModel, TypeAdapter
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import JSONResponse
 
@@ -80,11 +80,43 @@ def make_problem(request: Request, *, status_code: int, code: str,
 
 def _parameter_schema(dependant, location: str) -> dict:
     properties = {}
+    definitions = {}
     for field in getattr(dependant, f"{location}_params", []):
-        properties[field.validation_alias or field.alias] = TypeAdapter(field.field_info.annotation).json_schema()
+        annotation = field.field_info.annotation
+        schema = TypeAdapter(annotation).json_schema()
+        definitions.update(schema.pop("$defs", {}))
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            # FastAPI validates Query models against the flat parameter mapping.
+            properties.update(schema.get("properties", {}))
+        else:
+            properties[field.validation_alias or field.alias] = schema
     for child in dependant.dependencies:
-        properties.update(_parameter_schema(child, location)["properties"])
-    return {"type": "object", "properties": properties}
+        schema = _parameter_schema(child, location)
+        properties.update(schema["properties"])
+        definitions.update(schema["$defs"])
+    return {"type": "object", "properties": properties, "$defs": definitions}
+
+
+def _dereference(schema: dict, root: dict) -> dict:
+    reference = schema.get("$ref", "")
+    if reference.startswith("#/$defs/"):
+        return root.get("$defs", {}).get(reference.removeprefix("#/$defs/"), {})
+    return schema
+
+
+def _union_branches_for_label(schema: dict, label: str, root: dict) -> list[dict]:
+    schema = _dereference(schema, root)
+    matches = []
+    discriminator_reference = schema.get("discriminator", {}).get("mapping", {}).get(label)
+    for candidate in schema.get("anyOf", schema.get("oneOf", [])):
+        branch = _dereference(candidate, root)
+        reference = candidate.get("$ref")
+        names = {branch.get("title")}
+        if reference:
+            names.add(reference.rsplit("/", 1)[-1])
+        if label in names or (discriminator_reference and reference == discriminator_reference):
+            matches.append(branch)
+    return matches
 
 
 def _resolve(schema: dict, root: dict) -> list[dict]:
@@ -114,6 +146,13 @@ def _validation_pointer(request: Request, location: tuple) -> str:
         return ""
     candidates = [root]
     for part in parts:
+        if isinstance(part, str):
+            branches = [branch for schema in candidates
+                        for branch in _union_branches_for_label(schema, part, root)]
+            if branches:
+                # Skip only schema-confirmed diagnostics, then stay in that branch.
+                candidates = branches
+                continue
         next_candidates = []
         for schema in candidates:
             for branch in _resolve(schema, root):
@@ -143,7 +182,17 @@ def register_exception_handlers(app: FastAPI) -> None:
                                 field_errors=exception.field_errors,
                                 retry_after_seconds=exception.retry_after_seconds)
         code = _STATUS_CODES.get(exception.status_code, "internal_error")
-        response = make_problem(request, status_code=exception.status_code, code=code)
+        retry_after = None
+        if exception.status_code == 429:
+            delay = next((value for name, value in (exception.headers or {}).items()
+                          if name.lower() == "retry-after"), None)
+            if isinstance(delay, str) and delay.isascii() and delay.isdecimal():
+                try:
+                    retry_after = int(delay)
+                except ValueError:
+                    pass  # Reject oversized integer strings without reflecting the header.
+        response = make_problem(request, status_code=exception.status_code, code=code,
+                                retry_after_seconds=retry_after)
         for name, value in (exception.headers or {}).items():
             if name.lower() in ("allow", "www-authenticate"):
                 response.headers[name] = value

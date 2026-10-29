@@ -1,10 +1,11 @@
 import asyncio
 import json
 from pathlib import Path
+from typing import Annotated
 from uuid import UUID
 import warnings
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Query
 from jsonschema import Draft202012Validator, FormatChecker
 from pydantic import Field
 import pytest
@@ -32,6 +33,22 @@ class Output(ContractModel):
     count: int
 
 
+class Filters(ContractModel):
+    limit: int
+
+
+class A(ContractModel):
+    title: int
+
+
+class B(ContractModel):
+    count: int
+
+
+class UnionPayload(ContractModel):
+    item: A | B
+
+
 @pytest.fixture
 def error_app(settings_factory):
     application = create_app(settings_factory())
@@ -47,6 +64,18 @@ def error_app(settings_factory):
     @application.get("/api/v1/_test/rate")
     async def rate():
         raise ProblemHTTPException(status_code=429, code="rate_limited", retry_after_seconds=7)
+
+    @application.get("/api/v1/_test/http-rate")
+    async def http_rate(delay: str = "7"):
+        raise HTTPException(status_code=429, headers={"Retry-After": delay, "X-Private": "test-only-private-header"})
+
+    @application.get("/api/v1/_test/filters")
+    async def filters(filters: Annotated[Filters, Query()]):
+        return {"ok": True}
+
+    @application.post("/api/v1/_test/union")
+    async def union(payload: UnionPayload):
+        return {"ok": True}
 
     @application.get("/api/v1/_test/crash")
     async def crash():
@@ -144,6 +173,47 @@ def test_rate_limit_retry_after_matches_header(error_client):
     assert body["retryable"] is True
     assert body["retry_after_seconds"] == 7
     assert response.headers["retry-after"] == "7"
+
+
+def test_http_rate_limit_preserves_validated_retry_delay(error_client):
+    response = error_client.get("/api/v1/_test/http-rate")
+    body = _validate_problem(response)
+    assert response.status_code == 429
+    assert body["retry_after_seconds"] == 7
+    assert response.headers["retry-after"] == "7"
+    assert "x-private" not in response.headers
+
+
+@pytest.mark.parametrize("delay", ["test-only-private-delay", "-1", "1.5", "true", "7\r\nX-Injected: secret", pytest.param("9" * 5000, id="oversized")])
+def test_http_rate_limit_rejects_invalid_retry_delay(error_client, caplog, capsys, delay):
+    response = error_client.get("/api/v1/_test/http-rate", params={"delay": delay})
+    body = _validate_problem(response)
+    assert response.status_code == 429
+    assert "retry_after_seconds" not in body
+    assert "retry-after" not in response.headers
+    assert "x-private" not in response.headers
+    output = response.text + caplog.text + capsys.readouterr().out
+    assert "test-only-private-delay" not in output
+    assert "X-Injected" not in output
+
+
+def test_flattened_query_model_preserves_declared_field_pointer(error_client):
+    response = error_client.get("/api/v1/_test/filters?limit=test-only-private-limit")
+    body = _validate_problem(response)
+    assert response.status_code == 422
+    assert body["field_errors"] == [{"path": "/query/limit", "code": "invalid_type"}]
+
+
+def test_union_validation_skips_only_declared_branch_labels(error_client, caplog, capsys):
+    response = error_client.post("/api/v1/_test/union", json={"item": {
+        "title": "test-only-invalid-title", "test-only-private-union-key": {"title": "secret"},
+    }})
+    body = _validate_problem(response)
+    assert response.status_code == 422
+    assert {entry["path"] for entry in body["field_errors"]} == {"/item/title", "/item/count", "/item"}
+    output = response.text + caplog.text + capsys.readouterr().out
+    assert "test-only-private-union-key" not in output
+    assert "test-only-invalid-title" not in output
 
 
 @pytest.mark.parametrize("raise_server_exceptions", [False, True])
