@@ -160,7 +160,7 @@ The public T06 shell has these routes:
 | `/account` | Explicit account placeholder. |
 | `/verify-email#token=...`, `/reset-password#token=...` | Remove the full fragment into component memory and show a neutral placeholder; no token submission. |
 
-Install the Playwright Chromium engine once, then run the browser suite before building production:
+After the HTTPS smoke finishes, stop the terminal running `pnpm dev:web` with Ctrl+C. Playwright starts its own Next.js dev server on port `3010`, so do not keep `dev:web` running in the same checkout. Install the Playwright Chromium engine once, then run the browser suite before building production:
 
 ```powershell
 pnpm --filter @dayforge/frontend exec playwright install chromium
@@ -169,7 +169,7 @@ pnpm --filter @dayforge/frontend exec playwright test
 
 By default Playwright starts and stops its own Next.js dev server on `http://127.0.0.1:3010`. The suite covers routes, UTC+07:00 boundaries, view URL/history/preferences, separate scroll restoration, widget dismissal/focus, reduced motion and callback token handling. It does not need the API to be running.
 
-Stop `pnpm dev:web` with Ctrl+C before building. Then run:
+With the development server stopped, run:
 
 ```powershell
 pnpm verify:env
