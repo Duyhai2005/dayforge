@@ -3,8 +3,10 @@ from __future__ import annotations
 import argparse
 import http.client
 import json
+import re
 import ssl
 import sys
+from datetime import datetime
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -13,6 +15,11 @@ from urllib.request import HTTPSHandler, HTTPRedirectHandler, Request, build_ope
 
 DEFAULT_BASE_URL = "https://localhost:3000"
 MAX_RESPONSE_BYTES = 1_048_576
+VERSION_LIMITS = {
+    "push_operations": 100, "push_request_bytes": 8388608,
+    "operation_bytes": 2097152, "commands_per_operation": 1000,
+    "page_operations": 200, "page_bytes": 8388608, "page_token_ttl_seconds": 1800,
+}
 
 
 class SmokeError(Exception):
@@ -22,6 +29,52 @@ class SmokeError(Exception):
 class _NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
+
+
+def _unique_object(pairs):
+    document = {}
+    for key, value in pairs:
+        if key in document:
+            raise ValueError("duplicate_json_key")
+        document[key] = value
+    return document
+
+
+def _get_json(opener, url: str, label: str, timeout_seconds: float):
+    status, content_type, body = _get(opener, url, label, timeout_seconds)
+    if status != 200 or "application/json" not in content_type.lower():
+        raise SmokeError(f"The local {label} probe must return HTTP 200 and JSON.")
+    try:
+        return json.loads(body, object_pairs_hook=_unique_object)
+    except ValueError:
+        raise SmokeError(f"The local {label} probe returned invalid JSON.") from None
+
+
+def _validate_version(document) -> None:
+    valid = (
+        isinstance(document, dict)
+        and set(document) == {"api_major", "protocol_versions", "reducer_versions", "server_time", "limits"}
+        and type(document["api_major"]) is int and document["api_major"] == 1
+        and all(type(document[key]) is list and len(document[key]) == 1
+                and type(document[key][0]) is int and document[key][0] == 1
+                for key in ("protocol_versions", "reducer_versions"))
+        and isinstance(document["limits"], dict)
+        and document["limits"] == VERSION_LIMITS
+        and all(type(value) is int for value in document["limits"].values())
+        and isinstance(document["server_time"], str)
+        and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z", document["server_time"])
+    )
+    if not valid:
+        raise SmokeError("The local version probe does not match the system contract.")
+    try:
+        timestamp = document["server_time"]
+        datetime(
+            int(timestamp[0:4]), int(timestamp[5:7]), int(timestamp[8:10]),
+            int(timestamp[11:13]), int(timestamp[14:16]), int(timestamp[17:19]),
+            int(timestamp[20:23]) * 1000,
+        )
+    except ValueError:
+        raise SmokeError("The local version probe has an invalid UTC timestamp.") from None
 
 
 def _validate_base_url(base_url: str) -> str:
@@ -115,9 +168,15 @@ def smoke_local(
     ):
         raise SmokeError("The local API document does not match the bootstrap contract.")
 
+    health = _get_json(opener, origin + "/api/v1/health", "health", timeout_seconds)
+    if health != {"status": "ok"}:
+        raise SmokeError("The local health probe does not report MySQL readiness.")
+    version = _get_json(opener, origin + "/api/v1/version", "version", timeout_seconds)
+    _validate_version(version)
+
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Verify the local HTTPS web/API path.")
+    parser = argparse.ArgumentParser(description="Verify local HTTPS web/API and MySQL readiness.")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--ca-file", required=True, type=Path)
     args = parser.parse_args()
@@ -128,7 +187,7 @@ def main() -> int:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 1
 
-    print("PASS: local HTTPS web and API bootstrap")
+    print("PASS: local HTTPS web, API and MySQL readiness")
     return 0
 
 

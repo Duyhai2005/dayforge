@@ -1,0 +1,24 @@
+services:
+  mysql:
+    image: ${DAYFORGE_T05_MYSQL_IMAGE:?missing test image}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+00:00
+    environment:
+      MYSQL_DATABASE: dayforge_t05_test
+      MYSQL_USER: dayforge_test
+      MYSQL_PASSWORD: ${DAYFORGE_T05_MYSQL_PASSWORD:?missing test password}
+      MYSQL_ROOT_PASSWORD: ${DAYFORGE_T05_MYSQL_ROOT_PASSWORD:?missing test root password}
+    ports:
+      - 127.0.0.1:${DAYFORGE_T05_MYSQL_PORT:?missing isolated test port}:3306
+    volumes:
+      - /var/lib/mysql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - MYSQL_PWD="$${MYSQL_PASSWORD}" mysql --protocol=TCP -h 127.0.0.1 -u"$${MYSQL_USER}" "$${MYSQL_DATABASE}" -Nse "SELECT 1" >/dev/null
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
