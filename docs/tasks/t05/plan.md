@@ -449,9 +449,9 @@ Sau `setup:local`/TLS/`db:up`, chạy `pnpm db:migrate`, `pnpm db:current`, rồ
 
 Ghi ranh giới transaction: request dependency không auto-commit, service dùng `session.begin()`, background/concurrent task cần session riêng. T09 tạo verified `User` + fixed `WorkspaceSettings` trong cùng transaction; T10 thêm owner lock/event store và dữ liệu domain qua Alembic, không tái sử dụng User ID hoặc thêm đường CRUD bypass sync. Backend có quyền schema dev để migrate; phân quyền migration/runtime production xử lý tại T29.
 
-- [ ] **Step 3: Chạy bộ kiểm chứng cuối từ môi trường T04.**
+- [x] **Step 3: Chạy bộ kiểm chứng cuối từ môi trường T04.**
 
-Task 6 execution note (29/10/2026): locked sync, env/script tests (13), API tests (200), isolated MySQL tests (38) and CA-verified HTTPS smoke passed. Fresh UUID-scoped test MySQL proved health 503 before migration and all four probes passing after upgrade/current/repeat upgrade, with exact anonymous-volume cleanup. Root development `db:*` commands were not run: retained `dayforge-dev` state/credentials are unestablished and must not be touched. Direct Cốc Cốc/trust remains waived and unverified; interactive Ctrl+C was not performed, while graceful ASGI lifespan/pool disposal passed. This step stays unchecked because those literal checks were not all run. See [the verification report](review-and-verification.md).
+Task 6 execution note (29/10/2026): locked sync, env/script tests (13), API tests (200), isolated MySQL tests (38), and CA-verified HTTPS smoke passed. A fresh UUID-scoped test MySQL proved health 503 before migration, then all four probes passed after upgrade/current/repeat upgrade; exact anonymous-volume cleanup passed. The exact root `pnpm db:migrate`/`pnpm db:current` commands also passed after an environment preflight confirmed 127.0.0.1, the assigned test port, `dayforge_t05_test`, `dayforge_test`, and `APP_ENV=test`; they never targeted development. Direct Cốc Cốc/trust remains unverified under the carried-forward user waiver; literal Ctrl+C was not run, while graceful ASGI shutdown/pool disposal passed. See [the verification report](review-and-verification.md).
 
 Chạy riêng từ root:
 

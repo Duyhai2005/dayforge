@@ -2,7 +2,7 @@
 
 Date: **29 October 2026**, Windows 11 build **26300** (win32), timezone Asia/Bangkok. Task 6 base: `744dd4da2637115e7c9e29593c6130539ab9d1e0`, branch `feature/fastapi-mysql-foundation`. See the [plan](plan.md) and [Windows runbook](../../development.md).
 
-**Status: implemented and verified on disposable MySQL; overall T05 acceptance remains pending.** The development DB checks below were deliberately not run. Task 6 has an implementer self-review; independent review of this change and final branch review are still required. No push or merge was performed.
+**Status: implementation and isolated verification complete; final whole-branch review pending.** Development-volume operations were not run; the root migration wrappers passed against fresh disposable MySQL instead.
 
 ## Runtime and dependencies
 
@@ -37,13 +37,13 @@ Commands ran from the root with the pinned tools. The disposable harness invoked
 | Isolated `python -m alembic upgrade head`, `current`, repeated `upgrade head` | PASS, each 0; current `0001_owner_workspace (head)`, both application tables empty. |
 | `pnpm smoke:local --ca-file <T04 rootCA.pem>` before isolated migration | Expected FAIL, 1; health HTTP 503, no PASS; `SHOW TABLES` remained empty. |
 | Same HTTPS smoke after isolated migration | PASS, 0; exact `PASS: local HTTPS web, API and MySQL readiness`. |
-| Root `pnpm db:migrate` / `pnpm db:current` | **NOT RUN**; existing development volume state/credentials are not established. No root `db:*` command was run. |
+| Root `pnpm db:migrate` / `pnpm db:current` | PASS, 0, against a fresh UUID-scoped test database only. A read-only uv environment preflight confirmed `127.0.0.1`, the generated port, `dayforge_t05_test`, `dayforge_test`, and `APP_ENV=test`; repeated migration/current/migration succeeded. The development volume was not targeted. |
 | Direct Cốc Cốc health/version and browser trust/version | **NOT RUN / UNVERIFIED**, carried-forward user waiver; no browser opened and no CA trust installed. |
 | Interactive API Ctrl+C shutdown | **NOT RUN**; programmatic graceful Uvicorn lifespan shutdown passed instead, with no remaining sleeping application connections. |
 | `git diff --check` | PASS, 0; repeated before commit. |
 | `git status --short` | PASS, 0; reviewed only intended smoke/tests/docs/plan changes before staging. |
 
-The first sandbox uv invocation failed (exit 1) writing its default cache; the direct interpreter then provided the expected RED evidence. A sandbox Docker connectivity probe was denied by the named-pipe permission boundary. These were execution restrictions, not application test failures; the scoped verification suites and live harness ran in the approved execution context. Leaf TLS files were regenerated using the existing T04 CA explicitly before HTTPS verification; trust stores were never changed.
+The first sandbox uv invocation failed (exit 1) writing its default cache; the direct interpreter then supplied the expected RED evidence. A sandbox Docker named-pipe probe was denied. A later supplemental rerun omitted the local uv path from the child PATH, so the HTTPS health probe did not run; the home request was 200, schema remained empty, and cleanup passed. Adding the pinned uv path fixed the harness configuration: the final isolated run passed the expected pre-migration 503, root migration scripts, four-probe HTTPS smoke, graceful shutdown and exact cleanup. No tracked implementation code changed.
 
 ## Disposable HTTPS and database safety
 
@@ -53,7 +53,7 @@ Next.js ran the existing `dev:web` command at `https://localhost:3000` and proxi
 
 The API then completed graceful lifespan shutdown, and a fresh test-user connection found zero sleeping application connections in `SHOW PROCESSLIST`. This verifies pool disposal through the shutdown path, while leaving literal interactive Ctrl+C unverified. The harness terminated only its own web process tree. Exact-project `down --volumes --remove-orphans` removed the captured disposable container, network and anonymous volume; narrowly scoped metadata assertions confirmed their absence. Ports 3000/8000 were no longer listening afterward.
 
-The existing `dayforge-dev` resource and `dayforge-dev_mysql-data` were never attached, started, stopped, reset, inspected for contents, dropped, downgraded, seeded or migrated. No real schema was reversed to create a RED result. Development migration/current checks remain explicitly outstanding.
+The existing `dayforge-dev` resource and `dayforge-dev_mysql-data` were never attached, started, stopped, reset, inspected for contents, dropped, downgraded, seeded or migrated. No real schema was reversed to create a RED result. Development-volume migration/current checks remain outstanding. The exact root scripts `pnpm db:migrate`, `pnpm db:current`, repeated `pnpm db:migrate` were subsequently exercised against an isolated temporary project after a read-only uv preflight verified host/port/database/user/app-env; each exited 0, and exact project cleanup removed its container, network and anonymous volume. No development credentials or resources were used.
 
 ## Five review-focus results
 
@@ -71,4 +71,4 @@ The runbook documents explicit migration before API startup, unit/API and isolat
 
 Services own `session.begin()` transactions; request dependencies do not auto-commit and background/concurrent work needs separate sessions. T09 owns atomic verified User plus fixed WorkspaceSettings initialization. T10 adds owner locking, event store and domain tables through Alembic while preserving User IDs and the sync write path. Production migration/runtime privilege separation belongs to T29.
 
-Auth/email/owner initialization, calendars, event log/reducer/sync, offline support, CI and production are not implemented or accepted by this foundation. T06–T36 retain their actual pending status; T04's existing waiver/status is unchanged. Overall T05 stays unchecked until the remaining acceptance checks and review gates are resolved. The deferred Task 5 minor remains: its packaged-head test pins the initial revision and needs updating with a later migration. No Task 1–5 production behavior changed in Task 6.
+Auth/email/owner initialization, calendars, event log/reducer/sync, offline support, CI and production are not implemented or accepted by this foundation. T06–T36 retain their actual pending status; the existing T04 browser waiver/status is unchanged. Overall T05 awaits final whole-branch review; functional acceptance passed on isolated MySQL. The deferred Task 5 minor remains: its packaged-head test pins the initial revision and needs updating with a later migration. Task 6 also has one deferred smoke JSON duplicate-key minor for final review. No Task 1–5 production behavior changed in Task 6.
