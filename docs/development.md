@@ -84,7 +84,7 @@ Test-Path $dayforgeCaFile
 
 The final command should print `True`. The smoke command uses this CA file explicitly, so it can validate TLS without installing the CA into the Windows trust store. Keep the mkcert CA private key (`rootCA-key.pem`) outside the repository and never share it. The leaf certificate and key stay under ignored `.local/tls/`.
 
-Direct Cốc Cốc/browser trust verification was waived for T04 and remains unverified. The smoke workflow does not install trust, open the browser or bypass TLS.
+Browser trust remains unverified. The smoke workflow does not install trust, open the browser or bypass TLS.
 
 ## 4. Start MySQL, API and web servers
 

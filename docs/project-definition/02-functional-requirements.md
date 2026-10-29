@@ -128,7 +128,7 @@ Bổ sung T02: chọn một buổi tùy ý hoặc để không chọn; nhãn “
 | FR-S05 | Khi xung đột, tự chọn bản chỉnh sửa mới nhất theo thời điểm sửa đã ghi, không có UI bắt người dùng chọn giữa hai bản. Đồng hồ, trường hợp bằng thời điểm, phạm vi áp dụng và xóa–sửa do T03 cụ thể hóa. | Đã chốt chính sách và [thuật toán T03](../tasks/t03/sync-contract.md) |
 | FR-S06 | Có tài khoản ứng dụng trong giai đoạn 1: email đăng nhập đã xác minh và mật khẩu riêng; không đăng nhập Google. | Đã chốt |
 | FR-S07 | Truy cập và đồng bộ dữ liệu cá nhân qua tài khoản; không dùng ghép mã thiết bị hoặc phương án không tài khoản. | Đã chốt hướng; kỹ thuật phiên/quyền truy cập T03 |
-| FR-S08 | Cốc Cốc desktop là trình duyệt nghiệm thu chính; kiểm chứng cache/mở lại offline trên kiến trúc Next.js server/Node production. | Đã chốt |
+| FR-S08 | Kiểm chứng cache/mở lại offline trên kiến trúc Next.js server/Node production. | Đã chốt |
 | FR-S09 | Máy chủ hoạt động độc lập với PC cá nhân; vẫn dùng và đồng bộ từ thiết bị khác khi PC tắt. | Đã chốt |
 
 Đợt đầu ưu tiên web desktop với lịch local-first trong IndexedDB, Next.js server/Node chạy production + FastAPI + MySQL. Xuất tĩnh không phải kiến trúc hiện hành. Chọn AWS hoặc Oracle khi triển khai, không chặn T01; xem [kiến trúc và giới hạn offline](04-technical-architecture.md).

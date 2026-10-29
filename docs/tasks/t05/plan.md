@@ -451,7 +451,7 @@ Ghi ranh giới transaction: request dependency không auto-commit, service dùn
 
 - [x] **Step 3: Chạy bộ kiểm chứng cuối từ môi trường T04.**
 
-Task 6 execution note (29/10/2026): locked sync, env/script tests (13), API tests (200), isolated MySQL tests (38), and CA-verified HTTPS smoke passed. A fresh UUID-scoped test MySQL proved health 503 before migration, then all four probes passed after upgrade/current/repeat upgrade; exact anonymous-volume cleanup passed. The exact root `pnpm db:migrate`/`pnpm db:current` commands also passed after an environment preflight confirmed 127.0.0.1, the assigned test port, `dayforge_t05_test`, `dayforge_test`, and `APP_ENV=test`; they never targeted development. Direct Cốc Cốc/trust remains unverified under the carried-forward user waiver; literal Ctrl+C was not run, while graceful ASGI shutdown/pool disposal passed. See [the verification report](review-and-verification.md).
+Task 6 execution note (29/10/2026): locked sync, env/script tests (13), API tests (200), isolated MySQL tests (38), and CA-verified HTTPS smoke passed. A fresh UUID-scoped test MySQL proved health 503 before migration, then all four probes passed after upgrade/current/repeat upgrade; exact anonymous-volume cleanup passed. The exact root `pnpm db:migrate`/`pnpm db:current` commands also passed after an environment preflight confirmed 127.0.0.1, the assigned test port, `dayforge_t05_test`, `dayforge_test`, and `APP_ENV=test`; they never targeted development. Direct browser trust remains unverified; literal Ctrl+C was not run, while graceful ASGI shutdown/pool disposal passed. See [the verification report](review-and-verification.md).
 
 Chạy riêng từ root:
 
@@ -467,7 +467,7 @@ git diff --check
 git status --short
 ```
 
-`$dayforgeCaFile` là đường dẫn `rootCA.pem` đã dùng ở T04. Expected: install locked không đổi lockfile, tests không có MySQL case bị skip, revision head, HTTPS smoke PASS và diff sạch whitespace. Kiểm tra Cốc Cốc desktop đọc được health/version qua `https://localhost:3000`, ghi phiên bản thực; không coi đây là AC auth/offline/sync đã đạt. Sau khi API đóng bằng Ctrl+C, không còn connection do engine T05 giữ.
+`$dayforgeCaFile` là đường dẫn `rootCA.pem` đã dùng ở T04. Expected: install locked không đổi lockfile, tests không có MySQL case bị skip, revision head, HTTPS smoke PASS và diff sạch whitespace. Kiểm tra browser desktop đọc được health/version qua `https://localhost:3000`, ghi phiên bản thực; không coi đây là AC auth/offline/sync đã đạt. Sau khi API đóng bằng Ctrl+C, không còn connection do engine T05 giữ.
 
 - [x] **Step 4: Ghi báo cáo và cập nhật trạng thái có điều kiện.**
 
@@ -494,7 +494,7 @@ Các lệnh commit trong plan là bước của lần **triển khai sau**, chư
 - [x] Health không ready khi DB/schema lỗi, phục hồi không restart API; version đúng DTO và giới hạn, không lộ cấu hình.
 - [x] Test runner không dùng DB dev, cleanup đúng project riêng kể cả failure; smoke HTTPS và runbook có kết quả, báo cáo ghi đủ giới hạn.
 
-**Ghi chú nghiệm thu:** các lệnh migration root và live HTTPS được chạy trên MySQL dùng project UUID, anonymous volume và cleanup riêng; volume phát triển không được truy cập. Direct Cốc Cốc/browser trust vẫn waived và chưa xác minh. Các giới hạn này được ghi trong [báo cáo kiểm chứng](review-and-verification.md); chúng không được tính là kiểm thử đã chạy.
+**Ghi chú nghiệm thu:** các lệnh migration root và live HTTPS được chạy trên MySQL dùng project UUID, anonymous volume và cleanup riêng; volume phát triển không được truy cập. Browser trust chưa xác minh. Các giới hạn này được ghi trong [báo cáo kiểm chứng](review-and-verification.md); chúng không được tính là kiểm thử đã chạy.
 
 ## 5. Tự rà soát kế hoạch
 

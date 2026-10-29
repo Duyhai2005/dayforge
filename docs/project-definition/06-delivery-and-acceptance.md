@@ -12,7 +12,7 @@ Danh sách công việc tổng thể được bổ sung tại [Kế hoạch task
 | M1 — Chứng minh nền offline/sync | Thử nghiệm hẹp: đăng nhập tài khoản đã xác minh, lưu cục bộ, mở lại offline, sửa hai thiết bị, chống gửi trùng và LWW tự động. | Kiểm chứng dữ liệu, phiên, cách ly owner và token/link qua hộp thư phát triển. Email production thực sự tới inbox phải đạt ở T30/T32, trước go-live. |
 | M2 — Hai lịch dùng được với dữ liệu thật | Lịch tuần, lịch dấu mốc, kế hoạch và màu, thêm/sửa, kéo thả; dữ liệu đi qua lớp lưu cục bộ. | Các luồng chính dùng được và giữ dữ liệu qua reload. |
 | M3 — Việc lặp và lịch sử | Lặp hằng ngày/theo thứ, ngoại lệ, hoàn thành, sửa quy tắc từ mốc và dừng chuỗi. | Sửa quy tắc tách các lần tương lai đã chỉnh riêng thành việc một lần cùng kế hoạch/màu; dừng gỡ các thành viên tương lai kể cả đã dời, giữ lịch sử trước mốc và các việc đã tách. |
-| M4 — Bản dùng riêng hoàn chỉnh | Đồng bộ xuyên suốt các luồng, đăng nhập cùng tài khoản trên nhiều thiết bị, khôi phục lỗi, hoàn thiện motion/accessibility, backup/restore. | Đạt AC-01–AC-38 trên Cốc Cốc desktop; production chạy độc lập với PC cá nhân. |
+| M4 — Bản dùng riêng hoàn chỉnh | Đồng bộ xuyên suốt các luồng, đăng nhập cùng tài khoản trên nhiều thiết bị, khôi phục lỗi, hoàn thiện motion/accessibility, backup/restore. | Đạt AC-01–AC-38 trên desktop; production chạy độc lập với PC cá nhân. |
 | Sau đợt đầu | Trang ghi chú nhanh độc lập; thiết kế mobile app; desktop app. | Ghi chú ngay trong dấu mốc đã bổ sung ở T02 và thuộc đợt đầu; các phần còn lại bàn riêng phạm vi/thứ tự. |
 
 Các mốc có thể được chia nhỏ khi lập kế hoạch. M1 là kiểm chứng kỹ thuật tiếp theo thiết kế đã duyệt; chưa thực hiện và chưa phải sản phẩm đã có sẵn.
@@ -93,7 +93,7 @@ Kiến trúc đã chốt là Next.js server/Node + FastAPI + MySQL; phương án
 
 ## 6. Chất lượng trước khi dùng hằng ngày
 
-- Thử trên **Cốc Cốc desktop** ở các kích thước thực tế, gồm ít nhất một màn hình laptop và một màn hình lớn.
+- Thử trên desktop ở các kích thước thực tế, gồm ít nhất một màn hình laptop và một màn hình lớn.
 - Không dùng mạng để chặn việc mở form, kéo thả hoặc lưu cục bộ.
 - Quan sát chuyển trang, kéo thả và mở form trên máy mục tiêu; không có animation nền liên tục gây giật.
 - Có thể tạo, sửa, đổi lịch, hoàn thành và đổi trang bằng bàn phím; focus được quản lý đúng trong overlay.

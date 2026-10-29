@@ -12,7 +12,7 @@ Các lựa chọn theo ủy quyền được ghi riêng trong thiết kế: tổ
 
 ## 2. Môi trường và giới hạn
 
-Trình duyệt xem trước trong app, viewport thử **1204 × 746**. HTML/CSS/JavaScript dùng dữ liệu mẫu; không phải Next.js/FastAPI/MySQL hoặc Cốc Cốc production. Không cài dependency/scaffold sản phẩm, không đăng nhập/gửi email/ACK thật.
+Trình duyệt xem trước trong app, viewport thử **1204 × 746**. HTML/CSS/JavaScript dùng dữ liệu mẫu; không phải Next.js/FastAPI/MySQL production. Không cài dependency/scaffold sản phẩm, không đăng nhập/gửi email/ACK thật.
 
 Chỉ **trạng thái xem của mẫu** được lưu trong khóa riêng của prototype để kiểm tra reload. Công việc, dấu mốc, ghi chú và mutation vẫn trong bộ nhớ; reload trở về dữ liệu mẫu. Pending/trạng thái tài khoản là mô phỏng. Bộ chọn BẢN THỬ không được đưa vào sản phẩm.
 
@@ -45,7 +45,7 @@ Các luồng biểu mẫu/lặp/màu/buổi–ghi chú/tài khoản đã kiểm 
 
 ## 5. Kiểm chứng còn thuộc triển khai
 
-Không dùng lượt này để đánh dấu 38 AC sản phẩm đã đạt. Chưa kiểm chứng auth/email/owner/cache thật, IndexedDB/outbox bền vững, LWW/đồng hồ/cursor/nhóm chuỗi/Undo xuyên sync, Cốc Cốc thật, Back/Forward qua route Next.js, ngắt mạng/lỗi lưu trữ thật, mọi trường hợp ngày/ngoại lệ hoặc hiệu năng/AA toàn UI.
+Không dùng lượt này để đánh dấu 38 AC sản phẩm đã đạt. Chưa kiểm chứng auth/email/owner/cache thật, IndexedDB/outbox bền vững, LWW/đồng hồ/cursor/nhóm chuỗi/Undo xuyên sync, Back/Forward qua route Next.js, ngắt mạng/lỗi lưu trữ thật, mọi trường hợp ngày/ngoại lệ hoặc hiệu năng/AA toàn UI.
 
 [Thiết kế T02](design.md) là nguồn cho hành vi đã chốt, kể cả đường tương tác chi tiết chưa cài đầy đủ trong bản mẫu. T03 và nhóm triển khai thực hiện/kiểm chứng chúng. UI-01–UI-12 trong thiết kế là bộ kiểm chứng cho sản phẩm, không phải nhãn đã vượt qua đầy đủ bằng prototype.
 

@@ -15,7 +15,7 @@ Next.js hỗ trợ self-host bằng Node.js hoặc container. Với DAYFORGE, Ne
 
 ```mermaid
 flowchart TB
-    BROWSER["Cốc Cốc desktop — React và lịch"] <--> LOCAL["IndexedDB — dữ liệu làm việc theo tài khoản"]
+    BROWSER["Browser desktop — React và lịch"] <--> LOCAL["IndexedDB — dữ liệu làm việc theo tài khoản"]
     BROWSER --> SW["Service worker — tài nguyên và shell offline"]
     BROWSER <--> WEB["Next.js server / Node.js"]
     LOCAL <--> SYNC["Bộ đồng bộ phía client"]
@@ -49,7 +49,7 @@ Chạy Next.js server không tự tạo khả năng offline. Shell phải mở �
 | Motion và kéo thả | CSS/Motion, dnd-kit | Đề xuất |
 | Backend | FastAPI, Pydantic, Uvicorn | FastAPI/Python đã chốt; phụ thuộc cụ thể giao T04 |
 | Dữ liệu server | MySQL, SQLAlchemy, Alembic; cân nhắc PyMySQL đồng bộ | MySQL đã chốt; ORM/driver đề xuất |
-| Kiểm thử | Pytest; Vitest/Testing Library; Playwright và kiểm tra trực tiếp trên Cốc Cốc | Đề xuất công cụ; Cốc Cốc đã chốt |
+| Kiểm thử | Pytest; Vitest/Testing Library; Playwright và kiểm tra trực tiếp trên browser desktop | Đề xuất công cụ |
 
 Nguồn: [Dexie React](https://dexie.org/docs/Tutorial/React), [Workbox](https://developer.chrome.com/docs/workbox/modules/workbox-build), [Motion React](https://motion.dev/docs/react), [dnd-kit](https://dndkit.com/), [SQLAlchemy](https://docs.sqlalchemy.org/), [Alembic](https://alembic.sqlalchemy.org/en/latest/).
 
@@ -99,4 +99,4 @@ LWW không thay thế kiểm tra dữ liệu, quyền, revision, cursor hoặc c
 
 T29/T30 chọn nhà cung cấp/region, cấu hình, domain, dịch vụ email và backup. Cần migration, backup/restore đã thử, tự khởi động lại, health/log và rollback tương thích dữ liệu. Bản sao lưu server chỉ có dữ liệu đã đồng bộ.
 
-Cốc Cốc desktop là browser nghiệm thu chính; ghi phiên bản thực tế khi kiểm chứng. Việc chạy được trên Chromium trong CI không thay cho kiểm tra trực tiếp trên Cốc Cốc. [Nguồn nền Chromium của Cốc Cốc](https://coccoc.com/en/policy).
+Ghi phiên bản browser và hệ điều hành thực tế khi kiểm chứng trực tiếp.

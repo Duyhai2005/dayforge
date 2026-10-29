@@ -24,7 +24,7 @@ Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hi
 
 ## 2. Ràng buộc chung
 
-- Dùng riêng một người trên **Cốc Cốc desktop**; tài khoản **email + xác minh email + mật khẩu riêng** thuộc phạm vi đầu, không Google login, chưa mở nhiều người dùng. Trang ghi chú nhanh độc lập, mobile app và desktop app hoãn; buổi tùy chọn và ghi chú trong dấu mốc được bổ sung ở T02, thuộc đợt đầu.
+- Dùng riêng một người trên desktop; tài khoản **email + xác minh email + mật khẩu riêng** thuộc phạm vi đầu, không Google login, chưa mở nhiều người dùng. Trang ghi chú nhanh độc lập, mobile app và desktop app hoãn; buổi tùy chọn và ghi chú trong dấu mốc được bổ sung ở T02, thuộc đợt đầu.
 - Hai trang lịch: công việc và dấu mốc. Toàn cảnh tuần đọc được công việc ngay, theo sáng/chiều/tối; không bắt nhập giờ bắt đầu chính xác.
 - Công việc được phép độc lập. Các mục cùng kế hoạch cùng màu; hoàn thành/chưa hoàn thành giữ màu gốc; hủy thì gỡ khỏi lịch.
 - Dấu mốc tạo riêng, không chuyển công việc thành dấu mốc; cùng bản ghi được hiển thị ở hai lịch. Việc lặp hằng ngày/theo thứ tiếp tục đến khi dừng; sửa quy tắc từ mốc tách các lần tương lai đã chỉnh riêng thành việc một lần cùng kế hoạch/màu, giữ lịch sử. Dừng từ mốc gỡ thành viên tương lai kể cả ngoại lệ đã dời, giữ lịch sử trước mốc và việc đã tách.
@@ -56,7 +56,7 @@ Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hi
 
 ### Nhóm 1 — Chốt nền thiết kế · T01–T03
 
-- [x] **T01 — Duyệt thiết kế tổng hợp.** Người dùng đã duyệt [thiết kế T01](t01/design.md) cùng các mặc định được nêu và yêu cầu đánh dấu hoàn thành ngày **28/10/2026**. Kiến trúc B, tài khoản, Cốc Cốc, LWW và quy tắc dấu mốc/lặp đã chốt; host/email provider để T29/T30.
+- [x] **T01 — Duyệt thiết kế tổng hợp.** Người dùng đã duyệt [thiết kế T01](t01/design.md) cùng các mặc định được nêu và yêu cầu đánh dấu hoàn thành ngày **28/10/2026**. Kiến trúc B, tài khoản, LWW và quy tắc dấu mốc/lặp đã chốt; host/email provider để T29/T30.
 - [x] **T02 — Chốt giao diện để triển khai.** Người dùng đã duyệt [đặc tả tổng hợp 1.0](t02/design.md) bằng xác nhận “được rồi chốt T02” ngày 28/10/2026. Có [bản xem chung](t02/prototypes/t02-consolidated-preview-v3.html) và [rà soát/kiểm tra](t02/review-and-verification.md); chỉ hoàn thành thiết kế, chưa nghiệm thu sản phẩm.
 - [x] **T03 — Chốt hợp đồng dữ liệu, tài khoản và API.** Hoàn thành [hợp đồng 1.0](t03/design.md) ngày **28/10/2026**: ngày/buổi/limits/ID, recurrence và Undo, typed command replay theo edit-time, clock repair, receipt/cursor/bootstrap/ACK, auth/session/local vault, HTTP và tương thích. Có JSON Schema, fixture và [rà soát/kiểm chứng](t03/review-and-verification.md). Đây là hoàn thành đặc tả kỹ thuật, chưa phải code hoặc nghiệm thu sản phẩm.
 
@@ -64,7 +64,7 @@ Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hi
 
 ### Nhóm 2 — Dựng nền dự án · T04–T07
 
-- [x] **T04 — Tổ chức dự án và môi trường phát triển.** Hoàn thành ngày **29/10/2026**: cấu trúc frontend/backend, runtime/dependency/image pins, cấu hình mẫu không chứa secrets, HTTPS cùng-origin và hướng dẫn tái lập trên Windows. Xem [kế hoạch và checklist](t04/plan.md), [runbook](../development.md) và [báo cáo kiểm chứng](t04/review-and-verification.md). Người dùng miễn direct check trên Cốc Cốc; browser trust ghi nhận là chưa xác minh.
+- [x] **T04 — Tổ chức dự án và môi trường phát triển.** Hoàn thành ngày **29/10/2026**: cấu trúc frontend/backend, runtime/dependency/image pins, cấu hình mẫu không chứa secrets, HTTPS cùng-origin và hướng dẫn tái lập trên Windows. Xem [kế hoạch và checklist](t04/plan.md), [runbook](../development.md) và [báo cáo kiểm chứng](t04/review-and-verification.md).
 - [x] **T05 — Dựng FastAPI và MySQL.** Hoàn thành kết nối, schema/migration ban đầu, validation, xử lý lỗi, health/version và log; nghiệm thu MySQL, HTTPS trên DB cô lập và final review đã đạt. Xem [kế hoạch chi tiết](t05/plan.md), [runbook](../development.md) và [báo cáo kiểm chứng/giới hạn](t05/review-and-verification.md). Khả năng tương thích với volume DB dev và browser trust vẫn chưa xác minh.
 - [x] **T06 — Dựng khung Next.js server.** Hoàn thành shell ngày **29/10/2026**: hai route lịch, widget, URL/history và sở thích riêng từng lịch, route tài khoản/callback trung tính; không có dữ liệu riêng trong shell. Browser suite dev/production, build và kiểm tra môi trường đạt; HTTPS same-origin smoke chưa chạy trong checkout T06 do thiếu cấu hình local/API. Xem [kế hoạch](t06/plan.md) và [kiểm chứng, giới hạn, bàn giao](t06/review-and-verification.md).
 - [ ] **T07 — Thiết lập kiểm tra tự động.** Có lint, type check, test runner, môi trường MySQL kiểm thử và CI kiểm tra test/build trước khi phát hành.
@@ -110,9 +110,9 @@ Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hi
 - [ ] **T25 — Hoàn thiện trạng thái lỗi, tài khoản và sync.** Có loading/rỗng, lỗi form/lưu/email, chưa xác minh, hết phiên, offline/chờ sync và lỗi LWW; giữ bản nháp/pending, cảnh báo đăng xuất và hướng dẫn đăng nhập lại đúng owner.
 - [ ] **T26 — Hoàn thiện khả năng thao tác.** Kiểm tra bàn phím, focus/overlay, nhãn biểu tượng, tương phản, tiếng Việt và giảm chuyển động trên các luồng chính.
 - [ ] **T27 — Tối ưu hiệu năng desktop.** Kiểm tra ngày nhiều việc, lịch năm, việc lặp và đồng bộ khi app mở; sửa giật/nhảy bố cục, giữ cỡ chữ dễ đọc trên màn laptop và màn lớn.
-- [ ] **T28 — Kiểm thử tích hợp, nghiệm thu và sửa lỗi.** Lập đối chiếu AC-01–AC-38 với kết quả, chạy trên Cốc Cốc desktop; kiểm tra auth/Origin/CSRF/secrets/cache owner, email tới inbox, offline/LWW và dữ liệu biên, ghi rõ case môi trường đích cần T32/T36 xác nhận.
+- [ ] **T28 — Kiểm thử tích hợp, nghiệm thu và sửa lỗi.** Lập đối chiếu AC-01–AC-38 với kết quả; kiểm tra auth/Origin/CSRF/secrets/cache owner, email tới inbox, offline/LWW và dữ liệu biên, ghi rõ case môi trường đích cần T32/T36 xác nhận.
 
-**Kết quả nhóm:** có bản ứng viên đạt nghiệm thu chức năng và dữ liệu trên Cốc Cốc/máy mục tiêu; lưu kết quả và chỉ rõ case cần môi trường đích ở T32/T36, chưa coi các case đó đã đạt. T24/T25 cần các luồng tính năng hoàn chỉnh; T26/T27 có thể chạy song song sau đó; T28 chốt đối chiếu trước deploy.
+**Kết quả nhóm:** có bản ứng viên đạt nghiệm thu chức năng và dữ liệu trên máy mục tiêu; lưu kết quả và chỉ rõ case cần môi trường đích ở T32/T36, chưa coi các case đó đã đạt. T24/T25 cần các luồng tính năng hoàn chỉnh; T26/T27 có thể chạy song song sau đó; T28 chốt đối chiếu trước deploy.
 
 ### Nhóm 7 — Chuẩn bị và diễn tập deploy · T29–T33
 

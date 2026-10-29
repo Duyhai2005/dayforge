@@ -197,7 +197,7 @@ Theo prefers-reduced-motion: bỏ dịch/scale và xung nhấn, chuyển trạng
 
 Tab/Shift+Tab tới được hành động chính, Enter/Space kích hoạt native, radio màu dùng phím mũi tên. Modal giữ focus tầng trên cùng và trả focus đúng; Escape chỉ đóng tầng trên sau xử lý bản bẩn. Ô nhập có label, icon có tên truy cập, thông báo lỗi/status có live region phù hợp, không chỉ dựa vào hover/màu. Trường ghi chú dùng textarea, không render HTML người dùng nhập. Nút X/điểm kéo/mốc nhiều mục không quá nhỏ.
 
-Màu chữ thường và trạng thái hướng AA; toàn bộ placeholder/focus/disabled phải kiểm tra trên sản phẩm, không lấy tính tương phản chín cặp thẻ làm bằng chứng đạt toàn UI. Kiểm tra Cốc Cốc desktop thật ở laptop/màn lớn; bản thử in-app không thay kiểm chứng đó.
+Màu chữ thường và trạng thái hướng AA; toàn bộ placeholder/focus/disabled phải kiểm tra trên sản phẩm, không lấy tính tương phản chín cặp thẻ làm bằng chứng đạt toàn UI. Kiểm tra sản phẩm trên laptop/màn lớn; bản thử in-app không thay kiểm chứng đó.
 
 ## 13. Bàn giao cho người triển khai và nghiệm thu T02
 
@@ -216,7 +216,7 @@ Phạm vi dự án hiện có **48 FR và 38 AC** trong [yêu cầu](../../proje
 | UI-09 | Tháng có +N, đầy đủ danh sách; năm có nhiều màu/nhóm và số lượng đúng; mở tháng tới mọi mục. |
 | UI-10 | Đăng nhập/setup/verify/resend/link hết hạn/forgot/reset/ghi nhớ/hết phiên/đăng xuất có pending theo T01. |
 | UI-11 | Phân biệt chưa lưu/local đã lưu/pending/ACK/offline/lỗi phiên/lỗi sync; không báo thành công giả. |
-| UI-12 | Keyboard/focus/live region, reduced motion, độ tương phản, laptop/desktop Cốc Cốc và kích thước ngày cuối tháng/chuyển năm. |
+| UI-12 | Keyboard/focus/live region, reduced motion, độ tương phản, laptop/màn lớn và kích thước ngày cuối tháng/chuyển năm. |
 
 Builder được chọn cấu trúc component, thư viện/icon nội bộ, biện pháp hiệu năng và mã CSS trong stack đã chọn; được tinh chỉnh vài px/ms khi nghiệm thu nếu giữ hành vi và hướng này. Không tự thay chính sách recurrence, LWW, tài khoản hoặc tạo thêm trang notes. T03 khóa schema/API, chuyển đổi task→series, ngày gốc, limits/validation đồng nhất, owner/session/local unlock, revision/ACK/undo và lưu trạng thái xem; không cần hỏi người dùng chọn thuật toán.
 

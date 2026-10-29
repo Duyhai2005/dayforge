@@ -71,7 +71,7 @@ T03 hoàn thành phần hợp đồng kỹ thuật theo quyền đã giao. Các 
 | CT-17 | Rebalance occurrence Friday chỉ bằng `rank_maintenance`, rồi đổi lịch tương lai sang Monday: Friday không thành detached, Monday được sinh; nếu Friday vẫn thuộc rule mới và template giữ cùng period/order_key thì rank override được giữ. Đổi period hoặc template order_key phải bỏ override cũ và dùng rank successor. `user_reorder` riêng vẫn detach theo hợp đồng. | T19/T21–T23 |
 | CT-18 | Nhiều segment hiện hành có template khác nhau: `edit_future` từ cutoff sớm phải so từng rank override với template của segment đang sinh đúng original date, rồi carry/drop riêng theo date; không dùng template của `source_segment_id` trong command làm giá trị cũ chung. | T21–T23 |
 
-Các case này **chưa chạy trên sản phẩm** trong T03. Chưa có FastAPI/Next.js/MySQL/IndexedDB thật, SMTP/provider, Cốc Cốc production hoặc CI sản phẩm để nghiệm thu 38 AC.
+Các case này **chưa chạy trên sản phẩm** trong T03. Chưa có FastAPI/Next.js/MySQL/IndexedDB thật, SMTP/provider hoặc CI sản phẩm để nghiệm thu 38 AC.
 
 ## 5. Phạm vi Git
 

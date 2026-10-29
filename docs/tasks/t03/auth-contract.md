@@ -188,7 +188,7 @@ Logout không dùng `Clear-Site-Data` để xóa IDB: thao tác đó sẽ mất 
 
 T09/T13 và nghiệm thu phải kiểm tra bằng fixture: đua verify chỉ một owner; allowlist/normalization nhất quán; link scanner không consume; token retry/hết hạn/sai purpose; reset revoke mọi phiên nhưng giữ key/pending.
 Kiểm tra session absolute/idle bằng clock giả, CSRF/Origin thiếu/null/sai, no-store thực qua proxy/SW/Next build, đăng xuất offline rồi reload, nhiều tab và callback trễ, cookie cũ không tự unlock, recent-password quá 5 phút bị chặn.
-Kiểm tra vault trên Cốc Cốc thật: import nonextractable, structured clone qua IDB/reload, mất key local vẫn lấy lại đúng key sau login/reset, restore KEK+wrapped key và lỗi quota không báo khóa/lưu thành công giả.
+Kiểm tra vault trên sản phẩm: import nonextractable, structured clone qua IDB/reload, mất key local vẫn lấy lại đúng key sau login/reset, restore KEK+wrapped key và lỗi quota không báo khóa/lưu thành công giả.
 Đây là tiêu chí phải thực hiện khi có sản phẩm; chưa phải kết quả chạy kiểm thử.
 
 - [NIST SP 800-63B-4 §3.1.1](https://pages.nist.gov/800-63-4/sp800-63b.html#passwordver): password-only có “minimum of 15 characters in length”; cho phép ít nhất 64 ký tự tối đa, Unicode code point, NFC, blocklist, không composition rule/đổi định kỳ. DAYFORGE chọn max 128 và không tuyên bố chứng nhận NIST.
