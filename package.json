@@ -7,6 +7,8 @@
   },
   "packageManager": "pnpm@12.16.1",
   "scripts": {
+    "test:api": "uv run --directory backend --locked python ../scripts/test_backend.py",
+    "test:api:mysql": "uv run --directory backend --locked python ../scripts/test_backend.py --mysql",
     "preinstall": "node scripts/check-node-version.cjs",
     "build:web": "pnpm --filter @dayforge/frontend build",
     "db:up": "docker compose --env-file .env up -d --wait --wait-timeout 120 mysql",
