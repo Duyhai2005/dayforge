@@ -9,6 +9,8 @@ export const HASH_PATTERN = /^[0-9a-f]{64}$/;
 
 export const DATE_PATTERN = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/;
 
+export const MAX_OPERATION_WIRE_BYTES = 2 * 1024 * 1024;
+
 export function isCanonicalLocalDate(value: unknown): value is string {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   if (value < "0001-01-01" || value > "9999-12-31") return false;
@@ -146,6 +148,140 @@ const VALID_COLORS = new Set([
 
 const VALID_PERIODS = new Set(["morning", "afternoon", "evening"]);
 
+function canonicalizeSingleLineText(value: unknown): unknown {
+  return typeof value === "string" ? value.normalize("NFC").trim() : value;
+}
+
+function canonicalizeNoteText(value: unknown): unknown {
+  return typeof value === "string"
+    ? value.replace(/\r\n?/g, "\n").normalize("NFC")
+    : value;
+}
+
+function cloneObject(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? { ...(value as Record<string, unknown>) }
+    : null;
+}
+
+function canonicalizeDataObject(
+  value: unknown,
+  fields: readonly ("name" | "title" | "note")[]
+): unknown {
+  const obj = cloneObject(value);
+  if (!obj) return value;
+  for (const field of fields) {
+    if (field === "note") {
+      obj[field] = canonicalizeNoteText(obj[field]);
+    } else {
+      obj[field] = canonicalizeSingleLineText(obj[field]);
+    }
+  }
+  return obj;
+}
+
+/**
+ * Return a non-mutating canonical command copy for durable persistence.
+ * Validation still runs afterwards and rejects any malformed/unknown fields.
+ */
+export function canonicalizeCommandsForStorage(
+  commands: readonly unknown[]
+): readonly unknown[] {
+  return commands.map((raw) => {
+    const cmd = cloneObject(raw);
+    if (!cmd) return raw;
+    const payload = cloneObject(cmd.payload);
+    if (!payload) return cmd;
+
+    switch (cmd.action) {
+      case "plan.create":
+      case "plan.replace":
+        payload.data = canonicalizeDataObject(payload.data, ["name"]);
+        break;
+      case "milestone.create":
+      case "milestone.replace":
+        payload.data = canonicalizeDataObject(payload.data, ["title", "note"]);
+        break;
+      case "work_item.create_single":
+      case "work_item.enable_recurrence":
+      case "single.replace":
+      case "occurrence.replace":
+      case "detached.replace":
+        payload.data = canonicalizeDataObject(payload.data, ["title"]);
+        break;
+      case "work_item.create_recurrence":
+      case "series.edit_future":
+        payload.template = canonicalizeDataObject(payload.template, ["title"]);
+        break;
+    }
+
+    cmd.payload = payload;
+    return cmd;
+  });
+}
+
+function validateCanonicalSingleLine(
+  value: unknown,
+  maxCodePoints: number,
+  label: string
+): asserts value is string {
+  if (
+    typeof value !== "string" ||
+    value !== value.normalize("NFC").trim() ||
+    [...value].length < 1 ||
+    [...value].length > maxCodePoints ||
+    /[\u0000-\u001f\u007f]/.test(value)
+  ) {
+    throw new StorageError(
+      "invalid_data",
+      `${label} must be canonical NFC, trimmed, 1..${maxCodePoints} Unicode code points, single-line, without control characters`
+    );
+  }
+}
+
+function validateCanonicalNote(value: unknown, label: string): asserts value is string {
+  if (
+    typeof value !== "string" ||
+    value !== value.replace(/\r\n?/g, "\n").normalize("NFC") ||
+    [...value].length > 4000 ||
+    /[\u0000-\u0008\u000b-\u001f\u007f]/.test(value)
+  ) {
+    throw new StorageError(
+      "invalid_data",
+      `${label} must be canonical NFC/LF text up to 4000 Unicode code points`
+    );
+  }
+}
+
+export function isoWeekdayFromLocalDate(value: unknown): number | null {
+  if (!isCanonicalLocalDate(value)) return null;
+  let year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
+  const monthOffsets = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
+  if (month < 3) year -= 1;
+  const sundayZero =
+    (year +
+      Math.floor(year / 4) -
+      Math.floor(year / 100) +
+      Math.floor(year / 400) +
+      monthOffsets[month - 1] +
+      day) %
+    7;
+  return sundayZero === 0 ? 7 : sundayZero;
+}
+
+export function assertOperationWireSize(canonicalJson: string): number {
+  const byteLength = new TextEncoder().encode(canonicalJson).byteLength;
+  if (byteLength > MAX_OPERATION_WIRE_BYTES) {
+    throw new StorageError(
+      "invalid_data",
+      `Operation exceeds ${MAX_OPERATION_WIRE_BYTES} UTF-8 bytes (got ${byteLength})`
+    );
+  }
+  return byteLength;
+}
+
 function validatePlanData(data: unknown, prefix: string): void {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     throw new StorageError("invalid_data", `${prefix} data must be a non-null object`);
@@ -156,14 +292,7 @@ function validatePlanData(data: unknown, prefix: string): void {
       throw new StorageError("invalid_data", `${prefix} data contains unknown property '${k}'`);
     }
   }
-  if (
-    typeof obj.name !== "string" ||
-    obj.name.length < 1 ||
-    obj.name.length > 100 ||
-    /[\u0000-\u001f\u007f]/.test(obj.name)
-  ) {
-    throw new StorageError("invalid_data", `${prefix} data.name must be 1..100 chars without control characters`);
-  }
+  validateCanonicalSingleLine(obj.name, 100, `${prefix} data.name`);
   if (typeof obj.color_id !== "string" || !VALID_COLORS.has(obj.color_id)) {
     throw new StorageError("invalid_data", `${prefix} data.color_id must be a valid Color`);
   }
@@ -188,27 +317,14 @@ function validateMilestoneData(data: unknown, prefix: string): void {
       throw new StorageError("invalid_data", `${prefix} data contains unknown property '${k}'`);
     }
   }
-  if (
-    typeof obj.title !== "string" ||
-    obj.title.length < 1 ||
-    obj.title.length > 120 ||
-    /[\u0000-\u001f\u007f]/.test(obj.title)
-  ) {
-    throw new StorageError("invalid_data", `${prefix} data.title must be 1..120 chars without control characters`);
-  }
+  validateCanonicalSingleLine(obj.title, 120, `${prefix} data.title`);
   if (!isCanonicalLocalDate(obj.date)) {
     throw new StorageError("invalid_data", `${prefix} data.date must be a valid canonical LocalDate`);
   }
   if (obj.period !== null && (typeof obj.period !== "string" || !VALID_PERIODS.has(obj.period))) {
     throw new StorageError("invalid_data", `${prefix} data.period must be Period or null`);
   }
-  if (
-    typeof obj.note !== "string" ||
-    [...obj.note].length > 4000 ||
-    /[\u0000-\u0008\u000b-\u001f\u007f]/.test(obj.note)
-  ) {
-    throw new StorageError("invalid_data", `${prefix} data.note must be a string up to 4000 chars without control characters`);
-  }
+  validateCanonicalNote(obj.note, `${prefix} data.note`);
   if (obj.plan_id !== null && (typeof obj.plan_id !== "string" || !UUID_PATTERN.test(obj.plan_id))) {
     throw new StorageError("invalid_data", `${prefix} data.plan_id must be UUID or null`);
   }
@@ -240,14 +356,7 @@ function validateTaskData(data: unknown, prefix: string): void {
       throw new StorageError("invalid_data", `${prefix} data contains unknown property '${k}'`);
     }
   }
-  if (
-    typeof obj.title !== "string" ||
-    obj.title.length < 1 ||
-    obj.title.length > 120 ||
-    /[\u0000-\u001f\u007f]/.test(obj.title)
-  ) {
-    throw new StorageError("invalid_data", `${prefix} data.title must be 1..120 chars without control characters`);
-  }
+  validateCanonicalSingleLine(obj.title, 120, `${prefix} data.title`);
   if (!isCanonicalLocalDate(obj.date)) {
     throw new StorageError("invalid_data", `${prefix} data.date must be a valid canonical LocalDate`);
   }
@@ -295,14 +404,7 @@ function validateTaskTemplate(template: unknown, prefix: string): void {
       throw new StorageError("invalid_data", `${prefix} template contains unknown property '${k}'`);
     }
   }
-  if (
-    typeof obj.title !== "string" ||
-    obj.title.length < 1 ||
-    obj.title.length > 120 ||
-    /[\u0000-\u001f\u007f]/.test(obj.title)
-  ) {
-    throw new StorageError("invalid_data", `${prefix} template.title must be 1..120 chars`);
-  }
+  validateCanonicalSingleLine(obj.title, 120, `${prefix} template.title`);
   if (typeof obj.period !== "string" || !VALID_PERIODS.has(obj.period)) {
     throw new StorageError("invalid_data", `${prefix} template.period must be Period`);
   }
@@ -541,6 +643,19 @@ export function validateCommand(cmd: unknown, index = 0): cmd is StorageCommand 
       }
       validateTaskData(candidate.payload.data, prefix);
       validateRecurrenceRule(candidate.payload.rule, prefix);
+      const enableData = candidate.payload.data as Record<string, unknown>;
+      const enableRule = candidate.payload.rule as Record<string, unknown>;
+      const enableWeekday = isoWeekdayFromLocalDate(enableData.date);
+      const enableWeekdays = enableRule.weekdays as readonly number[];
+      if (
+        enableWeekday === null ||
+        !enableWeekdays.includes(enableWeekday)
+      ) {
+        throw new StorageError(
+          "invalid_data",
+          `${prefix} work_item.enable_recurrence requires data.date weekday (${String(enableWeekday)}) to be present in rule.weekdays`
+        );
+      }
       break;
     }
     case "occurrence.replace": {
@@ -922,6 +1037,12 @@ export function validateOperationDraft(input: {
       throw new StorageError(
         "invalid_data",
         `Dependency at index ${i} is not a valid UUID: '${dep}'`
+      );
+    }
+    if (dep === input.operationId) {
+      throw new StorageError(
+        "invalid_data",
+        `Operation '${input.operationId}' cannot depend on itself`
       );
     }
     if (seenDeps.has(dep)) {
