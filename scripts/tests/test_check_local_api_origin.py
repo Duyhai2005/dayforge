@@ -47,7 +47,11 @@ class CheckLocalApiOriginTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_rejects_origins_outside_exact_allowed_value(self) -> None:
-        for origin in ("http://localhost:8000", "http://127.0.0.1:8000/", "https://127.0.0.1:8000"):
+        for origin in (
+            "http://localhost:8000",
+            "http://127.0.0.1:8000/",
+            "https://127.0.0.1:8000",
+        ):
             with self.subTest(origin=origin):
                 self.env_file.write_text(f'API_INTERNAL_ORIGIN="{origin}"\n')
                 result = self.run_guard()

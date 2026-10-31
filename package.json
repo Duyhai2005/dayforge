@@ -7,10 +7,21 @@
   },
   "packageManager": "pnpm@12.16.1",
   "scripts": {
+    "lint:web": "pnpm --filter @dayforge/frontend lint",
+    "lint:api": "uv run --directory backend --locked ruff check app tests migrations ../scripts",
+    "format:check:api": "uv run --directory backend --locked black --check app tests migrations ../scripts",
+    "lint": "pnpm lint:web && pnpm lint:api && pnpm format:check:api",
+    "typecheck:web": "pnpm --filter @dayforge/frontend typecheck",
+    "typecheck:api": "uv run --directory backend --locked mypy app",
+    "typecheck": "pnpm typecheck:web && pnpm typecheck:api",
     "test:api": "uv run --directory backend --locked python ../scripts/test_backend.py",
     "test:api:mysql": "uv run --directory backend --locked python ../scripts/test_backend.py --mysql",
     "preinstall": "node scripts/check-node-version.cjs",
-    "build:web": "pnpm --filter @dayforge/frontend build",
+    "build:web": "cross-env API_INTERNAL_ORIGIN=http://127.0.0.1:8000 pnpm --filter @dayforge/frontend build",
+    "test:web": "pnpm --filter @dayforge/frontend test:e2e",
+    "test:web:prod": "pnpm --filter @dayforge/frontend test:e2e:prod",
+    "verify:fast": "pnpm lint && pnpm typecheck && pnpm verify:env && pnpm test:api",
+    "verify": "pnpm verify:fast && pnpm test:web && pnpm build:web && pnpm test:web:prod",
     "db:up": "docker compose --env-file .env up -d --wait --wait-timeout 120 mysql",
     "db:down": "docker compose --env-file .env down",
     "db:migrate": "uv run --directory backend --locked --env-file .env alembic upgrade head",
@@ -21,5 +32,8 @@
     "verify:env": "uv run --directory backend --locked python -m unittest discover -s ../scripts/tests -v",
     "start:web": "pnpm --filter @dayforge/frontend start",
     "smoke:local": "uv run --directory backend --locked python ../scripts/smoke_local.py"
+  },
+  "devDependencies": {
+    "cross-env": "7.0.3"
   }
 }

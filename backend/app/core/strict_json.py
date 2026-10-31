@@ -46,7 +46,11 @@ def _validate_value(value: Any) -> None:
 
 def parse_json_bytes(data: bytes) -> Any:
     try:
-        value = json.loads(data.decode("utf-8"), object_pairs_hook=_object, parse_constant=_reject_constant)
+        value = json.loads(
+            data.decode("utf-8"),
+            object_pairs_hook=_object,
+            parse_constant=_reject_constant,
+        )
         _validate_value(value)
         return value
     except (ValueError, OverflowError, RecursionError):
@@ -56,7 +60,9 @@ def parse_json_bytes(data: bytes) -> Any:
 def _is_json(content_type: str) -> bool:
     media_type, *parameters = content_type.split(";")
     return media_type.strip().lower() == "application/json" and all(
-        re.fullmatch(r'charset[ \t]*=[ \t]*(?:utf-8|"utf-8")', parameter.strip(), re.IGNORECASE)
+        re.fullmatch(
+            r'charset[ \t]*=[ \t]*(?:utf-8|"utf-8")', parameter.strip(), re.IGNORECASE
+        )
         for parameter in parameters
     )
 
@@ -66,14 +72,19 @@ class StrictJSONMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if (scope["type"] != "http" or scope.get("method") not in ("POST", "PUT", "PATCH")
-                or not scope.get("path", "").startswith("/api/v1/")):
+        if (
+            scope["type"] != "http"
+            or scope.get("method") not in ("POST", "PUT", "PATCH")
+            or not scope.get("path", "").startswith("/api/v1/")
+        ):
             await self.app(scope, receive, send)
             return
         request = Request(scope, receive)
 
         async def problem(status: int, code: str) -> None:
-            await make_problem(request, status_code=status, code=code)(scope, receive, send)
+            await make_problem(request, status_code=status, code=code)(
+                scope, receive, send
+            )
 
         headers = Headers(scope=scope)
         if not _is_json(headers.get("content-type", "")):
@@ -84,7 +95,9 @@ class StrictJSONMiddleware:
         if length.isascii() and length.isdecimal():
             # Compare digit strings first to avoid unbounded integer conversion.
             significant = length.lstrip("0") or "0"
-            if len(significant) > len(str(limit)) or (len(significant) == len(str(limit)) and significant > str(limit)):
+            if len(significant) > len(str(limit)) or (
+                len(significant) == len(str(limit)) and significant > str(limit)
+            ):
                 await problem(413, "payload_too_large")
                 return
         buffered = bytearray()

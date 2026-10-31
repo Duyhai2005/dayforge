@@ -2,7 +2,7 @@
 
 This guide starts the T04 local environment, T05 backend and T06 Next.js shell from the repository root in Windows PowerShell 5.1 or PowerShell 7. It runs Next.js and FastAPI on the host and MySQL in Docker Desktop. First-time setup needs internet access to download packages, the browser test engine and the MySQL image.
 
-T05 adds validated settings, async MySQL sessions, Alembic migrations, strict request validation, private error/log handling, and public health/version endpoints. T06 provides the work and milestone calendar shells, navigation widget, account placeholder and email callback shells. Calendar records, real authentication, owner storage, sync, offline support, CI and production deployment remain later tasks. See the [T05 verification report](tasks/t05/review-and-verification.md) and the [T06 verification report](tasks/t06/review-and-verification.md) for results and remaining acceptance checks.
+T05 adds validated settings, async MySQL sessions, Alembic migrations, strict request validation, private error/log handling, and public health/version endpoints. T06 provides the work and milestone calendar shells, navigation widget, account placeholder and email callback shells. Calendar records, real authentication, owner storage, sync, offline support and production deployment remain later tasks. See the [T05 verification report](tasks/t05/review-and-verification.md) and the [T06 verification report](tasks/t06/review-and-verification.md) for results and remaining acceptance checks.
 
 ## 1. Install the pinned tools
 
@@ -202,6 +202,54 @@ pnpm db:down
 
 This stops and removes the Compose container/network while retaining the named data volume. Do not add `-v` or delete the volume during routine shutdown. Changing passwords in `.env` does not change credentials already initialized in an existing MySQL volume; restore the matching original local configuration or use a deliberate database credential migration.
 
+## 7. Automated checks and quality gates
+
+T07 establishes unified quality gates matching GitHub Actions CI:
+
+### Fast non-browser checks
+
+Run static checks and unit/regression suites before pushing:
+
+```powershell
+pnpm verify:fast
+```
+
+This sequentially runs `pnpm lint`, `pnpm typecheck`, `pnpm verify:env`, and `pnpm test:api`.
+
+### Frontend quality commands
+
+```powershell
+pnpm lint:web       # ESLint with --max-warnings=0
+pnpm typecheck:web  # tsc --noEmit
+pnpm test:web       # Playwright dev suite (manages dev server on port 3010)
+pnpm build:web      # Cross-platform Next.js production build
+pnpm test:web:prod  # Playwright production suite (manages prod server on port 3001, strict headers)
+```
+
+### Backend quality commands
+
+```powershell
+pnpm lint:api          # Ruff check (app, tests, migrations, scripts)
+pnpm format:check:api  # Black check (120 line length)
+pnpm typecheck:api     # mypy app
+pnpm test:api          # pytest -m "not mysql" (runs without Docker)
+pnpm test:api:mysql    # Isolated MySQL integration tests (requires Docker daemon)
+```
+
+### Complete verification
+
+Run the complete test and build pipeline locally (does not require Docker):
+
+```powershell
+pnpm verify
+```
+
+### Docker and CI notes
+
+- `pnpm test:api:mysql` provisions a unique Compose project (`dayforge-test-<uuid>`), dynamically extracts the canonical pinned digest from `compose.yaml` without reading `.env`, binds to a loopback port, and cleans up all containers and anonymous storage on pass and fail. It never uses or modifies the development database or volumes.
+- Clean CI checkouts run without any `.env` files or secrets.
+- GitHub Actions workflow (`.github/workflows/ci.yml`) runs three CI jobs: `quality`, `backend-mysql`, and `frontend`.
+
 ## Troubleshooting
 
 | Symptom | Check |
@@ -227,5 +275,7 @@ This stops and removes the Compose container/network while retaining the named d
 - [T05 verification results and limits](tasks/t05/review-and-verification.md)
 - [T06 shell plan](tasks/t06/plan.md)
 - [T06 verification and handoff](tasks/t06/review-and-verification.md)
+- [T07 automated quality plan](tasks/t07/plan.md)
+- [T07 verification and handoff](tasks/t07/review-and-verification.md)
 - [Overall task status and dependencies](tasks/README.md)
 - [Project architecture](project-definition/04-technical-architecture.md)

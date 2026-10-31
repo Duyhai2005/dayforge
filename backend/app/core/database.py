@@ -5,7 +5,12 @@ from dataclasses import dataclass
 
 from fastapi import Request
 from sqlalchemy import event
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from app.core.config import Settings, build_database_url
 
@@ -18,9 +23,15 @@ class Database:
 
 def create_database(settings: Settings) -> Database:
     engine = create_async_engine(
-        build_database_url(settings), pool_size=5, max_overflow=0, pool_timeout=3,
-        pool_recycle=1800, pool_pre_ping=True, connect_args={"connect_timeout": 3},
-        echo=False, hide_parameters=True,
+        build_database_url(settings),
+        pool_size=5,
+        max_overflow=0,
+        pool_timeout=3,
+        pool_recycle=1800,
+        pool_pre_ping=True,
+        connect_args={"connect_timeout": 3},
+        echo=False,
+        hide_parameters=True,
     )
 
     @event.listens_for(engine.sync_engine, "connect")
@@ -31,11 +42,15 @@ def create_database(settings: Settings) -> Database:
             cursor.execute("SELECT @@SESSION.sql_mode")
             modes = cursor.fetchone()[0].split(",")
             if not {"STRICT_TRANS_TABLES", "STRICT_ALL_TABLES"}.intersection(modes):
-                cursor.execute("SET SESSION sql_mode = CONCAT_WS(',', NULLIF(@@SESSION.sql_mode, ''), 'STRICT_TRANS_TABLES')")
+                cursor.execute(
+                    "SET SESSION sql_mode = CONCAT_WS(',', NULLIF(@@SESSION.sql_mode, ''), 'STRICT_TRANS_TABLES')"
+                )
         finally:
             cursor.close()
 
-    return Database(engine, async_sessionmaker(engine, expire_on_commit=False, autoflush=False))
+    return Database(
+        engine, async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
+    )
 
 
 async def close_database(database: Database) -> None:

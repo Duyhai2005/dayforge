@@ -10,7 +10,7 @@
 
 **Spec:** [Thiết kế T01 đã duyệt](t01/design.md), [tổng quan hồ sơ](../project-definition/README.md), [yêu cầu chức năng](../project-definition/02-functional-requirements.md), [UX](../project-definition/03-ux-and-interactions.md), [kiến trúc](../project-definition/04-technical-architecture.md), [dữ liệu và đồng bộ](../project-definition/05-data-and-sync.md), [nghiệm thu](../project-definition/06-delivery-and-acceptance.md).
 
-Ngày cập nhật: **29/10/2026** · Trạng thái: **T01–T03 hoàn thành thiết kế/hợp đồng; T04 hoàn thành nền môi trường local; T05 hoàn thành nền FastAPI/MySQL theo [báo cáo kiểm chứng](t05/review-and-verification.md); T06 hoàn thành khung Next.js. T07–T36 chưa hoàn thành; chưa triển khai các luồng dữ liệu, tài khoản hoặc offline thực.**
+Ngày cập nhật: **31/10/2026** · Trạng thái: **T01–T03 hoàn thành thiết kế/hợp đồng; T04 hoàn thành nền môi trường local; T05 hoàn thành nền FastAPI/MySQL theo [báo cáo kiểm chứng](t05/review-and-verification.md); T06 hoàn thành khung Next.js; T07 hoàn thành kiểm tra tự động và CI theo [báo cáo kiểm chứng](t07/review-and-verification.md). T08–T36 chưa hoàn thành; chưa triển khai các luồng dữ liệu, tài khoản hoặc offline thực.**
 
 ## 1. Cách dùng kế hoạch
 
@@ -67,7 +67,7 @@ Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hi
 - [x] **T04 — Tổ chức dự án và môi trường phát triển.** Hoàn thành ngày **29/10/2026**: cấu trúc frontend/backend, runtime/dependency/image pins, cấu hình mẫu không chứa secrets, HTTPS cùng-origin và hướng dẫn tái lập trên Windows. Xem [kế hoạch và checklist](t04/plan.md), [runbook](../development.md) và [báo cáo kiểm chứng](t04/review-and-verification.md).
 - [x] **T05 — Dựng FastAPI và MySQL.** Hoàn thành kết nối, schema/migration ban đầu, validation, xử lý lỗi, health/version và log; nghiệm thu MySQL, HTTPS trên DB cô lập và final review đã đạt. Xem [kế hoạch chi tiết](t05/plan.md), [runbook](../development.md) và [báo cáo kiểm chứng/giới hạn](t05/review-and-verification.md). Khả năng tương thích với volume DB dev và browser trust vẫn chưa xác minh.
 - [x] **T06 — Dựng khung Next.js server.** Hoàn thành shell ngày **29/10/2026**: hai route lịch, widget, URL/history và sở thích riêng từng lịch, route tài khoản/callback trung tính; không có dữ liệu riêng trong shell. Browser suite dev/production, build và kiểm tra môi trường đạt; HTTPS same-origin smoke chưa chạy trong checkout T06 do thiếu cấu hình local/API. Xem [kế hoạch](t06/plan.md) và [kiểm chứng, giới hạn, bàn giao](t06/review-and-verification.md).
-- [ ] **T07 — Thiết lập kiểm tra tự động.** Có lint, type check, test runner, môi trường MySQL kiểm thử và CI kiểm tra test/build trước khi phát hành.
+- [x] **T07 — Thiết lập kiểm tra tự động.** Hoàn thành ngày **31/10/2026**: lint (ESLint, Ruff), format check (Black), typecheck (TypeScript strict, mypy), test runners chuẩn hóa, MySQL runner cô lập không phụ thuộc .env, production Playwright runner kiểm tra nghiêm ngặt callback headers và GitHub Actions CI. Xem [kế hoạch chi tiết](t07/plan.md) và [báo cáo kiểm chứng](t07/review-and-verification.md).
 
 **Kết quả nhóm:** chạy được bộ khung frontend/backend và cơ sở dữ liệu từ hướng dẫn; các kiểm tra nền chạy được. T05 và T06 có thể làm song song sau T04.
 

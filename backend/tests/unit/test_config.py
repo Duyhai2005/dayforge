@@ -45,9 +45,17 @@ def test_environment_does_not_override_explicit_settings(settings_factory, monke
     asyncio.run(check())
 
 
-@pytest.mark.parametrize("origin", ["http://localhost:3000", "https://user:pass@example.com",
-                                  "https://example.com/path", "https://example.com?x=1",
-                                  "https://example.com#part", "https://"])
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://localhost:3000",
+        "https://user:pass@example.com",
+        "https://example.com/path",
+        "https://example.com?x=1",
+        "https://example.com#part",
+        "https://",
+    ],
+)
 def test_invalid_public_origin_is_sanitized(settings_factory, origin):
     with pytest.raises(SettingsError) as caught:
         settings_factory(public_origin=origin)
@@ -59,9 +67,13 @@ def test_development_origin_must_match_local_https(settings_factory):
         settings_factory(app_env="development", public_origin="https://example.com")
 
 
-@pytest.mark.parametrize("field", ["db_host", "db_name", "db_user", "db_password", "public_origin"])
+@pytest.mark.parametrize(
+    "field", ["db_host", "db_name", "db_user", "db_password", "public_origin"]
+)
 @pytest.mark.parametrize("value", ["", "   ", "__GENERATE_SECRET__"])
-def test_required_values_reject_empty_or_generation_markers(settings_factory, field, value):
+def test_required_values_reject_empty_or_generation_markers(
+    settings_factory, field, value
+):
     with pytest.raises(SettingsError):
         settings_factory(**{field: value})
 
@@ -86,11 +98,17 @@ def test_unknown_constructor_field_is_rejected_without_echo(settings_factory):
 
 
 def test_unrelated_environment_variables_are_ignored():
-    settings = load_settings({
-        "APP_ENV": "test", "PUBLIC_ORIGIN": "https://localhost:3000",
-        "DB_HOST": "127.0.0.1", "DB_PORT": "3306", "DB_NAME": "dayforge_t05_test",
-        "DB_USER": "dayforge_test", "DB_PASSWORD": "test-only-password",
-        "UNKNOWN_OPTION": "unrelated-process-value",
-    })
+    settings = load_settings(
+        {
+            "APP_ENV": "test",
+            "PUBLIC_ORIGIN": "https://localhost:3000",
+            "DB_HOST": "127.0.0.1",
+            "DB_PORT": "3306",
+            "DB_NAME": "dayforge_t05_test",
+            "DB_USER": "dayforge_test",
+            "DB_PASSWORD": "test-only-password",
+            "UNKNOWN_OPTION": "unrelated-process-value",
+        }
+    )
     assert settings.app_env == "test"
     assert not hasattr(settings, "unknown_option")

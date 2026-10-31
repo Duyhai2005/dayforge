@@ -4,7 +4,6 @@ import secrets
 import sys
 from pathlib import Path
 
-
 TEMPLATE_OUTPUTS = (
     (Path(".env.example"), Path(".env")),
     (Path("backend/.env.example"), Path("backend/.env")),

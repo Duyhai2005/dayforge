@@ -1,9 +1,9 @@
 """Pure ASGI request context and allowlisted completion logging."""
 
-from contextvars import ContextVar
 import json
 import logging
 import sys
+from contextvars import ContextVar
 from time import perf_counter
 from uuid import uuid4
 
@@ -12,7 +12,6 @@ from starlette.requests import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.errors import make_problem
-
 
 request_id_context: ContextVar[str | None] = ContextVar("request_id", default=None)
 _logger = logging.getLogger("dayforge.requests")
@@ -64,17 +63,32 @@ class RequestLoggingMiddleware:
                 if started:
                     error_code = "response_interrupted"
                 else:
-                    response = make_problem(Request(scope, receive), status_code=500, code="internal_error")
+                    response = make_problem(
+                        Request(scope, receive), status_code=500, code="internal_error"
+                    )
                     await response(scope, receive, send_response)
         finally:
             try:
                 route = getattr(scope.get("route"), "path", "unmatched")
                 method = scope.get("method", "OTHER")
-                if method not in {"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "CONNECT"}:
+                if method not in {
+                    "GET",
+                    "HEAD",
+                    "POST",
+                    "PUT",
+                    "PATCH",
+                    "DELETE",
+                    "OPTIONS",
+                    "TRACE",
+                    "CONNECT",
+                }:
                     method = "OTHER"
                 event = {
-                    "event": "request_completed", "request_id": request_id, "method": method,
-                    "route": route, "status_code": status_code,
+                    "event": "request_completed",
+                    "request_id": request_id,
+                    "method": method,
+                    "route": route,
+                    "status_code": status_code,
                     "duration_ms": round((perf_counter() - start_time) * 1000, 3),
                     "error_code": error_code or state.get("error_code"),
                 }

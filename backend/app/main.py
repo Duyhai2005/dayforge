@@ -17,8 +17,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         configured = settings if settings is not None else load_settings()
         revision = required_schema_revision()
         if configured.app_env == "production" and application.openapi_url is not None:
-            application.router.routes[:] = [route for route in application.router.routes
-                                            if getattr(route, "path", None) != application.openapi_url]
+            application.router.routes[:] = [
+                route
+                for route in application.router.routes
+                if getattr(route, "path", None) != application.openapi_url
+            ]
             application.openapi_url = None
         database = create_database(configured)
         application.state.settings = configured
@@ -30,8 +33,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await close_database(database)
 
     application = FastAPI(
-        title="DAYFORGE API", version="0.0.0", openapi_url="/api/v1/openapi.json",
-        docs_url=None, redoc_url=None, lifespan=lifespan,
+        title="DAYFORGE API",
+        version="0.0.0",
+        openapi_url="/api/v1/openapi.json",
+        docs_url=None,
+        redoc_url=None,
+        lifespan=lifespan,
     )
     register_exception_handlers(application)
     application.include_router(system_router)
