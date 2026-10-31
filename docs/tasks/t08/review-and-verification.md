@@ -149,7 +149,10 @@ Lớp lưu trữ T08 đã sẵn sàng cung cấp các giao diện và hợp đ�
    - **Vòng đời Outbox & Xác nhận Pull (`ack_waiting_pull`):**
      - Khi máy chủ trả về ACK xác nhận đã nhận operation, T11 gọi `markOperationAcked(ctx, operationId)` để chuyển trạng thái sang `ack_waiting_pull`. **Hàng outbox KHÔNG được xóa ngay tại thời điểm ACK!**
      - Theo quy định hợp đồng T03 và T08, một hàng outbox BẮT BUỘC phải tiếp tục tồn tại ở trạng thái `ack_waiting_pull` cho đến khi một lượt pull tiếp theo (`subsequent pull`) xác nhận máy chủ đã xử lý thành công và cập nhật bản ghi vào projection.
-     - Tại thời điểm đó, T11 gọi `markOperationSynced(ctx, operationId)` để loại bỏ hoàn toàn hàng outbox khỏi IndexedDB một cách nguyên tử.
+     - Tại thời điểm đó, T11 gọi một trong hai API:
+       - `confirmPulledOperationInTx(tx, ctx, operationId, expectedRequestHash)` khi T11 đã sở hữu transaction readwrite bao quát `owner_meta`, shadow records, pull cursor và `operations`. Helper này xác thực owner gate (`ctx` khớp `owner_meta`: chưa khóa, đúng `active_key_id`, đúng `lock_epoch`) ngay bên trong transaction trước khi xóa hàng outbox.
+       - `markOperationSynced(db, ctx, operationId, expectedRequestHash)` cho luồng standalone; hàm này mở transaction `[owner_meta, operations]` và ủy quyền cho helper trên.
+     - Cả hai API đều yêu cầu `expectedRequestHash` khớp hash SHA-256 của envelope đã ACK và hàng outbox phải đang ở `ack_waiting_pull`; nếu không, transaction bị hủy và hàng outbox được giữ nguyên.
 4. **Bàn giao cho T12 (Bộ Thu Gọn LWW Reducer & Giải Quyết Xung Đột):**
    - T08 lưu trữ các bản ghi dưới dạng snapshot/overlay độc lập.
    - Khi T12 hoàn thành LWW reducer theo hợp đồng T03, T12 có thể đọc tuần tự các operations và áp dụng deterministic reduction lên store `records` một cách an toàn.
@@ -317,12 +320,13 @@ Reviewer `Duyhai2005` đã rà soát commit tiếp theo và chỉ ra 6 phát hi�
      - Ràng buộc quan hệ: trường `dependencies` của thao tác outbox bắt buộc phải chứa `original_operation_id` của lệnh undo.
 
 7. **H01 (T11 HANDOFF REQUIREMENT) — Phối Hợp Atomic Pull-to-Shadow Cho T11:**
-   - `markOperationSynced(context, opId, expectedRequestHash)` chỉ là primitive cấp thấp có trách nhiệm xác thực hash và xóa hàng outbox đã được ACK. Hàm này **không** thể và **không** được sử dụng độc lập để hoàn thành chu trình kéo dữ liệu từ server.
+   - `confirmPulledOperationInTx(tx, ctx, opId, expectedRequestHash)` và `markOperationSynced(db, ctx, opId, expectedRequestHash)` chỉ là các primitive cấp thấp có trách nhiệm xác thực owner gate + trạng thái `ack_waiting_pull` + hash SHA-256 rồi xóa hàng outbox đã được ACK. Chúng **không** thể và **không** được sử dụng độc lập để hoàn thành chu trình kéo dữ liệu từ server.
    - Nhiệm vụ T11 (Network Sync Engine) khi nhận payload pull từ server bắt buộc phải thực hiện trong **1 transaction IndexedDB duy nhất (readwrite)** trên các stores liên quan:
+     - Xác thực `ctx` với `owner_meta` (chưa khóa, đúng `active_key_id`, đúng `lock_epoch`) trước khi ghi bất kỳ dữ liệu nào; context stale/khóa/khác chủ phải fail-closed với `locked`.
      - Áp dụng thay đổi vào shadow records.
      - Cập nhật server pull cursor.
-     - Xóa / cập nhật outbox entry tương ứng thông qua primitive `markOperationSynced`.
-   - Bất kỳ thiết kế tách rời nào giữa apply shadow và xóa outbox đều vi phạm invariant chống mất mát dữ liệu và xung đột đồng bộ của Dayforge.
+     - Xóa / cập nhật outbox entry tương ứng thông qua `confirmPulledOperationInTx(tx, ctx, ...)`.
+   - Bất kỳ thiết kế tách rời nào giữa apply shadow, cập nhật cursor và xóa outbox đều vi phạm invariant chống mất mát dữ liệu và xung đột đồng bộ của Dayforge.
 
 8. **Kết Quả Xác Minh Toàn Bộ Hệ Thống:**
    - 111/111 bài test Playwright e2e/unit frontend (`pnpm test:web`) PASSED.
@@ -349,14 +353,15 @@ Dựa trên tài liệu đề xuất rà soát chuyên sâu (*"DAYFORGE — PR #
    - **Vấn đề gốc:** Triển khai cũ chỉ đếm `records` và `operations` khi kiểm tra dữ liệu hiện hữu và còn phụ thuộc vào `owner_meta.active_key_id`. Nếu một owner chỉ có `view_preferences`, `drafts`, `sync_meta`, hoặc bị mất `owner_meta`, hệ thống có thể tạo sentinel mù hoặc từ chối mở khóa dù người dùng cung cấp đúng khóa.
    - **Khắc phục:**
      - Xây dựng hàm `readUnlockSnapshot()` quét toàn bộ catalog 5 store chứa ciphertext: `records`, `operations`, `view_preferences`, `drafts`, và `sync_meta` (loại trừ sentinel).
-     - Khi phát hiện ciphertext nhưng thiếu sentinel: trích xuất bản ghi mẫu (`LegacyEncryptedSample`) và xác thực khóa truyền vào bằng `decryptPayload()` với AAD chuẩn của store tương ứng.
-     - Nếu xác thực thành công (đúng khóa), hệ thống tự động sinh sentinel mới và lưu trữ nguyên tử vào `sync_meta` trong Phase 3 commit (backfill migration an toàn, không cần nâng `CURRENT_SCHEMA_VERSION`).
+     - Khi phát hiện ciphertext nhưng thiếu sentinel: lập inventory toàn bộ ciphertext của owner và xác thực khóa truyền vào bằng `decryptPayload()` với AAD chuẩn của từng store/record. Chỉ cần một row không giải mã được hoặc sai context/key ID là fail-closed, không cài sentinel.
+     - Nếu xác thực thành công toàn bộ inventory (đúng khóa), hệ thống tự động sinh sentinel mới và lưu trữ nguyên tử vào `sync_meta` trong Phase 3 commit (backfill migration an toàn, không cần nâng `CURRENT_SCHEMA_VERSION`), đồng thời tăng `lock_epoch` để vô hiệu hóa mọi context có từ trước migration.
      - Nếu xác thực thất bại (sai khóa), lập tức trả về `StorageError("integrity_failed")`, bảo toàn nguyên vẹn ciphertext và outbox của người dùng.
 
 3. **S04 (P2 / T11 Handoff) — Chuẩn Hóa Helper Đồng Bộ Nguyên Tử `confirmPulledOperationInTx` Cho T11:**
-   - Bổ sung và export hàm `confirmPulledOperationInTx(tx, ownerId, operationId, expectedRequestHash, callbacks)` hoạt động trực tiếp trong transaction do luồng pull sở hữu.
-   - Hàm kiểm tra trạng thái outbox `ack_waiting_pull` và khớp nối hash SHA-256 trước khi xóa hàng outbox; nếu không khớp, transaction bị hủy lập tức.
-   - Hàm cấp cao `markOperationSynced` được tái cấu trúc để ủy quyền thực thi cho helper này, bảo đảm sự nhất quán tuyệt đối giữa standalone API và batch sync transaction của T11.
+   - Bổ sung và export hàm `confirmPulledOperationInTx(tx, ctx, operationId, expectedRequestHash, callbacks?)` hoạt động trực tiếp trong transaction do luồng pull sở hữu.
+   - Hàm xác thực `OwnerAccessContext` và đọc `owner_meta` **bên trong chính transaction của caller**, bảo đảm owner chưa khóa, đúng `active_key_id` và đúng `lock_epoch`; context stale/khóa/khác chủ bị từ chối fail-closed (`locked`), transaction thiếu `owner_meta` bị từ chối (`invalid_data`).
+   - Sau khi owner gate hợp lệ, hàm kiểm tra trạng thái outbox `ack_waiting_pull` và khớp nối hash SHA-256 trước khi xóa hàng outbox; nếu không khớp, transaction bị hủy lập tức.
+   - Hàm cấp cao `markOperationSynced` được tái cấu trúc để mở transaction `[owner_meta, operations]` và ủy quyền thực thi cho helper này, bảo đảm sự nhất quán tuyệt đối giữa standalone API và batch sync transaction của T11.
 
 4. **S05 (P2 Hardening) — Ràng Buộc Phiên Bản & Bảo Vệ Toàn Vẹn Sentinel Payload:**
    - Cấu trúc plaintext sentinel payload được chuẩn hóa:
@@ -380,3 +385,44 @@ Dựa trên tài liệu đề xuất rà soát chuyên sâu (*"DAYFORGE — PR #
    - **Toàn bộ 120/120 bài test Playwright Production (`pnpm test:web:prod`) PASSED.**
    - `pnpm lint:web` và `pnpm typecheck:web` hoàn thành với 0 lỗi / 0 cảnh báo.
    - `pnpm verify:fast` vượt qua 100% (203 pytest tests, 28 unittest tests, ruff, black, mypy).
+
+---
+
+## 13. Giải Quyết Review Findings M01–M05 (Legacy Full-Inventory Auth, Epoch Invalidation, Transactional Owner Gate)
+
+Maintainer `Duyhai2005` đã rà soát commit `fe0c2b75` và yêu cầu sửa 5 phát hiện còn lại (M01–M05). Toàn bộ đã được xử lý:
+
+1. **M01 (P0) — Backfill Sentinel Phải Xác Thực Toàn Bộ Inventory Legacy:**
+   - **Vấn đề gốc:** Trước đây backfill chỉ giải mã **một bản ghi mẫu** để xác thực khóa. Một dataset trộn ciphertext của nhiều khóa (hoặc row mẫu may mắn đúng khóa) có thể khiến sentinel được cài trong khi các row còn lại không đọc được bằng khóa hiện tại.
+   - **Khắc phục:** `readUnlockSnapshot()` lập inventory **toàn bộ** row mã hóa thuộc owner trong 5 store: `records`, `operations`, `view_preferences`, `drafts`, `sync_meta` (loại trừ sentinel). Mỗi row được kiểm tra context (`owner_id`, `key_id`, record ID) và giải mã bằng `decryptPayload()` với AAD dẫn xuất từ store/record. Chỉ cần một row malformed, sai context, sai `key_id`, hoặc không giải mã được là fail-closed `integrity_failed`; sentinel không được cài và toàn bộ ciphertext/outbox được giữ nguyên.
+   - **Tối ưu:** Inventory chỉ được quét khi sentinel vắng mặt; các lần unlock bình thường chỉ đọc sentinel và xác thực payload.
+
+2. **M02 (P1) — Backfill Sentinel Là Thay Đổi Generation, Phải Tăng `lock_epoch`:**
+   - **Vấn đề gốc:** Khi sentinel được cài trên owner đã có dữ liệu/meta từ trước, các `OwnerAccessContext` cũ vẫn giữ `lock_epoch` cũ và tiếp tục ghi/đọc được, bỏ qua generation mới.
+   - **Khắc phục:** Phase 3 CAS phát hiện `newSentinelRecord !== null && (hasExistingData || meta !== null)` và tăng `lock_epoch` lên `max(1, currentEpoch + 1)` trong cùng transaction với việc cài sentinel. Mọi context tạo trước migration lập tức nhận `locked`; context do lần unlock mới trả về dùng epoch mới và hoạt động bình thường.
+
+3. **M03 (P1) — `confirmPulledOperationInTx` Phải Xác Thực Owner Gate Trong Transaction Của Caller:**
+   - **Vấn đề gốc:** Helper cũ chỉ nhận `ownerId`, không kiểm tra `owner_meta`/`lock_epoch`/`active_key_id`, nên một context stale/khóa/khác chủ vẫn có thể xóa outbox row nếu biết hash.
+   - **Khắc phục:** Đổi chữ ký thành `confirmPulledOperationInTx(tx, ctx, operationId, expectedRequestHash, callbacks?)`. Helper yêu cầu transaction bao quát `owner_meta` + `operations`, đọc `owner_meta` và gọi `checkOwnerMetaRecord(meta, ctx)` **bên trong transaction** trước khi kiểm tra trạng thái/hash và xóa row. Transaction thiếu `owner_meta` → `invalid_data`; context stale/khóa/khác chủ → `locked`; hash/state sai → `integrity_failed`/`invalid_data`. `markOperationSynced` được refactor để mở transaction tương ứng và ủy quyền cho helper.
+
+4. **M04 (P2) — Bổ Sung Regression Test Đa Tab Thật Cho Backfill Legacy:**
+   - Thêm test Playwright dùng **hai page với hai kết nối IndexedDB độc lập** trong cùng browser context và barrier Phase 1 đặt tại Node (`exposeFunction`) để cả hai hoàn tất snapshot trước khi commit.
+   - Kịch bản: owner legacy đã unlock, hai tab đồng thời unlock bằng khóa đúng và khóa sai. Kết quả: tab đúng thắng với epoch mới, tab sai nhận `integrity_failed`; cả hai context epoch cũ bị `locked`; tab thua không thể retry thành công; tab thắng vẫn ghi/đọc được dữ liệu mã hóa của mình.
+
+5. **M05 (P2) — Sentinel `key_id` Bắt Buộc, Không Fallback Về Key ID Của Caller:**
+   - **Vấn đề gốc:** Sentinel thiếu `key_id` từng được xử lý bằng `snap.sentinel.key_id ?? keyId`, cho phép caller "bù" key ID và che giấu row malformed.
+   - **Khắc phục:** Sentinel phải có `owner_id`/`key` đúng vị trí, `key_id` là chuỗi không rỗng và **bằng đúng** `keyId` của caller. Thiếu `key_id`, sai key ID, IV/ciphertext malformed, hoặc payload sai `format_version`/owner/key đều fail-closed `integrity_failed`; row được giữ nguyên, không ghi đè.
+
+6. **Kết Quả Kiểm Thử:**
+   - Bổ sung/cập nhật các test hồi quy trong `frontend/tests/storage-security.spec.ts`:
+     - `M01`: dataset trộn hai khóa → cả hai unlock đều `integrity_failed`, không có sentinel, 2 row ciphertext còn nguyên.
+     - `M01`: inventory đủ 5 store với `sync_meta` bị corrupt → `integrity_failed`, không sentinel, đủ 5 row còn nguyên; phục hồi → unlock thành công và cài sentinel.
+     - `M02`: legacy meta epoch `7` → backfill trả epoch `8`; context epoch `7` bị `locked` khi write/read; context epoch `8` ghi thành công.
+     - `M05`: sentinel thiếu `key_id` → `integrity_failed`, row vẫn tồn tại và vẫn thiếu `key_id`.
+     - `ST-S13 & M03`: transaction thiếu `owner_meta` → `invalid_data`; stale epoch / wrong owner / locked owner → `locked`; row outbox chỉ bị xóa khi context + state + hash đều hợp lệ.
+     - `M04`: race hai tab thật → khóa đúng thắng epoch `2`, khóa sai `integrity_failed`, stale context hai tab `locked`, winner write/read thành công.
+   - **Toàn bộ 125/125 bài test Playwright e2e/unit frontend (`pnpm test:web`) PASSED.**
+   - **Toàn bộ 125/125 bài test Playwright Production (`pnpm test:web:prod`, bản build production) PASSED.**
+   - `tsc --noEmit` và `eslint . --max-warnings=0` trên `frontend/` hoàn thành với 0 lỗi / 0 cảnh báo.
+   - `pnpm build:web` (Next.js production build) thành công.
+   - Backend không thay đổi trong đợt sửa này; `pnpm verify:fast` không chạy được cục bộ vì môi trường hiện tại không có `uv`, sẽ được CI xác nhận.

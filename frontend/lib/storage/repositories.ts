@@ -581,66 +581,141 @@ export async function markOperationAcked(
 
 export function confirmPulledOperationInTx(
   tx: IDBTransaction,
-  ownerId: string,
+  ctx: OwnerAccessContext,
   operationId: string,
   expectedRequestHash: string,
   callbacks?: {
     onError?: (error: StorageError) => void;
   }
 ): void {
+  const fail = (error: StorageError) => {
+    callbacks?.onError?.(error);
+    try {
+      tx.abort();
+    } catch {
+      // The transaction may already be inactive; the owning flow will observe
+      // its abort/error path.
+    }
+  };
+
+  if (
+    !ctx ||
+    typeof ctx.ownerId !== "string" ||
+    typeof ctx.keyId !== "string" ||
+    typeof ctx.lockEpoch !== "number" ||
+    !ctx.key
+  ) {
+    fail(
+      new StorageError(
+        "invalid_data",
+        "confirmPulledOperationInTx requires a valid OwnerAccessContext"
+      )
+    );
+    return;
+  }
+
   if (
     typeof expectedRequestHash !== "string" ||
     !HASH_PATTERN.test(expectedRequestHash)
   ) {
-    const err = new StorageError(
-      "invalid_data",
-      `expectedRequestHash must be a lowercase 64-hex SHA-256 hash: got '${expectedRequestHash}'`
+    fail(
+      new StorageError(
+        "invalid_data",
+        `expectedRequestHash must be a lowercase 64-hex SHA-256 hash: got '${expectedRequestHash}'`
+      )
     );
-    callbacks?.onError?.(err);
-    tx.abort();
     return;
   }
 
-  const opStore = tx.objectStore(STORAGE_STORES.operations);
-  const opReq = opStore.get([ownerId, operationId]);
-  opReq.onsuccess = () => {
-    const entry = opReq.result as OutboxEntry | undefined;
-    if (!entry) {
-      const err = new StorageError(
+  if (typeof operationId !== "string" || operationId.length === 0) {
+    fail(
+      new StorageError(
         "invalid_data",
-        `Operation '${operationId}' not found in outbox`
-      );
-      callbacks?.onError?.(err);
-      tx.abort();
-      return;
-    }
-    if (entry.status !== "ack_waiting_pull") {
-      const err = new StorageError(
-        "invalid_data",
-        `Invalid state transition for operation '${operationId}': cannot mark synced before ACK (current status: '${entry.status}')`
-      );
-      callbacks?.onError?.(err);
-      tx.abort();
-      return;
-    }
-    if (entry.request_hash !== expectedRequestHash) {
-      const err = new StorageError(
-        "integrity_failed",
-        `Pull confirmation request_hash mismatch for operation '${operationId}': expected '${expectedRequestHash}', got '${entry.request_hash}'`
-      );
-      callbacks?.onError?.(err);
-      tx.abort();
-      return;
-    }
-    opStore.delete([ownerId, operationId]);
-  };
-  opReq.onerror = () => {
-    const err = new StorageError(
-      "unavailable",
-      opReq.error?.message ?? "Failed to read outbox entry",
-      opReq.error
+        "confirmPulledOperationInTx requires a non-empty operation ID"
+      )
     );
-    callbacks?.onError?.(err);
+    return;
+  }
+
+  let metaStore: IDBObjectStore;
+  let opStore: IDBObjectStore;
+  try {
+    metaStore = tx.objectStore(STORAGE_STORES.owner_meta);
+    opStore = tx.objectStore(STORAGE_STORES.operations);
+  } catch (err) {
+    fail(
+      new StorageError(
+        "invalid_data",
+        "confirmPulledOperationInTx requires a transaction covering owner_meta and operations",
+        err
+      )
+    );
+    return;
+  }
+
+  // Owner-gate validation happens inside the caller-owned transaction, before
+  // the outbox mutation. A locked/stale/foreign context must never delete a row.
+  const metaReq = metaStore.get(ctx.ownerId);
+  metaReq.onsuccess = () => {
+    const checkErr = checkOwnerMetaRecord(
+      (metaReq.result as OwnerMetadata | undefined) ?? undefined,
+      ctx
+    );
+    if (checkErr) {
+      fail(checkErr);
+      return;
+    }
+
+    const opReq = opStore.get([ctx.ownerId, operationId]);
+    opReq.onsuccess = () => {
+      const entry = opReq.result as OutboxEntry | undefined;
+      if (!entry) {
+        fail(
+          new StorageError(
+            "invalid_data",
+            `Operation '${operationId}' not found in outbox`
+          )
+        );
+        return;
+      }
+      if (entry.status !== "ack_waiting_pull") {
+        fail(
+          new StorageError(
+            "invalid_data",
+            `Invalid state transition for operation '${operationId}': cannot mark synced before ACK (current status: '${entry.status}')`
+          )
+        );
+        return;
+      }
+      if (entry.request_hash !== expectedRequestHash) {
+        fail(
+          new StorageError(
+            "integrity_failed",
+            `Pull confirmation request_hash mismatch for operation '${operationId}': expected '${expectedRequestHash}', got '${entry.request_hash}'`
+          )
+        );
+        return;
+      }
+      opStore.delete([ctx.ownerId, operationId]);
+    };
+    opReq.onerror = () => {
+      fail(
+        new StorageError(
+          "unavailable",
+          opReq.error?.message ?? "Failed to read outbox entry",
+          opReq.error
+        )
+      );
+    };
+  };
+  metaReq.onerror = () => {
+    fail(
+      new StorageError(
+        "unavailable",
+        metaReq.error?.message ?? "Failed to read owner metadata",
+        metaReq.error
+      )
+    );
   };
 }
 
@@ -667,37 +742,18 @@ export async function markOperationSynced(
         [STORAGE_STORES.owner_meta, STORAGE_STORES.operations],
         "readwrite"
       );
-      const metaStore = tx.objectStore(STORAGE_STORES.owner_meta);
 
-      const metaReq = metaStore.get(ctx.ownerId);
-      metaReq.onsuccess = () => {
-        const meta = metaReq.result as OwnerMetadata | undefined;
-        const checkErr = checkOwnerMetaRecord(meta, ctx);
-        if (checkErr) {
-          customError = checkErr;
-          tx.abort();
-          return;
+      confirmPulledOperationInTx(
+        tx,
+        ctx,
+        operationId,
+        expectedRequestHash,
+        {
+          onError: (err) => {
+            customError = err;
+          },
         }
-
-        confirmPulledOperationInTx(
-          tx,
-          ctx.ownerId,
-          operationId,
-          expectedRequestHash,
-          {
-            onError: (err) => {
-              customError = err;
-            },
-          }
-        );
-      };
-      metaReq.onerror = () => {
-        customError = new StorageError(
-          "unavailable",
-          metaReq.error?.message ?? "Failed to read owner metadata",
-          metaReq.error
-        );
-      };
+      );
 
       tx.oncomplete = () => {
         resolve(storageOk(undefined));

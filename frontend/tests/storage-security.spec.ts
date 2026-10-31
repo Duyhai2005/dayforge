@@ -25,6 +25,8 @@ import {
   getRecord,
   createLocalStorageGateway,
   confirmPulledOperationInTx,
+  readOwnerViewPreference,
+  writeOwnerViewPreference,
   OWNER_KEY_SENTINEL_RECORD_ID,
   type EncryptedRecord,
   type OwnerAccessContext,
@@ -56,6 +58,8 @@ declare global {
       getRecord: typeof getRecord;
       createLocalStorageGateway: typeof createLocalStorageGateway;
       confirmPulledOperationInTx: typeof confirmPulledOperationInTx;
+      readOwnerViewPreference: typeof readOwnerViewPreference;
+      writeOwnerViewPreference: typeof writeOwnerViewPreference;
       OWNER_KEY_SENTINEL_RECORD_ID: string;
     };
   }
@@ -1923,7 +1927,572 @@ test.describe("Storage Security Specifications", () => {
       expect(result.unlockErrCode).toBe("integrity_failed");
     });
 
-    test("ST-S13 & S04: confirmPulledOperationInTx operates within existing transaction and deletes outbox row only on hash match", async ({
+    test("M01: legacy backfill rejects a mixed-key dataset and preserves every ciphertext", async ({
+      page,
+    }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+
+      const testDbName = `test-sentinel-m01a-${Date.now()}`;
+      const ownerId = "11111111-1111-4111-8111-210121012101";
+      const keyId = "key-sentinel-m01a";
+      const planAId = "22222222-2222-4222-8222-210121012101";
+      const planBId = "22222222-2222-4222-8222-210121012102";
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId, planAId, planBId }) => {
+          const {
+            openDatabase,
+            closeDatabase,
+            importRawKey,
+            encryptPayload,
+            unlockOwner,
+            STORAGE_STORES,
+          } = window.__dayforge_security_storage;
+
+          const openRes = await openDatabase({ name: testDbName });
+          if (!openRes.ok) return { step: "open", ok: false };
+          const db = openRes.value;
+
+          const keyA = await importRawKey(new Uint8Array(32).fill(0xa1));
+          const keyB = await importRawKey(new Uint8Array(32).fill(0xb2));
+
+          const encA = await encryptPayload(
+            keyA,
+            ownerId,
+            keyId,
+            STORAGE_STORES.records,
+            `plan:${planAId}`,
+            { title: "Plan A" }
+          );
+          const encB = await encryptPayload(
+            keyB,
+            ownerId,
+            keyId,
+            STORAGE_STORES.records,
+            `plan:${planBId}`,
+            { title: "Plan B" }
+          );
+          if (!encA.ok || !encB.ok) return { step: "encrypt", ok: false };
+
+          await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(STORAGE_STORES.records, "readwrite");
+            const store = tx.objectStore(STORAGE_STORES.records);
+            store.put({
+              owner_id: ownerId,
+              kind: "plan",
+              id: planAId,
+              key_id: keyId,
+              iv: encA.value.iv,
+              ciphertext: encA.value.ciphertext,
+            });
+            store.put({
+              owner_id: ownerId,
+              kind: "plan",
+              id: planBId,
+              key_id: keyId,
+              iv: encB.value.iv,
+              ciphertext: encB.value.ciphertext,
+            });
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+
+          const unlockA = await unlockOwner(db, ownerId, keyId, keyA);
+          const unlockB = await unlockOwner(db, ownerId, keyId, keyB);
+
+          const sentinel = await new Promise<any>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.sync_meta, "readonly");
+            const req = tx
+              .objectStore(STORAGE_STORES.sync_meta)
+              .get([ownerId, "owner-key-sentinel"]);
+            req.onsuccess = () => resolve(req.result);
+          });
+
+          const rows = await new Promise<any[]>((resolve, reject) => {
+            const tx = db.transaction(STORAGE_STORES.records, "readonly");
+            const req = tx
+              .objectStore(STORAGE_STORES.records)
+              .getAll(IDBKeyRange.bound([ownerId, ""], [ownerId, "\uffff"]));
+            req.onsuccess = () => resolve(req.result as any[]);
+            tx.onerror = () => reject(tx.error);
+          });
+
+          closeDatabase(db);
+
+          return {
+            ok: true,
+            unlockAOk: unlockA.ok,
+            unlockACode: !unlockA.ok ? unlockA.error.code : null,
+            unlockBOk: unlockB.ok,
+            unlockBCode: !unlockB.ok ? unlockB.error.code : null,
+            hasSentinel: Boolean(sentinel),
+            rowCount: rows.length,
+          };
+        },
+        { testDbName, ownerId, keyId, planAId, planBId }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.unlockAOk).toBe(false);
+      expect(result.unlockACode).toBe("integrity_failed");
+      expect(result.unlockBOk).toBe(false);
+      expect(result.unlockBCode).toBe("integrity_failed");
+      expect(result.hasSentinel).toBe(false);
+      expect(result.rowCount).toBe(2);
+    });
+
+    test("M01: legacy backfill validates records, operations, view preferences, drafts and sync metadata", async ({
+      page,
+    }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+
+      const testDbName = `test-sentinel-m01b-${Date.now()}`;
+      const ownerId = "11111111-1111-4111-8111-210121012201";
+      const keyId = "key-sentinel-m01b";
+      const planId = "22222222-2222-4222-8222-210121012201";
+      const opId = "33333333-3333-4333-8333-210121012201";
+      const draftId = "draft-m01b";
+      const syncKey = "cursor:m01b";
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId, planId, opId, draftId, syncKey }) => {
+          const {
+            openDatabase,
+            closeDatabase,
+            importRawKey,
+            encryptPayload,
+            unlockOwner,
+            STORAGE_STORES,
+          } = window.__dayforge_security_storage;
+
+          const openRes = await openDatabase({ name: testDbName });
+          if (!openRes.ok) return { step: "open", ok: false };
+          const db = openRes.value;
+
+          const key = await importRawKey(new Uint8Array(32).fill(0xc3));
+          const encrypt = async (store: string, recordId: string, payload: unknown) => {
+            const res = await encryptPayload(
+              key,
+              ownerId,
+              keyId,
+              store,
+              recordId,
+              payload
+            );
+            if (!res.ok) throw new Error(`encrypt ${store}/${recordId} failed`);
+            return res.value;
+          };
+
+          const record = await encrypt(
+            STORAGE_STORES.records,
+            `plan:${planId}`,
+            { title: "Legacy Plan" }
+          );
+          const operation = await encrypt(
+            STORAGE_STORES.operations,
+            opId,
+            { client_time: "2026-11-01T00:00:00.000Z", commands: [] }
+          );
+          const preference = await encrypt(
+            STORAGE_STORES.view_preferences,
+            "work",
+            { date: "2026-11-01", scale: "week", updatedAt: "2026-11-01T00:00:00.000Z" }
+          );
+          const draft = await encrypt(
+            STORAGE_STORES.drafts,
+            draftId,
+            { text: "legacy draft" }
+          );
+          const syncMeta = await encrypt(
+            STORAGE_STORES.sync_meta,
+            syncKey,
+            { cursor: "legacy" }
+          );
+
+          await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(
+              [
+                STORAGE_STORES.records,
+                STORAGE_STORES.operations,
+                STORAGE_STORES.view_preferences,
+                STORAGE_STORES.drafts,
+                STORAGE_STORES.sync_meta,
+              ],
+              "readwrite"
+            );
+            tx.objectStore(STORAGE_STORES.records).put({
+              owner_id: ownerId,
+              kind: "plan",
+              id: planId,
+              key_id: keyId,
+              iv: record.iv,
+              ciphertext: record.ciphertext,
+            });
+            tx.objectStore(STORAGE_STORES.operations).put({
+              owner_id: ownerId,
+              operation_id: opId,
+              status: "queued",
+              request_hash:
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+              encrypted_envelope: operation,
+              created_at: "2026-11-01T00:00:00.000Z",
+            });
+            tx.objectStore(STORAGE_STORES.view_preferences).put({
+              owner_id: ownerId,
+              calendar: "work",
+              key_id: keyId,
+              iv: preference.iv,
+              ciphertext: preference.ciphertext,
+            });
+            tx.objectStore(STORAGE_STORES.drafts).put({
+              owner_id: ownerId,
+              draft_id: draftId,
+              key_id: keyId,
+              iv: draft.iv,
+              ciphertext: draft.ciphertext,
+            });
+            tx.objectStore(STORAGE_STORES.sync_meta).put({
+              owner_id: ownerId,
+              key: syncKey,
+              key_id: keyId,
+              iv: syncMeta.iv,
+              ciphertext: syncMeta.ciphertext,
+            });
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+
+          const corruptSyncMeta = async () => {
+            await new Promise<void>((resolve, reject) => {
+              const tx = db.transaction(STORAGE_STORES.sync_meta, "readwrite");
+              const store = tx.objectStore(STORAGE_STORES.sync_meta);
+              const getReq = store.get([ownerId, syncKey]);
+              getReq.onsuccess = () => {
+                const row = getReq.result;
+                const corrupted = new Uint8Array(row.ciphertext);
+                corrupted[0] ^= 0xff;
+                store.put({ ...row, ciphertext: corrupted });
+              };
+              tx.oncomplete = () => resolve();
+              tx.onerror = () => reject(tx.error);
+            });
+          };
+
+          const restoreSyncMeta = async () => {
+            await new Promise<void>((resolve, reject) => {
+              const tx = db.transaction(STORAGE_STORES.sync_meta, "readwrite");
+              tx.objectStore(STORAGE_STORES.sync_meta).put({
+                owner_id: ownerId,
+                key: syncKey,
+                key_id: keyId,
+                iv: syncMeta.iv,
+                ciphertext: syncMeta.ciphertext,
+              });
+              tx.oncomplete = () => resolve();
+              tx.onerror = () => reject(tx.error);
+            });
+          };
+
+          const readSentinel = async () =>
+            new Promise<any>((resolve) => {
+              const tx = db.transaction(STORAGE_STORES.sync_meta, "readonly");
+              const req = tx
+                .objectStore(STORAGE_STORES.sync_meta)
+                .get([ownerId, "owner-key-sentinel"]);
+              req.onsuccess = () => resolve(req.result);
+            });
+
+          const countRows = async () =>
+            new Promise<Record<string, number>>((resolve, reject) => {
+              const names = [
+                STORAGE_STORES.records,
+                STORAGE_STORES.operations,
+                STORAGE_STORES.view_preferences,
+                STORAGE_STORES.drafts,
+                STORAGE_STORES.sync_meta,
+              ];
+              const counts: Record<string, number> = {};
+              const tx = db.transaction(names, "readonly");
+              for (const name of names) {
+                const req = tx.objectStore(name).getAll();
+                req.onsuccess = () => {
+                  counts[name] = (req.result as unknown[]).length;
+                };
+              }
+              tx.oncomplete = () => resolve(counts);
+              tx.onerror = () => reject(tx.error);
+            });
+
+          await corruptSyncMeta();
+          const failedUnlock = await unlockOwner(db, ownerId, keyId, key);
+          const sentinelAfterFailure = await readSentinel();
+          const countsAfterFailure = await countRows();
+
+          await restoreSyncMeta();
+          const restoredUnlock = await unlockOwner(db, ownerId, keyId, key);
+          const sentinelAfterSuccess = await readSentinel();
+
+          closeDatabase(db);
+
+          return {
+            ok: true,
+            failedUnlockOk: failedUnlock.ok,
+            failedUnlockCode: !failedUnlock.ok ? failedUnlock.error.code : null,
+            hasSentinelAfterFailure: Boolean(sentinelAfterFailure),
+            countsAfterFailure,
+            restoredUnlockOk: restoredUnlock.ok,
+            hasSentinelAfterSuccess: Boolean(sentinelAfterSuccess),
+          };
+        },
+        { testDbName, ownerId, keyId, planId, opId, draftId, syncKey }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.failedUnlockOk).toBe(false);
+      expect(result.failedUnlockCode).toBe("integrity_failed");
+      expect(result.hasSentinelAfterFailure).toBe(false);
+      expect(result.countsAfterFailure).toEqual({
+        records: 1,
+        operations: 1,
+        view_preferences: 1,
+        drafts: 1,
+        sync_meta: 1,
+      });
+      expect(result.restoredUnlockOk).toBe(true);
+      expect(result.hasSentinelAfterSuccess).toBe(true);
+    });
+
+    test("M02: legacy backfill advances lock_epoch and invalidates pre-migration contexts", async ({
+      page,
+    }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+
+      const testDbName = `test-sentinel-m02-${Date.now()}`;
+      const ownerId = "11111111-1111-4111-8111-210221022102";
+      const keyId = "key-sentinel-m02";
+      const planId = "22222222-2222-4222-8222-210221022102";
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId, planId }) => {
+          const {
+            openDatabase,
+            closeDatabase,
+            importRawKey,
+            encryptPayload,
+            unlockOwner,
+            getOwnerMeta,
+            readOwnerViewPreference,
+            writeOwnerViewPreference,
+            STORAGE_STORES,
+          } = window.__dayforge_security_storage;
+
+          const openRes = await openDatabase({ name: testDbName });
+          if (!openRes.ok) return { step: "open", ok: false };
+          const db = openRes.value;
+
+          const key = await importRawKey(new Uint8Array(32).fill(0xd4));
+          const encRecord = await encryptPayload(
+            key,
+            ownerId,
+            keyId,
+            STORAGE_STORES.records,
+            `plan:${planId}`,
+            { title: "Legacy unlocked plan" }
+          );
+          if (!encRecord.ok) return { step: "encrypt", ok: false };
+
+          await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(
+              [STORAGE_STORES.owner_meta, STORAGE_STORES.records],
+              "readwrite"
+            );
+            tx.objectStore(STORAGE_STORES.owner_meta).put({
+              owner_id: ownerId,
+              lock_epoch: 7,
+              locked: false,
+              active_key_id: keyId,
+            });
+            tx.objectStore(STORAGE_STORES.records).put({
+              owner_id: ownerId,
+              kind: "plan",
+              id: planId,
+              key_id: keyId,
+              iv: encRecord.value.iv,
+              ciphertext: encRecord.value.ciphertext,
+            });
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+
+          const oldCtx = { ownerId, keyId, lockEpoch: 7, key };
+          const pref = {
+            date: "2026-11-01",
+            scale: "week",
+            updatedAt: "2026-11-01T00:00:00.000Z",
+          };
+
+          // The pre-migration context is usable before backfill.
+          const oldWriteBefore = await writeOwnerViewPreference(
+            db,
+            oldCtx,
+            "work",
+            pref
+          );
+
+          const backfill = await unlockOwner(db, ownerId, keyId, key);
+          const metaAfter = await getOwnerMeta(db, ownerId);
+
+          // Once the sentinel is installed, the old epoch must be rejected.
+          const oldWriteAfter = await writeOwnerViewPreference(
+            db,
+            oldCtx,
+            "work",
+            { ...pref, scrollY: 10 }
+          );
+          const oldReadAfter = await readOwnerViewPreference(db, oldCtx, "work");
+
+          let newWriteOk = false;
+          if (backfill.ok) {
+            const newWrite = await writeOwnerViewPreference(
+              db,
+              backfill.value,
+              "work",
+              { ...pref, scrollY: 20 }
+            );
+            newWriteOk = newWrite.ok;
+          }
+
+          const sentinel = await new Promise<any>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.sync_meta, "readonly");
+            const req = tx
+              .objectStore(STORAGE_STORES.sync_meta)
+              .get([ownerId, "owner-key-sentinel"]);
+            req.onsuccess = () => resolve(req.result);
+          });
+
+          closeDatabase(db);
+
+          return {
+            ok: true,
+            oldWriteBeforeOk: oldWriteBefore.ok,
+            backfillOk: backfill.ok,
+            backfillCode: !backfill.ok ? backfill.error.code : null,
+            backfillEpoch: backfill.ok ? backfill.value.lockEpoch : null,
+            metaEpoch: metaAfter.ok ? metaAfter.value?.lock_epoch : null,
+            oldWriteAfterOk: oldWriteAfter.ok,
+            oldWriteAfterCode: !oldWriteAfter.ok ? oldWriteAfter.error.code : null,
+            oldReadAfterOk: oldReadAfter.ok,
+            oldReadAfterCode: !oldReadAfter.ok ? oldReadAfter.error.code : null,
+            newWriteOk,
+            hasSentinel: Boolean(sentinel),
+          };
+        },
+        { testDbName, ownerId, keyId, planId }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.oldWriteBeforeOk).toBe(true);
+      expect(result.backfillOk).toBe(true);
+      expect(result.backfillEpoch).toBe(8);
+      expect(result.metaEpoch).toBe(8);
+      expect(result.oldWriteAfterOk).toBe(false);
+      expect(result.oldWriteAfterCode).toBe("locked");
+      expect(result.oldReadAfterOk).toBe(false);
+      expect(result.oldReadAfterCode).toBe("locked");
+      expect(result.newWriteOk).toBe(true);
+      expect(result.hasSentinel).toBe(true);
+    });
+
+    test("M05: sentinel missing key_id fails closed instead of falling back to the caller key ID", async ({
+      page,
+    }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+
+      const testDbName = `test-sentinel-m05-${Date.now()}`;
+      const ownerId = "11111111-1111-4111-8111-210521052105";
+      const keyId = "key-sentinel-m05";
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId }) => {
+          const {
+            openDatabase,
+            closeDatabase,
+            importRawKey,
+            encryptPayload,
+            unlockOwner,
+            STORAGE_STORES,
+          } = window.__dayforge_security_storage;
+
+          const openRes = await openDatabase({ name: testDbName });
+          if (!openRes.ok) return { step: "open", ok: false };
+          const db = openRes.value;
+
+          const key = await importRawKey(new Uint8Array(32).fill(0xe5));
+          const encRes = await encryptPayload(
+            key,
+            ownerId,
+            keyId,
+            STORAGE_STORES.sync_meta,
+            "owner-key-sentinel",
+            {
+              kind: "dayforge-owner-key-check",
+              format_version: 1,
+              owner_id: ownerId,
+              key_id: keyId,
+            }
+          );
+          if (!encRes.ok) return { step: "encrypt", ok: false };
+
+          await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(STORAGE_STORES.sync_meta, "readwrite");
+            tx.objectStore(STORAGE_STORES.sync_meta).put({
+              owner_id: ownerId,
+              key: "owner-key-sentinel",
+              iv: encRes.value.iv,
+              ciphertext: encRes.value.ciphertext,
+            });
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+
+          const unlock = await unlockOwner(db, ownerId, keyId, key);
+
+          const sentinel = await new Promise<any>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.sync_meta, "readonly");
+            const req = tx
+              .objectStore(STORAGE_STORES.sync_meta)
+              .get([ownerId, "owner-key-sentinel"]);
+            req.onsuccess = () => resolve(req.result);
+          });
+
+          closeDatabase(db);
+
+          return {
+            ok: true,
+            unlockOk: unlock.ok,
+            unlockCode: !unlock.ok ? unlock.error.code : null,
+            sentinelStillPresent: Boolean(sentinel),
+            sentinelHasKeyId: Boolean(
+              sentinel &&
+                Object.prototype.hasOwnProperty.call(sentinel, "key_id")
+            ),
+          };
+        },
+        { testDbName, ownerId, keyId }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.unlockOk).toBe(false);
+      expect(result.unlockCode).toBe("integrity_failed");
+      expect(result.sentinelStillPresent).toBe(true);
+      expect(result.sentinelHasKeyId).toBe(false);
+    });
+
+    test("ST-S13 & M03: confirmPulledOperationInTx enforces owner gate inside the caller transaction", async ({
       page,
     }) => {
       await page.goto("/work");
@@ -1931,18 +2500,30 @@ test.describe("Storage Security Specifications", () => {
 
       const testDbName = `test-sentinel-s13-${Date.now()}`;
       const ownerId = "11111111-1111-4111-8111-131313131313";
+      const otherOwnerId = "11111111-1111-4111-8111-131313131314";
       const keyId = "key-sentinel-s13";
       const opId = "44444444-4444-4444-8444-131313131313";
+      const opId2 = "44444444-4444-4444-8444-131313131414";
       const validHash = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
       const wrongHash = "0000000000000000000000000000000000000000000000000000000000000000";
 
       const result = await page.evaluate(
-        async ({ testDbName, ownerId, keyId, opId, validHash, wrongHash }) => {
+        async ({
+          testDbName,
+          ownerId,
+          otherOwnerId,
+          keyId,
+          opId,
+          opId2,
+          validHash,
+          wrongHash,
+        }) => {
           const {
             openDatabase,
             closeDatabase,
             importRawKey,
             unlockOwner,
+            lockOwner,
             confirmPulledOperationInTx,
             STORAGE_STORES,
           } = window.__dayforge_security_storage;
@@ -1954,32 +2535,49 @@ test.describe("Storage Security Specifications", () => {
           const key = await importRawKey(new Uint8Array(32).fill(0x13));
           const unlockRes = await unlockOwner(db, ownerId, keyId, key);
           if (!unlockRes.ok) return { step: "unlock", ok: false };
+          const ctx = unlockRes.value;
 
-          await new Promise<void>((resolve, reject) => {
-            const tx = db.transaction(STORAGE_STORES.operations, "readwrite");
-            tx.objectStore(STORAGE_STORES.operations).put({
-              owner_id: ownerId,
-              operation_id: opId,
-              status: "ack_waiting_pull",
-              request_hash: validHash,
-              encrypted_envelope: {
+          const putRow = async (operationId: string) => {
+            await new Promise<void>((resolve, reject) => {
+              const tx = db.transaction(STORAGE_STORES.operations, "readwrite");
+              tx.objectStore(STORAGE_STORES.operations).put({
                 owner_id: ownerId,
-                store: "operations",
-                record_id: opId,
-                key_id: keyId,
-                iv: new Uint8Array(12),
-                ciphertext: new Uint8Array(16),
-              },
+                operation_id: operationId,
+                status: "ack_waiting_pull",
+                request_hash: validHash,
+                encrypted_envelope: {
+                  owner_id: ownerId,
+                  store: "operations",
+                  record_id: operationId,
+                  key_id: keyId,
+                  iv: new Uint8Array(12),
+                  ciphertext: new Uint8Array(16),
+                },
+              });
+              tx.oncomplete = () => resolve();
+              tx.onerror = () => reject(tx.error);
             });
-            tx.oncomplete = () => resolve();
-            tx.onerror = () => reject(tx.error);
-          });
+          };
 
-          // Test 1: Mismatched hash triggers transaction abort
+          const readRow = async (operationId: string) =>
+            new Promise<any>((resolve) => {
+              const tx = db.transaction(STORAGE_STORES.operations, "readonly");
+              const req = tx
+                .objectStore(STORAGE_STORES.operations)
+                .get([ownerId, operationId]);
+              req.onsuccess = () => resolve(req.result);
+            });
+
+          await putRow(opId);
+
+          // Mismatched hash triggers transaction abort.
           let mismatchError: string | null = null;
           const tx1Aborted = await new Promise<boolean>((resolve) => {
-            const tx = db.transaction(STORAGE_STORES.operations, "readwrite");
-            confirmPulledOperationInTx(tx, ownerId, opId, wrongHash, {
+            const tx = db.transaction(
+              [STORAGE_STORES.owner_meta, STORAGE_STORES.operations],
+              "readwrite"
+            );
+            confirmPulledOperationInTx(tx, ctx, opId, wrongHash, {
               onError: (err: any) => {
                 mismatchError = err.code;
               },
@@ -1989,26 +2587,100 @@ test.describe("Storage Security Specifications", () => {
             tx.onerror = () => resolve(true);
           });
 
-          const rowAfterAbort = await new Promise<any>((resolve) => {
-            const tx = db.transaction(STORAGE_STORES.operations, "readonly");
-            const req = tx.objectStore(STORAGE_STORES.operations).get([ownerId, opId]);
-            req.onsuccess = () => resolve(req.result);
+          // A transaction that omits owner_meta must be rejected.
+          let missingMetaError: string | null = null;
+          const missingMetaAborted = await new Promise<boolean>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.operations, "readwrite");
+            confirmPulledOperationInTx(tx, ctx, opId, validHash, {
+              onError: (err: any) => {
+                missingMetaError = err.code;
+              },
+            });
+            tx.oncomplete = () => resolve(false);
+            tx.onabort = () => resolve(true);
+            tx.onerror = () => resolve(true);
           });
 
-          // Test 2: Matching hash successfully deletes outbox row
+          // Stale epoch, wrong owner and locked owner must all fail closed.
+          let staleEpochError: string | null = null;
+          const staleEpochAborted = await new Promise<boolean>((resolve) => {
+            const tx = db.transaction(
+              [STORAGE_STORES.owner_meta, STORAGE_STORES.operations],
+              "readwrite"
+            );
+            confirmPulledOperationInTx(
+              tx,
+              { ...ctx, lockEpoch: ctx.lockEpoch + 1 },
+              opId,
+              validHash,
+              {
+                onError: (err: any) => {
+                  staleEpochError = err.code;
+                },
+              }
+            );
+            tx.oncomplete = () => resolve(false);
+            tx.onabort = () => resolve(true);
+            tx.onerror = () => resolve(true);
+          });
+
+          let wrongOwnerError: string | null = null;
+          const wrongOwnerAborted = await new Promise<boolean>((resolve) => {
+            const tx = db.transaction(
+              [STORAGE_STORES.owner_meta, STORAGE_STORES.operations],
+              "readwrite"
+            );
+            confirmPulledOperationInTx(
+              tx,
+              { ...ctx, ownerId: otherOwnerId },
+              opId,
+              validHash,
+              {
+                onError: (err: any) => {
+                  wrongOwnerError = err.code;
+                },
+              }
+            );
+            tx.oncomplete = () => resolve(false);
+            tx.onabort = () => resolve(true);
+            tx.onerror = () => resolve(true);
+          });
+
+          const rowAfterRejectedMutations = await readRow(opId);
+
+          // Matching hash plus a valid context deletes the row.
           const tx2Completed = await new Promise<boolean>((resolve) => {
-            const tx = db.transaction(STORAGE_STORES.operations, "readwrite");
-            confirmPulledOperationInTx(tx, ownerId, opId, validHash);
+            const tx = db.transaction(
+              [STORAGE_STORES.owner_meta, STORAGE_STORES.operations],
+              "readwrite"
+            );
+            confirmPulledOperationInTx(tx, ctx, opId, validHash);
             tx.oncomplete = () => resolve(true);
             tx.onabort = () => resolve(false);
             tx.onerror = () => resolve(false);
           });
 
-          const rowAfterCommit = await new Promise<any>((resolve) => {
-            const tx = db.transaction(STORAGE_STORES.operations, "readonly");
-            const req = tx.objectStore(STORAGE_STORES.operations).get([ownerId, opId]);
-            req.onsuccess = () => resolve(req.result);
+          const rowAfterCommit = await readRow(opId);
+
+          // Locked owner cannot delete a second outbox row with the old context.
+          await putRow(opId2);
+          await lockOwner(db, ownerId);
+          let lockedError: string | null = null;
+          const lockedAborted = await new Promise<boolean>((resolve) => {
+            const tx = db.transaction(
+              [STORAGE_STORES.owner_meta, STORAGE_STORES.operations],
+              "readwrite"
+            );
+            confirmPulledOperationInTx(tx, ctx, opId2, validHash, {
+              onError: (err: any) => {
+                lockedError = err.code;
+              },
+            });
+            tx.oncomplete = () => resolve(false);
+            tx.onabort = () => resolve(true);
+            tx.onerror = () => resolve(true);
           });
+          const rowAfterLock = await readRow(opId2);
 
           closeDatabase(db);
 
@@ -2016,20 +2688,317 @@ test.describe("Storage Security Specifications", () => {
             ok: true,
             tx1Aborted,
             mismatchError,
-            rowExistedAfterAbort: Boolean(rowAfterAbort),
+            missingMetaAborted,
+            missingMetaError,
+            staleEpochAborted,
+            staleEpochError,
+            wrongOwnerAborted,
+            wrongOwnerError,
+            rowExistedAfterRejectedMutations: Boolean(rowAfterRejectedMutations),
             tx2Completed,
             rowDeletedAfterCommit: rowAfterCommit === undefined,
+            lockedAborted,
+            lockedError,
+            rowExistedAfterLock: Boolean(rowAfterLock),
           };
         },
-        { testDbName, ownerId, keyId, opId, validHash, wrongHash }
+        {
+          testDbName,
+          ownerId,
+          otherOwnerId,
+          keyId,
+          opId,
+          opId2,
+          validHash,
+          wrongHash,
+        }
       );
 
       expect(result.ok).toBe(true);
       expect(result.tx1Aborted).toBe(true);
       expect(result.mismatchError).toBe("integrity_failed");
-      expect(result.rowExistedAfterAbort).toBe(true);
+      expect(result.missingMetaAborted).toBe(true);
+      expect(result.missingMetaError).toBe("invalid_data");
+      expect(result.staleEpochAborted).toBe(true);
+      expect(result.staleEpochError).toBe("locked");
+      expect(result.wrongOwnerAborted).toBe(true);
+      expect(result.wrongOwnerError).toBe("locked");
+      expect(result.rowExistedAfterRejectedMutations).toBe(true);
       expect(result.tx2Completed).toBe(true);
       expect(result.rowDeletedAfterCommit).toBe(true);
+      expect(result.lockedAborted).toBe(true);
+      expect(result.lockedError).toBe("locked");
+      expect(result.rowExistedAfterLock).toBe(true);
+    });
+
+    test("M04: real two-page legacy unlock race lets only the key that authenticates all data win", async ({
+      browser,
+    }) => {
+      const context = await browser.newContext();
+      try {
+        await context.addInitScript({ content: buildStorageScript() });
+
+        const testDbName = `test-sentinel-m04-${Date.now()}`;
+        const ownerId = "11111111-1111-4111-8111-210421042104";
+        const keyId = "key-sentinel-m04";
+        const planId = "22222222-2222-4222-8222-210421042104";
+        const rightKeyBytes = Array.from(
+          { length: 32 },
+          (_, i) => (i * 11 + 7) % 256
+        );
+        const wrongKeyBytes = Array.from(
+          { length: 32 },
+          (_, i) => (i * 13 + 9) % 256
+        );
+
+        const page1 = await context.newPage();
+        const page2 = await context.newPage();
+        await Promise.all([page1.goto("/work"), page2.goto("/work")]);
+
+        // Seed a pre-sentinel, already-unlocked legacy owner.
+        const seeded = await page1.evaluate(
+          async ({ testDbName, ownerId, keyId, planId, rightKeyBytes }) => {
+            const {
+              openDatabase,
+              closeDatabase,
+              importRawKey,
+              encryptPayload,
+              STORAGE_STORES,
+            } = window.__dayforge_security_storage;
+            const openRes = await openDatabase({ name: testDbName });
+            if (!openRes.ok) return false;
+            const db = openRes.value;
+            const key = await importRawKey(new Uint8Array(rightKeyBytes));
+            const enc = await encryptPayload(
+              key,
+              ownerId,
+              keyId,
+              STORAGE_STORES.records,
+              `plan:${planId}`,
+              { title: "Legacy cross-tab plan" }
+            );
+            if (!enc.ok) {
+              closeDatabase(db);
+              return false;
+            }
+            await new Promise<void>((resolve, reject) => {
+              const tx = db.transaction(
+                [STORAGE_STORES.owner_meta, STORAGE_STORES.records],
+                "readwrite"
+              );
+              tx.objectStore(STORAGE_STORES.owner_meta).put({
+                owner_id: ownerId,
+                lock_epoch: 1,
+                locked: false,
+                active_key_id: keyId,
+              });
+              tx.objectStore(STORAGE_STORES.records).put({
+                owner_id: ownerId,
+                kind: "plan",
+                id: planId,
+                key_id: keyId,
+                iv: enc.value.iv,
+                ciphertext: enc.value.ciphertext,
+              });
+              tx.oncomplete = () => resolve();
+              tx.onerror = () => reject(tx.error);
+            });
+            closeDatabase(db);
+            return true;
+          },
+          { testDbName, ownerId, keyId, planId, rightKeyBytes }
+        );
+        expect(seeded).toBe(true);
+
+        // The barrier is hosted in Node so the two pages have independent IDB
+        // connections and both finish their Phase 1 snapshot before either commits.
+        let arrivals = 0;
+        let release: (() => void) | null = null;
+        const barrier = async () => {
+          arrivals += 1;
+          if (arrivals >= 2) {
+            const releaseNow = release;
+            release = null;
+            releaseNow?.();
+            return;
+          }
+          await Promise.race([
+            new Promise<void>((resolve) => {
+              release = resolve;
+            }),
+            new Promise<void>((_, reject) =>
+              setTimeout(
+                () => reject(new Error("phase-1 barrier timeout")),
+                10_000
+              )
+            ),
+          ]);
+        };
+        await page1.exposeFunction("__dayforge_phase1_barrier", barrier);
+        await page2.exposeFunction("__dayforge_phase1_barrier", barrier);
+
+        const runUnlock = (
+          targetPage: typeof page1,
+          rawKeyBytes: number[],
+          useBarrier = true
+        ) =>
+          targetPage.evaluate(
+            async ({ testDbName, ownerId, keyId, rawKeyBytes, useBarrier }) => {
+              const { openDatabase, closeDatabase, importRawKey, unlockOwner } =
+                window.__dayforge_security_storage;
+              const openRes = await openDatabase({ name: testDbName });
+              if (!openRes.ok) return { ok: false, code: "open_failed", epoch: null };
+              const db = openRes.value;
+              const key = await importRawKey(new Uint8Array(rawKeyBytes));
+              const unlock = await unlockOwner(
+                db,
+                ownerId,
+                keyId,
+                key,
+                useBarrier
+                  ? {
+                      afterPhase1Barrier: async () => {
+                        await (
+                          window as unknown as {
+                            __dayforge_phase1_barrier: () => Promise<void>;
+                          }
+                        ).__dayforge_phase1_barrier();
+                      },
+                    }
+                  : undefined
+              );
+              closeDatabase(db);
+              return {
+                ok: unlock.ok,
+                code: !unlock.ok ? unlock.error.code : null,
+                epoch: unlock.ok ? unlock.value.lockEpoch : null,
+              };
+            },
+            { testDbName, ownerId, keyId, rawKeyBytes, useBarrier }
+          );
+
+        const [rightResult, wrongResult] = await Promise.all([
+          runUnlock(page1, rightKeyBytes),
+          runUnlock(page2, wrongKeyBytes),
+        ]);
+
+        expect(rightResult.ok).toBe(true);
+        expect(rightResult.epoch).toBe(2);
+        expect(wrongResult.ok).toBe(false);
+        expect(wrongResult.code).toBe("integrity_failed");
+
+        // A stale pre-backfill context must be rejected on both connections.
+        const runOldContextWrite = (
+          targetPage: typeof page1,
+          rawKeyBytes: number[]
+        ) =>
+          targetPage.evaluate(
+            async ({ testDbName, ownerId, keyId, rawKeyBytes }) => {
+              const { openDatabase, closeDatabase, importRawKey, writeOwnerViewPreference } =
+                window.__dayforge_security_storage;
+              const openRes = await openDatabase({ name: testDbName });
+              if (!openRes.ok) return { ok: false, code: "open_failed" };
+              const db = openRes.value;
+              const key = await importRawKey(new Uint8Array(rawKeyBytes));
+              const write = await writeOwnerViewPreference(
+                db,
+                { ownerId, keyId, lockEpoch: 1, key },
+                "work",
+                {
+                  date: "2026-11-01",
+                  scale: "week",
+                  updatedAt: "2026-11-01T00:00:00.000Z",
+                }
+              );
+              closeDatabase(db);
+              return { ok: write.ok, code: !write.ok ? write.error.code : null };
+            },
+            { testDbName, ownerId, keyId, rawKeyBytes }
+          );
+
+        const [rightOldWrite, wrongOldWrite] = await Promise.all([
+          runOldContextWrite(page1, rightKeyBytes),
+          runOldContextWrite(page2, wrongKeyBytes),
+        ]);
+        expect(rightOldWrite.ok).toBe(false);
+        expect(rightOldWrite.code).toBe("locked");
+        expect(wrongOldWrite.ok).toBe(false);
+        expect(wrongOldWrite.code).toBe("locked");
+
+        // The losing page cannot acquire a fresh context after the winner commits.
+        const loserRetry = await runUnlock(page2, wrongKeyBytes, false);
+        expect(loserRetry.ok).toBe(false);
+        expect(loserRetry.code).toBe("integrity_failed");
+
+        // The winner can still write and read its own encrypted data.
+        const winnerCheck = await page1.evaluate(
+          async ({ testDbName, ownerId, keyId, rawKeyBytes, epoch }) => {
+            const {
+              openDatabase,
+              closeDatabase,
+              importRawKey,
+              readOwnerViewPreference,
+              writeOwnerViewPreference,
+            } = window.__dayforge_security_storage;
+            const openRes = await openDatabase({ name: testDbName });
+            if (!openRes.ok) return { writeOk: false, readOk: false, scrollY: null };
+            const db = openRes.value;
+            const key = await importRawKey(new Uint8Array(rawKeyBytes));
+            const ctx = { ownerId, keyId, lockEpoch: epoch, key };
+            const write = await writeOwnerViewPreference(db, ctx, "work", {
+              date: "2026-11-01",
+              scale: "week",
+              scrollY: 42,
+              updatedAt: "2026-11-01T00:00:00.000Z",
+            });
+            const read = await readOwnerViewPreference(db, ctx, "work");
+            closeDatabase(db);
+            return {
+              writeOk: write.ok,
+              readOk: read.ok,
+              scrollY: read.ok ? read.value?.scrollY ?? null : null,
+            };
+          },
+          {
+            testDbName,
+            ownerId,
+            keyId,
+            rawKeyBytes: rightKeyBytes,
+            epoch: rightResult.epoch ?? 1,
+          }
+        );
+        expect(winnerCheck.writeOk).toBe(true);
+        expect(winnerCheck.readOk).toBe(true);
+        expect(winnerCheck.scrollY).toBe(42);
+
+        const finalState = await page1.evaluate(
+          async ({ testDbName, ownerId }) => {
+            const { openDatabase, closeDatabase, getOwnerMeta, STORAGE_STORES } =
+              window.__dayforge_security_storage;
+            const openRes = await openDatabase({ name: testDbName });
+            if (!openRes.ok) return { metaEpoch: null, hasSentinel: false };
+            const db = openRes.value;
+            const meta = await getOwnerMeta(db, ownerId);
+            const sentinel = await new Promise<any>((resolve) => {
+              const tx = db.transaction(STORAGE_STORES.sync_meta, "readonly");
+              const req = tx
+                .objectStore(STORAGE_STORES.sync_meta)
+                .get([ownerId, "owner-key-sentinel"]);
+              req.onsuccess = () => resolve(req.result);
+            });
+            closeDatabase(db);
+            return {
+              metaEpoch: meta.ok ? meta.value?.lock_epoch ?? null : null,
+              hasSentinel: Boolean(sentinel),
+            };
+          },
+          { testDbName, ownerId }
+        );
+        expect(finalState.metaEpoch).toBe(2);
+        expect(finalState.hasSentinel).toBe(true);
+      } finally {
+        await context.close();
+      }
     });
   });
 });

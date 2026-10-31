@@ -34,7 +34,8 @@ interface UnlockSnapshot {
   meta: OwnerMetadata | null;
   sentinel: SentinelSyncMetaRow | null;
   hasExistingData: boolean;
-  legacySample: LegacyEncryptedSample | null;
+  legacySamples: LegacyEncryptedSample[];
+  legacyInventoryErrors: string[];
 }
 
 export interface OwnerAccessContext {
@@ -337,12 +338,74 @@ function sameOwnerMeta(
   );
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function collectLegacySample(
+  ownerId: string,
+  incomingKeyId: string,
+  store: string,
+  recordId: string,
+  row: Record<string, unknown>
+): { sample?: LegacyEncryptedSample; error?: string } {
+  const label = `${store}/${recordId}`;
+  if (row.owner_id !== ownerId) {
+    return {
+      error: `legacy encrypted row '${label}' belongs to owner '${String(
+        row.owner_id
+      )}' instead of '${ownerId}'`,
+    };
+  }
+  if (row.key_id !== incomingKeyId) {
+    return {
+      error: `legacy encrypted row '${label}' uses key ID '${String(
+        row.key_id
+      )}' instead of '${incomingKeyId}'`,
+    };
+  }
+  const iv = toUint8Array(row.iv);
+  if (!iv || iv.byteLength === 0) {
+    return { error: `legacy encrypted row '${label}' has a missing or empty IV` };
+  }
+  const ciphertext = toUint8Array(row.ciphertext);
+  if (!ciphertext || ciphertext.byteLength < 16) {
+    return {
+      error: `legacy encrypted row '${label}' has missing or invalid AES-GCM ciphertext`,
+    };
+  }
+  return {
+    sample: {
+      store,
+      recordId,
+      encRecord: {
+        owner_id: ownerId,
+        store,
+        record_id: recordId,
+        key_id: incomingKeyId,
+        iv,
+        ciphertext,
+      },
+    },
+  };
+}
+
+interface LegacyExtraction {
+  skip?: boolean;
+  recordId?: string;
+  parts?: Record<string, unknown>;
+  error?: string;
+}
+
 async function readUnlockSnapshot(
   db: IDBDatabase,
   ownerId: string,
   incomingKeyId: string
 ): Promise<StorageResult<UnlockSnapshot>> {
   return new Promise((resolve) => {
+    let customError: StorageError | null = null;
     try {
       const tx = db.transaction(
         [
@@ -366,171 +429,206 @@ async function readUnlockSnapshot(
       const metaReq = metaStore.get(ownerId);
       const sentinelReq = syncStore.get([ownerId, OWNER_KEY_SENTINEL_RECORD_ID]);
 
+      let meta: OwnerMetadata | null = null;
+      let sentinel: SentinelSyncMetaRow | null = null;
       let hasExistingData = false;
-      let legacySample: LegacyEncryptedSample | null = null;
+      const legacySamples: LegacyEncryptedSample[] = [];
+      const legacyInventoryErrors: string[] = [];
 
-      // Scan records
-      const recRange = IDBKeyRange.bound([ownerId, ""], [ownerId, "\uffff"]);
-      const recReq = recStore.openCursor(recRange);
-      recReq.onsuccess = () => {
-        const cursor = recReq.result;
-        if (cursor) {
-          hasExistingData = true;
-          if (!legacySample) {
-            const row = cursor.value;
-            const iv = toUint8Array(row?.iv);
-            const ct = toUint8Array(row?.ciphertext);
-            if (row && row.kind && row.id && iv && ct) {
-              legacySample = {
-                store: STORAGE_STORES.records,
-                recordId: `${row.kind}:${row.id}`,
-                encRecord: {
-                  owner_id: ownerId,
-                  store: STORAGE_STORES.records,
-                  record_id: `${row.kind}:${row.id}`,
-                  key_id: row.key_id ?? incomingKeyId,
-                  iv,
-                  ciphertext: ct,
-                },
-              };
-            }
-          }
+      const addSample = (
+        storeName: string,
+        recordId: string,
+        parts: Record<string, unknown>
+      ) => {
+        const collected = collectLegacySample(
+          ownerId,
+          incomingKeyId,
+          storeName,
+          recordId,
+          parts
+        );
+        if (collected.sample) {
+          legacySamples.push(collected.sample);
+        } else if (collected.error) {
+          legacyInventoryErrors.push(collected.error);
         }
       };
 
-      // Scan operations
-      const opRange = IDBKeyRange.bound([ownerId, ""], [ownerId, "\uffff"]);
-      const opReq = opStore.openCursor(opRange);
-      opReq.onsuccess = () => {
-        const cursor = opReq.result;
-        if (cursor) {
-          hasExistingData = true;
-          if (!legacySample) {
-            const row = cursor.value;
-            const env = row?.encrypted_envelope;
-            const iv = toUint8Array(env?.iv ?? row?.iv);
-            const ct = toUint8Array(env?.ciphertext ?? row?.ciphertext);
-            if (row && row.operation_id && iv && ct) {
-              legacySample = {
-                store: STORAGE_STORES.operations,
-                recordId: row.operation_id,
-                encRecord: {
-                  owner_id: ownerId,
-                  store: STORAGE_STORES.operations,
-                  record_id: row.operation_id,
-                  key_id: env?.key_id ?? row?.key_id ?? incomingKeyId,
-                  iv,
-                  ciphertext: ct,
-                },
-              };
+      const scanStore = (
+        store: IDBObjectStore,
+        storeName: string,
+        extract: (row: Record<string, unknown>) => LegacyExtraction
+      ) => {
+        const range = IDBKeyRange.bound([ownerId, ""], [ownerId, "\uffff"]);
+        const req = store.getAll(range);
+        req.onsuccess = () => {
+          const rows = (req.result as unknown[]) ?? [];
+          for (const raw of rows) {
+            const row = asRecord(raw);
+            if (!row) {
+              hasExistingData = true;
+              legacyInventoryErrors.push(
+                `${storeName} store contains a non-object legacy row`
+              );
+              continue;
             }
-          }
-        }
-      };
-
-      // Scan view_preferences
-      const prefRange = IDBKeyRange.bound([ownerId, ""], [ownerId, "\uffff"]);
-      const prefReq = prefStore.openCursor(prefRange);
-      prefReq.onsuccess = () => {
-        const cursor = prefReq.result;
-        if (cursor) {
-          hasExistingData = true;
-          if (!legacySample) {
-            const row = cursor.value;
-            const iv = toUint8Array(row?.iv);
-            const ct = toUint8Array(row?.ciphertext);
-            if (row && row.calendar && iv && ct) {
-              legacySample = {
-                store: STORAGE_STORES.view_preferences,
-                recordId: row.calendar,
-                encRecord: {
-                  owner_id: ownerId,
-                  store: STORAGE_STORES.view_preferences,
-                  record_id: row.calendar,
-                  key_id: row.key_id ?? incomingKeyId,
-                  iv,
-                  ciphertext: ct,
-                },
-              };
+            const extracted = extract(row);
+            if (extracted.skip) {
+              continue;
             }
-          }
-        }
-      };
-
-      // Scan drafts
-      const draftRange = IDBKeyRange.bound([ownerId, ""], [ownerId, "\uffff"]);
-      const draftReq = draftStore.openCursor(draftRange);
-      draftReq.onsuccess = () => {
-        const cursor = draftReq.result;
-        if (cursor) {
-          hasExistingData = true;
-          if (!legacySample) {
-            const row = cursor.value;
-            const iv = toUint8Array(row?.iv);
-            const ct = toUint8Array(row?.ciphertext);
-            if (row && row.draft_id && iv && ct) {
-              legacySample = {
-                store: STORAGE_STORES.drafts,
-                recordId: row.draft_id,
-                encRecord: {
-                  owner_id: ownerId,
-                  store: STORAGE_STORES.drafts,
-                  record_id: row.draft_id,
-                  key_id: row.key_id ?? incomingKeyId,
-                  iv,
-                  ciphertext: ct,
-                },
-              };
-            }
-          }
-        }
-      };
-
-      // Scan sync_meta excluding sentinel
-      const syncRange = IDBKeyRange.bound([ownerId, ""], [ownerId, "\uffff"]);
-      const syncCursorReq = syncStore.openCursor(syncRange);
-      syncCursorReq.onsuccess = () => {
-        const cursor = syncCursorReq.result;
-        if (cursor) {
-          const row = cursor.value;
-          if (row && row.key !== OWNER_KEY_SENTINEL_RECORD_ID) {
             hasExistingData = true;
-            if (!legacySample) {
-              const iv = toUint8Array(row?.iv);
-              const ct = toUint8Array(row?.ciphertext);
-              if (iv && ct) {
-                legacySample = {
-                  store: STORAGE_STORES.sync_meta,
-                  recordId: row.key,
-                  encRecord: {
-                    owner_id: ownerId,
-                    store: STORAGE_STORES.sync_meta,
-                    record_id: row.key,
-                    key_id: row.key_id ?? incomingKeyId,
-                    iv,
-                    ciphertext: ct,
-                  },
-                };
-              }
+            if (extracted.error) {
+              legacyInventoryErrors.push(extracted.error);
+              continue;
             }
-          } else {
-            cursor.continue();
+            if (!extracted.recordId || !extracted.parts) {
+              legacyInventoryErrors.push(
+                `${storeName} store contains a legacy row without a usable record ID`
+              );
+              continue;
+            }
+            addSample(storeName, extracted.recordId, extracted.parts);
           }
+        };
+        req.onerror = () => {
+          if (!customError) {
+            customError = new StorageError(
+              "unavailable",
+              req.error?.message ?? `Failed to scan ${storeName} for legacy data`,
+              req.error
+            );
+          }
+          tx.abort();
+        };
+      };
+
+      const scanLegacyInventory = () => {
+        scanStore(recStore, STORAGE_STORES.records, (row) => {
+          if (
+            typeof row.kind !== "string" ||
+            row.kind.length === 0 ||
+            typeof row.id !== "string" ||
+            row.id.length === 0
+          ) {
+            return {
+              error: "records store contains an encrypted row with missing kind/id",
+            };
+          }
+          return { recordId: `${row.kind}:${row.id}`, parts: row };
+        });
+
+        scanStore(opStore, STORAGE_STORES.operations, (row) => {
+          if (
+            typeof row.operation_id !== "string" ||
+            row.operation_id.length === 0
+          ) {
+            return {
+              error:
+                "operations store contains an encrypted row with a missing operation_id",
+            };
+          }
+          const envelope = asRecord(row.encrypted_envelope);
+          if (!envelope) {
+            return {
+              error: `operations/${row.operation_id} is missing its encrypted envelope`,
+            };
+          }
+          if (
+            envelope.owner_id !== ownerId ||
+            envelope.store !== STORAGE_STORES.operations ||
+            envelope.record_id !== row.operation_id
+          ) {
+            return {
+              error: `operations/${row.operation_id} encrypted envelope context does not match its outbox row`,
+            };
+          }
+          return { recordId: row.operation_id, parts: envelope };
+        });
+
+        scanStore(prefStore, STORAGE_STORES.view_preferences, (row) => {
+          if (typeof row.calendar !== "string" || row.calendar.length === 0) {
+            return {
+              error:
+                "view_preferences store contains an encrypted row with a missing calendar",
+            };
+          }
+          return { recordId: row.calendar, parts: row };
+        });
+
+        scanStore(draftStore, STORAGE_STORES.drafts, (row) => {
+          if (typeof row.draft_id !== "string" || row.draft_id.length === 0) {
+            return {
+              error:
+                "drafts store contains an encrypted row with a missing draft_id",
+            };
+          }
+          return { recordId: row.draft_id, parts: row };
+        });
+
+        scanStore(syncStore, STORAGE_STORES.sync_meta, (row) => {
+          if (row.key === OWNER_KEY_SENTINEL_RECORD_ID) {
+            return { skip: true };
+          }
+          if (typeof row.key !== "string" || row.key.length === 0) {
+            return {
+              error:
+                "sync_meta store contains an encrypted row with a missing key",
+            };
+          }
+          return { recordId: row.key, parts: row };
+        });
+      };
+
+      metaReq.onsuccess = () => {
+        meta = (metaReq.result as OwnerMetadata) ?? null;
+      };
+      metaReq.onerror = () => {
+        if (!customError) {
+          customError = new StorageError(
+            "unavailable",
+            metaReq.error?.message ?? "Failed to read owner metadata",
+            metaReq.error
+          );
         }
+        tx.abort();
+      };
+
+      sentinelReq.onsuccess = () => {
+        sentinel = (sentinelReq.result as SentinelSyncMetaRow) ?? null;
+        if (!sentinel) {
+          scanLegacyInventory();
+        }
+      };
+      sentinelReq.onerror = () => {
+        if (!customError) {
+          customError = new StorageError(
+            "unavailable",
+            sentinelReq.error?.message ?? "Failed to read owner key sentinel",
+            sentinelReq.error
+          );
+        }
+        tx.abort();
       };
 
       tx.oncomplete = () => {
         resolve(
           storageOk({
-            meta: (metaReq.result as OwnerMetadata) ?? null,
-            sentinel: (sentinelReq.result as SentinelSyncMetaRow) ?? null,
+            meta,
+            sentinel,
             hasExistingData,
-            legacySample,
+            legacySamples,
+            legacyInventoryErrors,
           })
         );
       };
 
       tx.onerror = () => {
+        if (customError) {
+          resolve(
+            storageErr(customError.code, customError.message, customError.cause)
+          );
+          return;
+        }
         resolve(
           storageErr(
             "unavailable",
@@ -541,6 +639,12 @@ async function readUnlockSnapshot(
       };
 
       tx.onabort = () => {
+        if (customError) {
+          resolve(
+            storageErr(customError.code, customError.message, customError.cause)
+          );
+          return;
+        }
         resolve(
           storageErr(
             "transaction_aborted",
@@ -626,10 +730,41 @@ export async function unlockOwner(
     let newSentinelRecord: SentinelSyncMetaRow | null = null;
 
     if (snap.sentinel) {
-      // Sentinel exists: verify key continuity by authenticating and decrypting sentinel
+      // Sentinel exists: verify key continuity by authenticating and decrypting sentinel.
+      // Malformed persisted metadata must fail closed; never substitute the caller's key ID.
+      if (
+        snap.sentinel.owner_id !== ownerId ||
+        snap.sentinel.key !== OWNER_KEY_SENTINEL_RECORD_ID
+      ) {
+        return storageErr(
+          "integrity_failed",
+          `Key continuity sentinel row context is invalid for owner '${ownerId}'`
+        );
+      }
+      if (
+        typeof snap.sentinel.key_id !== "string" ||
+        snap.sentinel.key_id.length === 0
+      ) {
+        return storageErr(
+          "integrity_failed",
+          `Key continuity sentinel is missing its key ID for owner '${ownerId}'`
+        );
+      }
+      if (snap.sentinel.key_id !== keyId) {
+        return storageErr(
+          "integrity_failed",
+          `Key continuity sentinel uses key ID '${snap.sentinel.key_id}' instead of '${keyId}' for owner '${ownerId}'`
+        );
+      }
+
       const sentinelIv = toUint8Array(snap.sentinel.iv);
       const sentinelCiphertext = toUint8Array(snap.sentinel.ciphertext);
-      if (!sentinelIv || !sentinelCiphertext) {
+      if (
+        !sentinelIv ||
+        sentinelIv.byteLength === 0 ||
+        !sentinelCiphertext ||
+        sentinelCiphertext.byteLength < 16
+      ) {
         return storageErr(
           "integrity_failed",
           `Key continuity sentinel payload corrupted for owner '${ownerId}'`
@@ -642,7 +777,7 @@ export async function unlockOwner(
           owner_id: ownerId,
           store: STORAGE_STORES.sync_meta,
           record_id: OWNER_KEY_SENTINEL_RECORD_ID,
-          key_id: snap.sentinel.key_id ?? keyId,
+          key_id: snap.sentinel.key_id,
           iv: sentinelIv,
           ciphertext: sentinelCiphertext,
         },
@@ -672,28 +807,37 @@ export async function unlockOwner(
         );
       }
     } else if (snap.hasExistingData) {
-      // Sentinel missing but legacy data exists: verify key against legacy sample
-      if (!snap.legacySample) {
+      // Sentinel missing but legacy data exists: verify the incoming key against the
+      // owner's entire encrypted inventory before installing a sentinel. A single
+      // sample is not proof that the whole dataset is readable with this key.
+      if (snap.legacyInventoryErrors.length > 0) {
         return storageErr(
           "integrity_failed",
-          `Key sentinel missing for owner '${ownerId}' with existing data; key continuity cannot be verified`
+          `Legacy encrypted inventory for owner '${ownerId}' is incomplete or malformed: ${snap.legacyInventoryErrors[0]}`
+        );
+      }
+      if (snap.legacySamples.length === 0) {
+        return storageErr(
+          "integrity_failed",
+          `Legacy data exists for owner '${ownerId}' but no authenticated ciphertext could be inventoried`
         );
       }
 
-      const sample = snap.legacySample;
-      const decRes = await decryptPayload(
-        key,
-        sample.encRecord,
-        ownerId,
-        sample.store,
-        sample.recordId
-      );
-
-      if (!decRes.ok) {
-        return storageErr(
-          "integrity_failed",
-          `Key continuity check failed for owner '${ownerId}' with legacy data: provided key cannot authenticate existing data in store '${sample.store}'`
+      for (const sample of snap.legacySamples) {
+        const decRes = await decryptPayload(
+          key,
+          sample.encRecord,
+          ownerId,
+          sample.store,
+          sample.recordId
         );
+
+        if (!decRes.ok) {
+          return storageErr(
+            "integrity_failed",
+            `Key continuity check failed for owner '${ownerId}' with legacy data: provided key cannot authenticate existing data in store '${sample.store}' record '${sample.recordId}'`
+          );
+        }
       }
 
       // Legacy key verified! Backfill sentinel
@@ -814,9 +958,16 @@ export async function unlockOwner(
             return;
           }
 
-          const epoch =
-            currentMeta?.lock_epoch && currentMeta.lock_epoch > 0
-              ? currentMeta.lock_epoch
+          const currentEpoch = currentMeta?.lock_epoch ?? 0;
+          // Installing a sentinel over a pre-existing owner state is a generation
+          // change: invalidate every context created before the sentinel existed.
+          const requiresGenerationChange =
+            newSentinelRecord !== null &&
+            (snap.hasExistingData || snap.meta !== null);
+          const epoch = requiresGenerationChange
+            ? Math.max(1, currentEpoch + 1)
+            : currentEpoch > 0
+              ? currentEpoch
               : 1;
 
           const updatedMeta: OwnerMetadata = {
