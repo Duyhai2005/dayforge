@@ -1,0 +1,151 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+  push:
+    branches:
+      - develop
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.1"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "12.16.1"
+
+      - name: Setup uv and Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.13.6"
+          python-version: "3.14.10"
+          enable-cache: true
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Sync backend dependencies
+        run: uv sync --directory backend --locked
+
+      - name: Lint all workspaces
+        run: pnpm lint
+
+      - name: Typecheck all workspaces
+        run: pnpm typecheck
+
+      - name: Verify environment regressions
+        run: pnpm verify:env
+
+      - name: Run backend unit and API tests
+        run: pnpm test:api
+
+      - name: Guard lockfiles against mutation
+        run: git diff --exit-code -- pnpm-lock.yaml backend/uv.lock
+
+  backend-mysql:
+    name: backend-mysql
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.1"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "12.16.1"
+
+      - name: Setup uv and Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.13.6"
+          python-version: "3.14.10"
+          enable-cache: true
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Sync backend dependencies
+        run: uv sync --directory backend --locked
+
+      - name: Verify Docker daemon availability
+        run: |
+          docker info
+          docker compose version
+
+      - name: Run isolated MySQL integration tests
+        run: pnpm test:api:mysql
+
+      - name: Verify test container cleanup
+        if: always()
+        run: |
+          leftover="$(docker ps -q --filter "name=dayforge-test")"
+          if [ -n "$leftover" ]; then
+            echo "Leftover MySQL test containers detected: $leftover" >&2
+            exit 1
+          fi
+
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.1"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "12.16.1"
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium with system dependencies
+        run: pnpm --filter @dayforge/frontend exec playwright install --with-deps chromium
+
+      - name: Run development browser tests
+        run: pnpm test:web
+
+      - name: Build Next.js production bundle
+        run: pnpm build:web
+
+      - name: Run production browser tests
+        run: pnpm test:web:prod
+
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: frontend/.next/playwright-results/
+          retention-days: 7
