@@ -22,6 +22,7 @@ export function CalendarView({ calendar }: CalendarViewProps): React.JSX.Element
     let saved = null;
     try { saved = readPreference(calendar, window.sessionStorage); } catch { /* Storage may be disabled. */ }
     const next = parseViewState(pathname, new URLSearchParams(query), new Date(), saved);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Client preference from sessionStorage is read on mount and route change
     setView(next);
     const save = () => {
       try { writePreference(calendar, { anchor: next.anchor, scale: next.scale, scrollY: window.scrollY }, window.sessionStorage); } catch { /* Storage may be disabled. */ }
