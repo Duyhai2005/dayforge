@@ -226,6 +226,31 @@ pnpm build:web      # Cross-platform Next.js production build
 pnpm test:web:prod  # Playwright production suite (manages prod server on port 3001, strict headers)
 ```
 
+### IndexedDB local persistent storage
+
+T08 provides the browser IndexedDB persistence foundation (`frontend/lib/storage/`). All sensitive records, outbox envelopes, and view preferences are AES-256-GCM encrypted per owner before writing to IndexedDB.
+
+To run the local storage test suites:
+
+```powershell
+# Run all browser tests (including 57 storage tests across ST-01 to ST-20)
+pnpm test:web
+
+# Run focused storage test suites
+pnpm --filter @dayforge/frontend exec playwright test tests/storage-persistence.spec.ts
+pnpm --filter @dayforge/frontend exec playwright test tests/storage-atomicity.spec.ts
+pnpm --filter @dayforge/frontend exec playwright test tests/storage-security.spec.ts
+pnpm --filter @dayforge/frontend exec playwright test tests/storage-migrations.spec.ts
+pnpm --filter @dayforge/frontend exec playwright test tests/storage-view-state.spec.ts
+pnpm --filter @dayforge/frontend exec playwright test tests/storage-failures.spec.ts
+```
+
+Key storage characteristics:
+- **Encryption & AAD Binding:** Every record uses AES-256-GCM with context-bound AAD (`owner_id`, `key_id`, `store`, `record_id`, `schema_version`).
+- **Atomic Unit of Work:** Mutations write outbox, record overlays, device sequence, and HLC clock in a single `readwrite` transaction. Rollback leaves zero partial changes on error.
+- **Zero-Deletion Policy:** Schema upgrades preserve un-synced outbox operations and pending data without database deletion.
+- **SSR Safe:** Safe fallback in non-browser/Node environments without uncaught exceptions.
+
 ### Backend quality commands
 
 ```powershell
@@ -277,5 +302,7 @@ pnpm verify
 - [T06 verification and handoff](tasks/t06/review-and-verification.md)
 - [T07 automated quality plan](tasks/t07/plan.md)
 - [T07 verification and handoff](tasks/t07/review-and-verification.md)
+- [T08 local persistent storage plan](tasks/t08/plan.md)
+- [T08 verification and handoff](tasks/t08/review-and-verification.md)
 - [Overall task status and dependencies](tasks/README.md)
 - [Project architecture](project-definition/04-technical-architecture.md)
