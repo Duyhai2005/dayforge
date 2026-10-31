@@ -110,9 +110,15 @@ export function upgradeDatabase(
   }
 
   if (newVersion > Math.max(1, oldVersion)) {
+    if (!transaction) {
+      throw new StorageError(
+        "migration_failed",
+        "IDBTransaction is required for schema migrations"
+      );
+    }
     executeMigrations(
       db,
-      transaction as IDBTransaction,
+      transaction,
       oldVersion,
       newVersion
     );

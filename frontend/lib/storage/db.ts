@@ -45,7 +45,7 @@ export async function openDatabase(
 
     let request: IDBOpenDBRequest;
     try {
-      request = indexedDB.open(name, version);
+      request = idb.open(name, version);
     } catch (err) {
       resolve(
         storageErr(

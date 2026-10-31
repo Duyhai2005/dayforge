@@ -26,7 +26,9 @@ export function registerMigrationStep(step: MigrationStep): void {
     migrationRegistry[existingIdx] = step;
   } else {
     migrationRegistry.push(step);
-    migrationRegistry.sort((a, b) => a.fromVersion - b.fromVersion);
+    migrationRegistry.sort(
+      (a, b) => a.fromVersion - b.fromVersion || a.toVersion - b.toVersion
+    );
   }
 }
 

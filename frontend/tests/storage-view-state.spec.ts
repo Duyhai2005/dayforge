@@ -412,8 +412,8 @@ test.describe("Storage View Preferences Specifications", () => {
         expect(result.migRes.value.milestonesMigrated).toBe(true);
       }
 
-      // Valid milestones cleared from sessionStorage, invalid work retained
-      expect(result.workSessionAfter).not.toBeNull();
+      // Valid milestones cleared from sessionStorage, invalid work cleared to avoid retry loops
+      expect(result.workSessionAfter).toBeNull();
       expect(result.milestonesSessionAfter).toBeNull();
 
       // Milestones readable from IndexedDB, work is null

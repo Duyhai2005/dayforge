@@ -43,6 +43,13 @@ export function canonicalizeJson(value: unknown): string {
     return value ? "true" : "false";
   }
 
+  if (valType === "bigint") {
+    throw new StorageError(
+      "invalid_data",
+      "BigInt values are not supported in canonical JSON"
+    );
+  }
+
   if (valType === "number") {
     const num = value as number;
     if (!Number.isFinite(num)) {

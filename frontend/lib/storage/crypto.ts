@@ -212,7 +212,7 @@ export async function storeCryptoKey(
         created_at: new Date().toISOString(),
       });
 
-      req.onsuccess = () => resolve(storageOk(undefined));
+      tx.oncomplete = () => resolve(storageOk(undefined));
       req.onerror = () => {
         resolve(
           storageErr(
@@ -308,7 +308,7 @@ export async function removeCryptoKey(
       const store = tx.objectStore(STORAGE_STORES.crypto_keys);
       const req = store.delete([ownerId, keyId]);
 
-      req.onsuccess = () => resolve(storageOk(undefined));
+      tx.oncomplete = () => resolve(storageOk(undefined));
       req.onerror = () => {
         resolve(
           storageErr(

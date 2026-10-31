@@ -129,11 +129,6 @@ export async function writeOwnerViewPreference(
   calendar: "work" | "milestones",
   pref: StoredViewPreference
 ): Promise<StorageResult<void>> {
-  const valRes = await validateOwnerAccess(db, ctx);
-  if (!valRes.ok) {
-    return valRes;
-  }
-
   // Validate fields
   if (pref.date !== undefined && !isValidCalendarDate(pref.date)) {
     return storageErr(
@@ -352,7 +347,16 @@ export async function migrateLegacyViewPreferences(
 
   try {
     const rawWork = storageObj.getItem("dayforge:view:v1:work");
-    workCandidate = parseAndValidateLegacyPreference(rawWork, "work");
+    if (rawWork !== null) {
+      workCandidate = parseAndValidateLegacyPreference(rawWork, "work");
+      if (!workCandidate) {
+        try {
+          storageObj.removeItem("dayforge:view:v1:work");
+        } catch {
+          // ignore
+        }
+      }
+    }
   } catch {
     // Storage access might throw in restricted environments; fail safely
     workCandidate = null;
@@ -360,7 +364,16 @@ export async function migrateLegacyViewPreferences(
 
   try {
     const rawMilestones = storageObj.getItem("dayforge:view:v1:milestones");
-    milestonesCandidate = parseAndValidateLegacyPreference(rawMilestones, "milestones");
+    if (rawMilestones !== null) {
+      milestonesCandidate = parseAndValidateLegacyPreference(rawMilestones, "milestones");
+      if (!milestonesCandidate) {
+        try {
+          storageObj.removeItem("dayforge:view:v1:milestones");
+        } catch {
+          // ignore
+        }
+      }
+    }
   } catch {
     milestonesCandidate = null;
   }
