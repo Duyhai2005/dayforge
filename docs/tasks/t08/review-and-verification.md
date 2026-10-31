@@ -3,6 +3,7 @@
 **Date:** 31/10/2026  
 **Branch:** `feature/local-persistent-storage`  
 **Base commit:** `65480f2`  
+**Pull Request:** [#8 Implement persistent local storage engine with encrypted outbox](https://github.com/Duyhai2005/dayforge/pull/8)  
 **PR target:** `develop`  
 **Status:** Hoàn thành toàn diện lớp lưu trữ cục bộ bền vững IndexedDB (T08). Tất cả 20 kịch bản kiểm thử bắt buộc (ST-01 đến ST-20) và 89 tests Playwright trình duyệt đã được kiểm chứng 100% PASS trên cả môi trường Next.js Dev Server và Production Server. Toàn bộ các quality gates CI (`verify:fast`, `test:web`, `build:web`, `test:web:prod`, `verify`) đều vượt qua với 0 cảnh báo và 0 lỗi.
 
