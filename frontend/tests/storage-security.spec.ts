@@ -3000,5 +3000,130 @@ test.describe("Storage Security Specifications", () => {
         await context.close();
       }
     });
+
+    test("M06: legacy write after snapshot but before CAS forces retry and rejects mixed-key backfill", async ({
+      page,
+    }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+
+      const dbName = "test-sentinel-m06-" + Date.now();
+      const result = await page.evaluate(async (dbName) => {
+        const {
+          openDatabase,
+          closeDatabase,
+          importRawKey,
+          encryptPayload,
+          unlockOwner,
+          writeOwnerViewPreference,
+          getOwnerMeta,
+          STORAGE_STORES,
+        } = window.__dayforge_security_storage;
+
+        const ownerId = "11111111-1111-4111-8111-210621062106";
+        const keyId = "key-sentinel-m06";
+        const planId = "22222222-2222-4222-8222-210621062106";
+        const opened = await openDatabase({ name: dbName });
+        if (!opened.ok) return { setupOk: false };
+        const db = opened.value;
+        const keyA = await importRawKey(new Uint8Array(32).fill(0xa6));
+        const keyB = await importRawKey(new Uint8Array(32).fill(0xb6));
+        const encrypted = await encryptPayload(
+          keyA, ownerId, keyId, STORAGE_STORES.records,
+          "plan:" + planId, { title: "Original legacy ciphertext" }
+        );
+        if (!encrypted.ok) return { setupOk: false };
+
+        await new Promise<void>((resolve, reject) => {
+          const tx = db.transaction(
+            [STORAGE_STORES.owner_meta, STORAGE_STORES.records], "readwrite"
+          );
+          tx.objectStore(STORAGE_STORES.owner_meta).put({
+            owner_id: ownerId,
+            lock_epoch: 7,
+            locked: false,
+            active_key_id: keyId,
+          });
+          tx.objectStore(STORAGE_STORES.records).put({
+            owner_id: ownerId,
+            kind: "plan",
+            id: planId,
+            key_id: keyId,
+            iv: encrypted.value.iv,
+            ciphertext: encrypted.value.ciphertext,
+          });
+          tx.oncomplete = () => resolve();
+          tx.onabort = () => reject(tx.error);
+        });
+
+        let injected = false;
+        let injectedWriteOk = false;
+        const unlock = await unlockOwner(db, ownerId, keyId, keyA, {
+          afterPhase1Barrier: async () => {
+            // After the verified snapshot but before Phase 3, a stale tab
+            // still using epoch 7 writes a new row with different key material.
+            if (injected) return;
+            injected = true;
+            const write = await writeOwnerViewPreference(
+              db, { ownerId, keyId, lockEpoch: 7, key: keyB },
+              "work",
+              {
+                date: "2026-11-01",
+                scale: "week",
+                updatedAt: "2026-11-01T00:00:00.000Z",
+              }
+            );
+            injectedWriteOk = write.ok;
+          },
+        });
+
+        const meta = await getOwnerMeta(db, ownerId);
+        const state = await new Promise<{
+          sentinel: unknown;
+          view: unknown;
+          plan: unknown;
+        }>((resolve, reject) => {
+          const tx = db.transaction(
+            [STORAGE_STORES.sync_meta, STORAGE_STORES.view_preferences, STORAGE_STORES.records],
+            "readonly"
+          );
+          const sentinelReq = tx.objectStore(STORAGE_STORES.sync_meta)
+            .get([ownerId, "owner-key-sentinel"]);
+          const viewReq = tx.objectStore(STORAGE_STORES.view_preferences)
+            .get([ownerId, "work"]);
+          const planReq = tx.objectStore(STORAGE_STORES.records)
+            .get([ownerId, "plan", planId]);
+          tx.oncomplete = () => resolve({
+            sentinel: sentinelReq.result,
+            view: viewReq.result,
+            plan: planReq.result,
+          });
+          tx.onabort = () => reject(tx.error);
+        });
+        closeDatabase(db);
+        return {
+          setupOk: true,
+          injected,
+          injectedWriteOk,
+          unlockOk: unlock.ok,
+          unlockError: !unlock.ok ? unlock.error.code : null,
+          epoch: meta.ok ? meta.value?.lock_epoch : null,
+          sentinelAbsent: state.sentinel === undefined,
+          viewPresent: state.view !== undefined,
+          planPresent: state.plan !== undefined,
+        };
+      }, dbName);
+
+      expect(result.setupOk).toBe(true);
+      expect(result.injected).toBe(true);
+      expect(result.injectedWriteOk).toBe(true);
+      expect(result.unlockOk).toBe(false);
+      expect(result.unlockError).toBe("integrity_failed");
+      expect(result.epoch).toBe(7);
+      expect(result.sentinelAbsent).toBe(true);
+      expect(result.viewPresent).toBe(true);
+      expect(result.planPresent).toBe(true);
+    });
+
   });
 });
