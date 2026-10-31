@@ -20,6 +20,7 @@ export interface PersistOperationInput {
   editTime: HlcEditTime;
   recordOverlays?: readonly RecordOverlayInput[];
   _abortForTest?: boolean;
+  _simulateQuotaExceeded?: boolean;
 }
 
 export interface PersistOperationResult {
@@ -236,11 +237,29 @@ export async function persistOperationAtomic(
                 created_at: new Date().toISOString(),
               };
 
-              opStore.put(outboxEntry);
+              if (input._simulateQuotaExceeded) {
+                customError = new StorageError(
+                  "quota_exceeded",
+                  "Storage quota exceeded"
+                );
+                tx.abort();
+                return;
+              }
+
+              const opReq = opStore.put(outboxEntry);
+              opReq.onerror = () => {
+                if (opReq.error?.name === "QuotaExceededError") {
+                  customError = new StorageError(
+                    "quota_exceeded",
+                    opReq.error.message,
+                    opReq.error
+                  );
+                }
+              };
 
               // Put record overlays
               for (const item of preEncryptedOverlays) {
-                recordsStore.put({
+                const recReq = recordsStore.put({
                   owner_id: input.context.ownerId,
                   kind: item.kind,
                   id: item.id,
@@ -250,6 +269,15 @@ export async function persistOperationAtomic(
                   iv: item.encrypted.iv,
                   ciphertext: item.encrypted.ciphertext,
                 });
+                recReq.onerror = () => {
+                  if (recReq.error?.name === "QuotaExceededError") {
+                    customError = new StorageError(
+                      "quota_exceeded",
+                      recReq.error.message,
+                      recReq.error
+                    );
+                  }
+                };
               }
 
               // Update device_meta with new sequence and HLC
@@ -260,7 +288,16 @@ export async function persistOperationAtomic(
                 last_hlc: input.editTime,
                 updated_at: new Date().toISOString(),
               };
-              devStore.put(updatedDevMeta);
+              const devPutReq = devStore.put(updatedDevMeta);
+              devPutReq.onerror = () => {
+                if (devPutReq.error?.name === "QuotaExceededError") {
+                  customError = new StorageError(
+                    "quota_exceeded",
+                    devPutReq.error.message,
+                    devPutReq.error
+                  );
+                }
+              };
 
               if (input._abortForTest) {
                 customError = new StorageError(
@@ -271,15 +308,30 @@ export async function persistOperationAtomic(
               }
             } catch (err) {
               cryptoKeepAliveActive = false;
-              customError =
-                err instanceof StorageError
-                  ? err
-                  : new StorageError(
-                      "transaction_aborted",
-                      err instanceof Error ? err.message : "Error during atomic persist",
-                      err
-                    );
-              tx.abort();
+              if (
+                (typeof DOMException !== "undefined" && err instanceof DOMException && err.name === "QuotaExceededError") ||
+                (typeof err === "object" && err !== null && "name" in err && (err as { name: string }).name === "QuotaExceededError")
+              ) {
+                customError = new StorageError(
+                  "quota_exceeded",
+                  err instanceof Error ? err.message : "Storage quota exceeded",
+                  err
+                );
+              } else {
+                customError =
+                  err instanceof StorageError
+                    ? err
+                    : new StorageError(
+                        "transaction_aborted",
+                        err instanceof Error ? err.message : "Error during atomic persist",
+                        err
+                      );
+              }
+              try {
+                tx.abort();
+              } catch {
+                // Ignore abort error if already aborting
+              }
             }
           };
 
@@ -324,6 +376,14 @@ export async function persistOperationAtomic(
         cryptoKeepAliveActive = false;
         if (customError) {
           safeResolve({ ok: false, error: customError });
+        } else if (tx.error?.name === "QuotaExceededError") {
+          safeResolve(
+            storageErr(
+              "quota_exceeded",
+              tx.error?.message ?? "Storage quota exceeded",
+              tx.error
+            )
+          );
         } else {
           safeResolve(
             storageErr(
@@ -339,6 +399,14 @@ export async function persistOperationAtomic(
         cryptoKeepAliveActive = false;
         if (customError) {
           safeResolve({ ok: false, error: customError });
+        } else if (tx.error?.name === "QuotaExceededError") {
+          safeResolve(
+            storageErr(
+              "quota_exceeded",
+              tx.error?.message ?? "Storage quota exceeded",
+              tx.error
+            )
+          );
         } else {
           safeResolve(
             storageErr(
@@ -350,13 +418,26 @@ export async function persistOperationAtomic(
         }
       };
     } catch (err) {
-      safeResolve(
-        storageErr(
-          "unavailable",
-          err instanceof Error ? err.message : "Error initiating persist transaction",
-          err
-        )
-      );
+      if (
+        (typeof DOMException !== "undefined" && err instanceof DOMException && err.name === "QuotaExceededError") ||
+        (typeof err === "object" && err !== null && "name" in err && (err as { name: string }).name === "QuotaExceededError")
+      ) {
+        safeResolve(
+          storageErr(
+            "quota_exceeded",
+            err instanceof Error ? err.message : "Storage quota exceeded initiating persist transaction",
+            err
+          )
+        );
+      } else {
+        safeResolve(
+          storageErr(
+            "unavailable",
+            err instanceof Error ? err.message : "Error initiating persist transaction",
+            err
+          )
+        );
+      }
     }
   });
 }

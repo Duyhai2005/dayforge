@@ -12,7 +12,18 @@ export interface OpenDatabaseOptions {
 export async function openDatabase(
   options?: OpenDatabaseOptions
 ): Promise<StorageResult<IDBDatabase>> {
-  if (typeof window === "undefined" || typeof indexedDB === "undefined") {
+  let idb: IDBFactory | undefined;
+  try {
+    idb = typeof window !== "undefined" && typeof indexedDB !== "undefined" ? indexedDB : undefined;
+  } catch (err) {
+    return storageErr(
+      "unavailable",
+      err instanceof Error ? err.message : "IndexedDB is restricted in this context",
+      err
+    );
+  }
+
+  if (typeof window === "undefined" || !idb) {
     return storageErr("unavailable", "IndexedDB is not available in server context");
   }
 
