@@ -329,3 +329,54 @@ Reviewer `Duyhai2005` đã rà soát commit tiếp theo và chỉ ra 6 phát hi�
    - 111/111 bài test Playwright Production (`pnpm test:web:prod` với `playwright.production.config.ts`) PASSED 100%.
    - `pnpm lint:web` và `pnpm typecheck:web` hoàn thành với 0 lỗi / 0 cảnh báo.
    - `pnpm verify:fast` vượt qua 100% (203 pytest tests, 28 unittest tests, ruff, black, mypy).
+
+---
+
+## 12. Bổ Sung Giải Quyết Review Findings S01–S05 (Key-Continuity Sentinel, Concurrency CAS & Legacy Store Migration)
+
+Dựa trên tài liệu đề xuất rà soát chuyên sâu (*"DAYFORGE — PR #8: Detailed Fix Proposal for Key-Continuity Sentinel"*), nhóm đã hoàn thiện triển khai và bổ sung bộ regression test tương ứng cho 5 phát hiện S01–S05:
+
+1. **S01 (P0 — Blocker) — Tuyến Tính Hóa `unlockOwner` & CAS Atomic Commit Đa Tab:**
+   - **Vấn đề gốc:** Hai tab cùng mở một fresh owner song song với hai khóa AES-GCM khác nhau (cùng `keyId`) có thể cùng đọc Phase 1 `null` rồi commit Phase 3 đè lên nhau, khiến cả hai nhận `ok=true` và ghi dữ liệu ciphertext trộn lẫn.
+   - **Khắc phục:**
+     - Thiết kế lại Phase 3 thành giao dịch nguyên tử Compare-And-Swap (CAS) bao quát `owner_meta`, `crypto_keys`, và `sync_meta`.
+     - Trong giao dịch Phase 3, đọc lại `currentMeta` và `currentSentinel`, so sánh theo giá trị byte/thuộc tính với snapshot ở Phase 1 qua `sameOwnerMeta()` và `sameSentinel()`.
+     - Nếu phát hiện trạng thái bị thay đổi bởi tab khác, giao dịch commit bị hủy (`tx.abort()`) và chuyển sang vòng lặp thử lại (tối đa `MAX_UNLOCK_ATTEMPTS = 3`).
+     - Khi tab thứ hai thử lại ở Phase 1, nó nhận diện sentinel mà tab thứ nhất đã commit, chuyển sang xác thực giải mã bằng khóa của tab thứ hai. Do khác vật liệu khóa, xác thực thẻ GCM thất bại và tab thứ hai nhận lỗi có kiểu `integrity_failed` mà không chạm vào IDB.
+     - Cung cấp tham số `_optionsForTest.afterPhase1Barrier` cho phép kiểm thử Playwright điều phối điểm đồng bộ Phase 1 đa tab một cách tất định (deterministic).
+
+2. **S02 (P1) & S03 (P1) — Catalog Lưu Trữ Mã Hóa Toàn Diện & Tự Động Backfill Sentinel Cho Dữ Liệu Legacy:**
+   - **Vấn đề gốc:** Triển khai cũ chỉ đếm `records` và `operations` khi kiểm tra dữ liệu hiện hữu và còn phụ thuộc vào `owner_meta.active_key_id`. Nếu một owner chỉ có `view_preferences`, `drafts`, `sync_meta`, hoặc bị mất `owner_meta`, hệ thống có thể tạo sentinel mù hoặc từ chối mở khóa dù người dùng cung cấp đúng khóa.
+   - **Khắc phục:**
+     - Xây dựng hàm `readUnlockSnapshot()` quét toàn bộ catalog 5 store chứa ciphertext: `records`, `operations`, `view_preferences`, `drafts`, và `sync_meta` (loại trừ sentinel).
+     - Khi phát hiện ciphertext nhưng thiếu sentinel: trích xuất bản ghi mẫu (`LegacyEncryptedSample`) và xác thực khóa truyền vào bằng `decryptPayload()` với AAD chuẩn của store tương ứng.
+     - Nếu xác thực thành công (đúng khóa), hệ thống tự động sinh sentinel mới và lưu trữ nguyên tử vào `sync_meta` trong Phase 3 commit (backfill migration an toàn, không cần nâng `CURRENT_SCHEMA_VERSION`).
+     - Nếu xác thực thất bại (sai khóa), lập tức trả về `StorageError("integrity_failed")`, bảo toàn nguyên vẹn ciphertext và outbox của người dùng.
+
+3. **S04 (P2 / T11 Handoff) — Chuẩn Hóa Helper Đồng Bộ Nguyên Tử `confirmPulledOperationInTx` Cho T11:**
+   - Bổ sung và export hàm `confirmPulledOperationInTx(tx, ownerId, operationId, expectedRequestHash, callbacks)` hoạt động trực tiếp trong transaction do luồng pull sở hữu.
+   - Hàm kiểm tra trạng thái outbox `ack_waiting_pull` và khớp nối hash SHA-256 trước khi xóa hàng outbox; nếu không khớp, transaction bị hủy lập tức.
+   - Hàm cấp cao `markOperationSynced` được tái cấu trúc để ủy quyền thực thi cho helper này, bảo đảm sự nhất quán tuyệt đối giữa standalone API và batch sync transaction của T11.
+
+4. **S05 (P2 Hardening) — Ràng Buộc Phiên Bản & Bảo Vệ Toàn Vẹn Sentinel Payload:**
+   - Cấu trúc plaintext sentinel payload được chuẩn hóa:
+     `{ kind: "dayforge-owner-key-check", format_version: 1, owner_id, key_id }`.
+   - Trong quá trình xác thực giải mã, bắt buộc kiểm tra `payload.format_version === 1`, `payload.owner_id === ownerId`, và `payload.key_id === keyId`.
+   - Các định dạng payload bất thường hoặc phiên bản tương lai chưa được hỗ trợ (`format_version !== 1`) đều bị từ chối fail-closed với `integrity_failed` mà không ghi đè dữ liệu.
+   - Phát hiện xung đột khi `lockOwner` diễn ra đồng thời với `unlockOwner`: giao dịch commit lập tức fail-closed với `StorageError("locked")`, ngăn ngừa stale continuation mở lại tài khoản sau khi người dùng đã đăng xuất.
+
+5. **Kết Quả Kiểm Thử Toàn Diện (Dev & Production):**
+   - Bổ sung 9 bài kiểm thử hồi quy bảo mật chuyên sâu trong `storage-security.spec.ts`:
+     - `ST-S01`: Đua hai tab fresh owner khác khóa -> đơn thắng commit CAS, tab thua nhận `integrity_failed`.
+     - `ST-S02`: Đua hai tab fresh owner cùng vật liệu khóa -> cả hai đều mở khóa thành công thông qua cơ chế CAS retry.
+     - `ST-S04`: Gọi `lockOwner` trong khi `unlockOwner` đang chạy -> stale continuation bị hủy, trả về `locked`, owner giữ nguyên trạng thái khóa.
+     - `ST-S05 & ST-S06`: Dữ liệu legacy trong `records` -> đúng khóa tự động backfill sentinel thành công, sai khóa fail-closed với `integrity_failed`.
+     - `ST-S07`: Dữ liệu legacy chỉ có trong `operations` (outbox) -> đúng khóa migration thành công, sai khóa bị từ chối.
+     - `ST-S08`: Dữ liệu legacy chỉ có trong `view_preferences` -> đúng khóa migration thành công, sai khóa bị từ chối.
+     - `ST-S09`: Dữ liệu legacy khi `owner_meta` bị mất/corrupt -> không coi là fresh owner, bảo vệ bằng xác thực khóa.
+     - `ST-S12`: Sentinel payload mang `format_version: 2` hoặc bị sửa đổi -> fail-closed với `integrity_failed`, không ghi đè sentinel.
+     - `ST-S13 & S04`: `confirmPulledOperationInTx` trong transaction IDB -> xóa outbox khi đúng hash, hủy transaction khi sai hash.
+   - **Toàn bộ 120/120 bài test Playwright e2e/unit frontend (`pnpm test:web`) PASSED.**
+   - **Toàn bộ 120/120 bài test Playwright Production (`pnpm test:web:prod`) PASSED.**
+   - `pnpm lint:web` và `pnpm typecheck:web` hoàn thành với 0 lỗi / 0 cảnh báo.
+   - `pnpm verify:fast` vượt qua 100% (203 pytest tests, 28 unittest tests, ruff, black, mypy).

@@ -579,6 +579,71 @@ export async function markOperationAcked(
   });
 }
 
+export function confirmPulledOperationInTx(
+  tx: IDBTransaction,
+  ownerId: string,
+  operationId: string,
+  expectedRequestHash: string,
+  callbacks?: {
+    onError?: (error: StorageError) => void;
+  }
+): void {
+  if (
+    typeof expectedRequestHash !== "string" ||
+    !HASH_PATTERN.test(expectedRequestHash)
+  ) {
+    const err = new StorageError(
+      "invalid_data",
+      `expectedRequestHash must be a lowercase 64-hex SHA-256 hash: got '${expectedRequestHash}'`
+    );
+    callbacks?.onError?.(err);
+    tx.abort();
+    return;
+  }
+
+  const opStore = tx.objectStore(STORAGE_STORES.operations);
+  const opReq = opStore.get([ownerId, operationId]);
+  opReq.onsuccess = () => {
+    const entry = opReq.result as OutboxEntry | undefined;
+    if (!entry) {
+      const err = new StorageError(
+        "invalid_data",
+        `Operation '${operationId}' not found in outbox`
+      );
+      callbacks?.onError?.(err);
+      tx.abort();
+      return;
+    }
+    if (entry.status !== "ack_waiting_pull") {
+      const err = new StorageError(
+        "invalid_data",
+        `Invalid state transition for operation '${operationId}': cannot mark synced before ACK (current status: '${entry.status}')`
+      );
+      callbacks?.onError?.(err);
+      tx.abort();
+      return;
+    }
+    if (entry.request_hash !== expectedRequestHash) {
+      const err = new StorageError(
+        "integrity_failed",
+        `Pull confirmation request_hash mismatch for operation '${operationId}': expected '${expectedRequestHash}', got '${entry.request_hash}'`
+      );
+      callbacks?.onError?.(err);
+      tx.abort();
+      return;
+    }
+    opStore.delete([ownerId, operationId]);
+  };
+  opReq.onerror = () => {
+    const err = new StorageError(
+      "unavailable",
+      opReq.error?.message ?? "Failed to read outbox entry",
+      opReq.error
+    );
+    callbacks?.onError?.(err);
+  };
+}
+
 export async function markOperationSynced(
   db: IDBDatabase,
   ctx: OwnerAccessContext,
@@ -603,7 +668,6 @@ export async function markOperationSynced(
         "readwrite"
       );
       const metaStore = tx.objectStore(STORAGE_STORES.owner_meta);
-      const opStore = tx.objectStore(STORAGE_STORES.operations);
 
       const metaReq = metaStore.get(ctx.ownerId);
       metaReq.onsuccess = () => {
@@ -615,42 +679,17 @@ export async function markOperationSynced(
           return;
         }
 
-        const opReq = opStore.get([ctx.ownerId, operationId]);
-        opReq.onsuccess = () => {
-          const entry = opReq.result as OutboxEntry | undefined;
-          if (!entry) {
-            customError = new StorageError(
-              "invalid_data",
-              `Operation '${operationId}' not found in outbox`
-            );
-            tx.abort();
-            return;
+        confirmPulledOperationInTx(
+          tx,
+          ctx.ownerId,
+          operationId,
+          expectedRequestHash,
+          {
+            onError: (err) => {
+              customError = err;
+            },
           }
-          if (entry.status !== "ack_waiting_pull") {
-            customError = new StorageError(
-              "invalid_data",
-              `Invalid state transition for operation '${operationId}': cannot mark synced before ACK (current status: '${entry.status}')`
-            );
-            tx.abort();
-            return;
-          }
-          if (entry.request_hash !== expectedRequestHash) {
-            customError = new StorageError(
-              "integrity_failed",
-              `Pull confirmation request_hash mismatch for operation '${operationId}': expected '${expectedRequestHash}', got '${entry.request_hash}'`
-            );
-            tx.abort();
-            return;
-          }
-          opStore.delete([ctx.ownerId, operationId]);
-        };
-        opReq.onerror = () => {
-          customError = new StorageError(
-            "unavailable",
-            opReq.error?.message ?? "Failed to read outbox entry",
-            opReq.error
-          );
-        };
+        );
       };
       metaReq.onerror = () => {
         customError = new StorageError(

@@ -24,6 +24,8 @@ import {
   isOwnerUnlocked,
   getRecord,
   createLocalStorageGateway,
+  confirmPulledOperationInTx,
+  OWNER_KEY_SENTINEL_RECORD_ID,
   type EncryptedRecord,
   type OwnerAccessContext,
   type OwnerMetadata,
@@ -53,6 +55,8 @@ declare global {
       isOwnerUnlocked: typeof isOwnerUnlocked;
       getRecord: typeof getRecord;
       createLocalStorageGateway: typeof createLocalStorageGateway;
+      confirmPulledOperationInTx: typeof confirmPulledOperationInTx;
+      OWNER_KEY_SENTINEL_RECORD_ID: string;
     };
   }
 }
@@ -70,6 +74,7 @@ function buildStorageScript(): string {
     "outbox.ts",
     "unit-of-work.ts",
     "repositories.ts",
+    "view-preferences.ts",
   ];
 
   const combined = files
@@ -1297,6 +1302,734 @@ test.describe("Storage Security Specifications", () => {
       expect(result.sameKeyOk).toBe(true);
       expect(result.missingSentinelOk).toBe(false);
       expect(result.missingSentinelCode).toBe("integrity_failed");
+    });
+
+    test("ST-S01: Concurrent unlockOwner on fresh owner with different keys enforces single-winner CAS (loser fails integrity_failed)", async ({
+      page,
+    }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+
+      const testDbName = `test-sentinel-s01-${Date.now()}`;
+      const ownerId = "11111111-1111-4111-8111-111111111111";
+      const keyId = "key-sentinel-s01";
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId }) => {
+          const {
+            openDatabase,
+            closeDatabase,
+            importRawKey,
+            unlockOwner,
+            STORAGE_STORES,
+          } = window.__dayforge_security_storage;
+
+          const openRes = await openDatabase({ name: testDbName });
+          if (!openRes.ok) return { step: "open", ok: false };
+          const db = openRes.value;
+
+          const key1Raw = new Uint8Array(32).fill(0x11);
+          const key2Raw = new Uint8Array(32).fill(0x22);
+          const key1 = await importRawKey(key1Raw);
+          const key2 = await importRawKey(key2Raw);
+
+          // Coordinate Phase 1 barrier so both tabs snapshot null state before either commits
+          let barrierResolver: (() => void) | null = null;
+          const barrierPromise = new Promise<void>((r) => {
+            barrierResolver = r;
+          });
+
+          let p1ReadyCount = 0;
+          const onPhase1 = async () => {
+            p1ReadyCount++;
+            if (p1ReadyCount >= 2 && barrierResolver) {
+              barrierResolver();
+            }
+            await barrierPromise;
+          };
+
+          const [res1, res2] = await Promise.all([
+            unlockOwner(db, ownerId, keyId, key1, { afterPhase1Barrier: onPhase1 }),
+            unlockOwner(db, ownerId, keyId, key2, { afterPhase1Barrier: onPhase1 }),
+          ]);
+
+          const metaRecord = await new Promise<any>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.owner_meta, "readonly");
+            const req = tx.objectStore(STORAGE_STORES.owner_meta).get(ownerId);
+            req.onsuccess = () => resolve(req.result);
+          });
+
+          const sentinelRecord = await new Promise<any>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.sync_meta, "readonly");
+            const req = tx.objectStore(STORAGE_STORES.sync_meta).get([ownerId, "owner-key-sentinel"]);
+            req.onsuccess = () => resolve(req.result);
+          });
+
+          closeDatabase(db);
+
+          return {
+            ok: true,
+            res1Ok: res1.ok,
+            res1ErrCode: !res1.ok ? res1.error.code : null,
+            res2Ok: res2.ok,
+            res2ErrCode: !res2.ok ? res2.error.code : null,
+            metaLocked: metaRecord ? metaRecord.locked : null,
+            hasSentinel: Boolean(sentinelRecord),
+          };
+        },
+        { testDbName, ownerId, keyId }
+      );
+
+      expect(result.ok).toBe(true);
+      const oneSucceeded = (result.res1Ok && !result.res2Ok) || (!result.res1Ok && result.res2Ok);
+      expect(oneSucceeded).toBe(true);
+      const failedCode = result.res1Ok ? result.res2ErrCode : result.res1ErrCode;
+      expect(failedCode).toBe("integrity_failed");
+      expect(result.metaLocked).toBe(false);
+      expect(result.hasSentinel).toBe(true);
+    });
+
+    test("ST-S02: Concurrent unlockOwner on fresh owner with same key material succeeds for both via retry", async ({
+      page,
+    }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+
+      const testDbName = `test-sentinel-s02-${Date.now()}`;
+      const ownerId = "11111111-1111-4111-8111-222222222222";
+      const keyId = "key-sentinel-s02";
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId }) => {
+          const {
+            openDatabase,
+            closeDatabase,
+            importRawKey,
+            unlockOwner,
+          } = window.__dayforge_security_storage;
+
+          const openRes = await openDatabase({ name: testDbName });
+          if (!openRes.ok) return { step: "open", ok: false };
+          const db = openRes.value;
+
+          const keyRaw = new Uint8Array(32).fill(0x33);
+          const key1 = await importRawKey(keyRaw);
+          const key2 = await importRawKey(keyRaw);
+
+          let barrierResolver: (() => void) | null = null;
+          const barrierPromise = new Promise<void>((r) => {
+            barrierResolver = r;
+          });
+
+          let p1ReadyCount = 0;
+          const onPhase1 = async () => {
+            p1ReadyCount++;
+            if (p1ReadyCount >= 2 && barrierResolver) {
+              barrierResolver();
+            }
+            await barrierPromise;
+          };
+
+          const [res1, res2] = await Promise.all([
+            unlockOwner(db, ownerId, keyId, key1, { afterPhase1Barrier: onPhase1 }),
+            unlockOwner(db, ownerId, keyId, key2, { afterPhase1Barrier: onPhase1 }),
+          ]);
+
+          closeDatabase(db);
+
+          return {
+            ok: true,
+            res1Ok: res1.ok,
+            res2Ok: res2.ok,
+          };
+        },
+        { testDbName, ownerId, keyId }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.res1Ok).toBe(true);
+      expect(result.res2Ok).toBe(true);
+    });
+
+    test("ST-S04: lockOwner called concurrently during unlockOwner fails closed with locked and leaves owner locked", async ({
+      page,
+    }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+
+      const testDbName = `test-sentinel-s04-${Date.now()}`;
+      const ownerId = "11111111-1111-4111-8111-444444444444";
+      const keyId = "key-sentinel-s04";
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId }) => {
+          const {
+            openDatabase,
+            closeDatabase,
+            importRawKey,
+            unlockOwner,
+            lockOwner,
+            STORAGE_STORES,
+          } = window.__dayforge_security_storage;
+
+          const openRes = await openDatabase({ name: testDbName });
+          if (!openRes.ok) return { step: "open", ok: false };
+          const db = openRes.value;
+
+          const keyRaw = new Uint8Array(32).fill(0x44);
+          const key = await importRawKey(keyRaw);
+
+          let lockExecuted = false;
+          const unlockRes = await unlockOwner(db, ownerId, keyId, key, {
+            afterPhase1Barrier: async () => {
+              await lockOwner(db, ownerId);
+              lockExecuted = true;
+            },
+          });
+
+          const metaRecord = await new Promise<any>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.owner_meta, "readonly");
+            const req = tx.objectStore(STORAGE_STORES.owner_meta).get(ownerId);
+            req.onsuccess = () => resolve(req.result);
+          });
+
+          closeDatabase(db);
+
+          return {
+            ok: true,
+            lockExecuted,
+            unlockOk: unlockRes.ok,
+            unlockErrCode: !unlockRes.ok ? unlockRes.error.code : null,
+            metaLocked: metaRecord ? metaRecord.locked : null,
+          };
+        },
+        { testDbName, ownerId, keyId }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.lockExecuted).toBe(true);
+      expect(result.unlockOk).toBe(false);
+      expect(result.unlockErrCode).toBe("locked");
+      expect(result.metaLocked).toBe(true);
+    });
+
+    test("ST-S05 & ST-S06: Legacy data in records store: right key migrates with sentinel, wrong key fails integrity_failed", async ({
+      page,
+    }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+
+      const testDbName = `test-sentinel-s05-${Date.now()}`;
+      const ownerId = "11111111-1111-4111-8111-555555555555";
+      const keyId = "key-sentinel-s05";
+      const planId = "22222222-2222-4222-8222-555555555555";
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId, planId }) => {
+          const {
+            openDatabase,
+            closeDatabase,
+            importRawKey,
+            encryptPayload,
+            unlockOwner,
+            getRecord,
+            STORAGE_STORES,
+          } = window.__dayforge_security_storage;
+
+          const openRes = await openDatabase({ name: testDbName });
+          if (!openRes.ok) return { step: "open", ok: false };
+          const db = openRes.value;
+
+          const rightKeyRaw = new Uint8Array(32).fill(0x55);
+          const wrongKeyRaw = new Uint8Array(32).fill(0x56);
+          const rightKey = await importRawKey(rightKeyRaw);
+          const wrongKey = await importRawKey(wrongKeyRaw);
+
+          const encRes = await encryptPayload(
+            rightKey,
+            ownerId,
+            keyId,
+            STORAGE_STORES.records,
+            `plan:${planId}`,
+            { title: "Legacy Plan Title", schema_version: 1 }
+          );
+          if (!encRes.ok) return { step: "encrypt", ok: false };
+
+          await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(STORAGE_STORES.records, "readwrite");
+            tx.objectStore(STORAGE_STORES.records).put({
+              owner_id: ownerId,
+              kind: "plan",
+              id: planId,
+              key_id: keyId,
+              iv: encRes.value.iv,
+              ciphertext: encRes.value.ciphertext,
+            });
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+
+          const wrongUnlock = await unlockOwner(db, ownerId, keyId, wrongKey);
+
+          const sentinelAfterWrong = await new Promise<any>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.sync_meta, "readonly");
+            const req = tx.objectStore(STORAGE_STORES.sync_meta).get([ownerId, "owner-key-sentinel"]);
+            req.onsuccess = () => resolve(req.result);
+          });
+
+          const rightUnlock = await unlockOwner(db, ownerId, keyId, rightKey);
+
+          let retrievedRecord: any = null;
+          if (rightUnlock.ok) {
+            const getRes = await getRecord(db, rightUnlock.value, "plan", planId);
+            if (getRes.ok) retrievedRecord = getRes.value;
+          }
+
+          const sentinelAfterRight = await new Promise<any>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.sync_meta, "readonly");
+            const req = tx.objectStore(STORAGE_STORES.sync_meta).get([ownerId, "owner-key-sentinel"]);
+            req.onsuccess = () => resolve(req.result);
+          });
+
+          closeDatabase(db);
+
+          return {
+            ok: true,
+            wrongOk: wrongUnlock.ok,
+            wrongErrCode: !wrongUnlock.ok ? wrongUnlock.error.code : null,
+            sentinelAfterWrong: Boolean(sentinelAfterWrong),
+            rightOk: rightUnlock.ok,
+            sentinelAfterRight: Boolean(sentinelAfterRight),
+            retrievedTitle: retrievedRecord?.title,
+          };
+        },
+        { testDbName, ownerId, keyId, planId }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.wrongOk).toBe(false);
+      expect(result.wrongErrCode).toBe("integrity_failed");
+      expect(result.sentinelAfterWrong).toBe(false);
+      expect(result.rightOk).toBe(true);
+      expect(result.sentinelAfterRight).toBe(true);
+      expect(result.retrievedTitle).toBe("Legacy Plan Title");
+    });
+
+    test("ST-S07: Legacy data in operations store only: right key migrates, wrong key fails integrity_failed", async ({
+      page,
+    }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+
+      const testDbName = `test-sentinel-s07-${Date.now()}`;
+      const ownerId = "11111111-1111-4111-8111-777777777777";
+      const keyId = "key-sentinel-s07";
+      const opId = "33333333-3333-4333-8333-777777777777";
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId, opId }) => {
+          const {
+            openDatabase,
+            closeDatabase,
+            importRawKey,
+            encryptPayload,
+            unlockOwner,
+            STORAGE_STORES,
+          } = window.__dayforge_security_storage;
+
+          const openRes = await openDatabase({ name: testDbName });
+          if (!openRes.ok) return { step: "open", ok: false };
+          const db = openRes.value;
+
+          const rightKey = await importRawKey(new Uint8Array(32).fill(0x77));
+          const wrongKey = await importRawKey(new Uint8Array(32).fill(0x78));
+
+          const envEnc = await encryptPayload(
+            rightKey,
+            ownerId,
+            keyId,
+            STORAGE_STORES.operations,
+            opId,
+            { client_time: "2026-11-01T00:00:00.000Z", commands: [] }
+          );
+          if (!envEnc.ok) return { step: "encrypt", ok: false };
+
+          await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(STORAGE_STORES.operations, "readwrite");
+            tx.objectStore(STORAGE_STORES.operations).put({
+              owner_id: ownerId,
+              operation_id: opId,
+              status: "queued",
+              request_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+              encrypted_envelope: envEnc.value,
+            });
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+
+          const wrongUnlock = await unlockOwner(db, ownerId, keyId, wrongKey);
+          const rightUnlock = await unlockOwner(db, ownerId, keyId, rightKey);
+
+          const sentinelRecord = await new Promise<any>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.sync_meta, "readonly");
+            const req = tx.objectStore(STORAGE_STORES.sync_meta).get([ownerId, "owner-key-sentinel"]);
+            req.onsuccess = () => resolve(req.result);
+          });
+
+          closeDatabase(db);
+
+          return {
+            ok: true,
+            wrongOk: wrongUnlock.ok,
+            wrongErrCode: !wrongUnlock.ok ? wrongUnlock.error.code : null,
+            rightOk: rightUnlock.ok,
+            hasSentinel: Boolean(sentinelRecord),
+          };
+        },
+        { testDbName, ownerId, keyId, opId }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.wrongOk).toBe(false);
+      expect(result.wrongErrCode).toBe("integrity_failed");
+      expect(result.rightOk).toBe(true);
+      expect(result.hasSentinel).toBe(true);
+    });
+
+    test("ST-S08: Legacy data in view_preferences store only: right key migrates, wrong key fails integrity_failed", async ({
+      page,
+    }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+
+      const testDbName = `test-sentinel-s08-${Date.now()}`;
+      const ownerId = "11111111-1111-4111-8111-888888888888";
+      const keyId = "key-sentinel-s08";
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId }) => {
+          const {
+            openDatabase,
+            closeDatabase,
+            importRawKey,
+            encryptPayload,
+            unlockOwner,
+            STORAGE_STORES,
+          } = window.__dayforge_security_storage;
+
+          const openRes = await openDatabase({ name: testDbName });
+          if (!openRes.ok) return { step: "open", ok: false };
+          const db = openRes.value;
+
+          const rightKey = await importRawKey(new Uint8Array(32).fill(0x88));
+          const wrongKey = await importRawKey(new Uint8Array(32).fill(0x89));
+
+          const encPref = await encryptPayload(
+            rightKey,
+            ownerId,
+            keyId,
+            STORAGE_STORES.view_preferences,
+            "work",
+            { date: "2026-11-01", scale: "week", scrollY: 150, updatedAt: "2026-11-01T00:00:00.000Z" }
+          );
+          if (!encPref.ok) return { step: "encrypt", ok: false };
+
+          await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(STORAGE_STORES.view_preferences, "readwrite");
+            tx.objectStore(STORAGE_STORES.view_preferences).put({
+              owner_id: ownerId,
+              calendar: "work",
+              key_id: keyId,
+              iv: encPref.value.iv,
+              ciphertext: encPref.value.ciphertext,
+            });
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+
+          const wrongUnlock = await unlockOwner(db, ownerId, keyId, wrongKey);
+          const rightUnlock = await unlockOwner(db, ownerId, keyId, rightKey);
+
+          const sentinelRecord = await new Promise<any>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.sync_meta, "readonly");
+            const req = tx.objectStore(STORAGE_STORES.sync_meta).get([ownerId, "owner-key-sentinel"]);
+            req.onsuccess = () => resolve(req.result);
+          });
+
+          closeDatabase(db);
+
+          return {
+            ok: true,
+            wrongOk: wrongUnlock.ok,
+            wrongErrCode: !wrongUnlock.ok ? wrongUnlock.error.code : null,
+            rightOk: rightUnlock.ok,
+            hasSentinel: Boolean(sentinelRecord),
+          };
+        },
+        { testDbName, ownerId, keyId }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.wrongOk).toBe(false);
+      expect(result.wrongErrCode).toBe("integrity_failed");
+      expect(result.rightOk).toBe(true);
+      expect(result.hasSentinel).toBe(true);
+    });
+
+    test("ST-S09: Legacy data with missing owner_meta: does not treat as fresh owner, requires authentic key", async ({
+      page,
+    }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+
+      const testDbName = `test-sentinel-s09-${Date.now()}`;
+      const ownerId = "11111111-1111-4111-8111-999999999999";
+      const keyId = "key-sentinel-s09";
+      const planId = "22222222-2222-4222-8222-999999999999";
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId, planId }) => {
+          const {
+            openDatabase,
+            closeDatabase,
+            importRawKey,
+            encryptPayload,
+            unlockOwner,
+            STORAGE_STORES,
+          } = window.__dayforge_security_storage;
+
+          const openRes = await openDatabase({ name: testDbName });
+          if (!openRes.ok) return { step: "open", ok: false };
+          const db = openRes.value;
+
+          const rightKey = await importRawKey(new Uint8Array(32).fill(0x99));
+          const wrongKey = await importRawKey(new Uint8Array(32).fill(0x9a));
+
+          const encRes = await encryptPayload(
+            rightKey,
+            ownerId,
+            keyId,
+            STORAGE_STORES.records,
+            `plan:${planId}`,
+            { title: "No Meta Record" }
+          );
+          if (!encRes.ok) return { step: "encrypt", ok: false };
+
+          await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(STORAGE_STORES.records, "readwrite");
+            tx.objectStore(STORAGE_STORES.records).put({
+              owner_id: ownerId,
+              kind: "plan",
+              id: planId,
+              key_id: keyId,
+              iv: encRes.value.iv,
+              ciphertext: encRes.value.ciphertext,
+            });
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+
+          const wrongUnlock = await unlockOwner(db, ownerId, keyId, wrongKey);
+          const rightUnlock = await unlockOwner(db, ownerId, keyId, rightKey);
+
+          closeDatabase(db);
+
+          return {
+            ok: true,
+            wrongOk: wrongUnlock.ok,
+            wrongErrCode: !wrongUnlock.ok ? wrongUnlock.error.code : null,
+            rightOk: rightUnlock.ok,
+          };
+        },
+        { testDbName, ownerId, keyId, planId }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.wrongOk).toBe(false);
+      expect(result.wrongErrCode).toBe("integrity_failed");
+      expect(result.rightOk).toBe(true);
+    });
+
+    test("ST-S12: Sentinel payload format_version !== 1 fails closed with integrity_failed without overwriting", async ({
+      page,
+    }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+
+      const testDbName = `test-sentinel-s12-${Date.now()}`;
+      const ownerId = "11111111-1111-4111-8111-121212121212";
+      const keyId = "key-sentinel-s12";
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId }) => {
+          const {
+            openDatabase,
+            closeDatabase,
+            importRawKey,
+            encryptPayload,
+            unlockOwner,
+            STORAGE_STORES,
+          } = window.__dayforge_security_storage;
+
+          const openRes = await openDatabase({ name: testDbName });
+          if (!openRes.ok) return { step: "open", ok: false };
+          const db = openRes.value;
+
+          const key = await importRawKey(new Uint8Array(32).fill(0x12));
+
+          const encRes = await encryptPayload(
+            key,
+            ownerId,
+            keyId,
+            STORAGE_STORES.sync_meta,
+            "owner-key-sentinel",
+            {
+              kind: "dayforge-owner-key-check",
+              format_version: 2,
+              owner_id: ownerId,
+              key_id: keyId,
+            }
+          );
+          if (!encRes.ok) return { step: "encrypt", ok: false };
+
+          await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(STORAGE_STORES.sync_meta, "readwrite");
+            tx.objectStore(STORAGE_STORES.sync_meta).put({
+              owner_id: ownerId,
+              key: "owner-key-sentinel",
+              key_id: keyId,
+              iv: encRes.value.iv,
+              ciphertext: encRes.value.ciphertext,
+            });
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+
+          const unlockRes = await unlockOwner(db, ownerId, keyId, key);
+
+          closeDatabase(db);
+
+          return {
+            ok: true,
+            unlockOk: unlockRes.ok,
+            unlockErrCode: !unlockRes.ok ? unlockRes.error.code : null,
+          };
+        },
+        { testDbName, ownerId, keyId }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.unlockOk).toBe(false);
+      expect(result.unlockErrCode).toBe("integrity_failed");
+    });
+
+    test("ST-S13 & S04: confirmPulledOperationInTx operates within existing transaction and deletes outbox row only on hash match", async ({
+      page,
+    }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+
+      const testDbName = `test-sentinel-s13-${Date.now()}`;
+      const ownerId = "11111111-1111-4111-8111-131313131313";
+      const keyId = "key-sentinel-s13";
+      const opId = "44444444-4444-4444-8444-131313131313";
+      const validHash = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+      const wrongHash = "0000000000000000000000000000000000000000000000000000000000000000";
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId, opId, validHash, wrongHash }) => {
+          const {
+            openDatabase,
+            closeDatabase,
+            importRawKey,
+            unlockOwner,
+            confirmPulledOperationInTx,
+            STORAGE_STORES,
+          } = window.__dayforge_security_storage;
+
+          const openRes = await openDatabase({ name: testDbName });
+          if (!openRes.ok) return { step: "open", ok: false };
+          const db = openRes.value;
+
+          const key = await importRawKey(new Uint8Array(32).fill(0x13));
+          const unlockRes = await unlockOwner(db, ownerId, keyId, key);
+          if (!unlockRes.ok) return { step: "unlock", ok: false };
+
+          await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(STORAGE_STORES.operations, "readwrite");
+            tx.objectStore(STORAGE_STORES.operations).put({
+              owner_id: ownerId,
+              operation_id: opId,
+              status: "ack_waiting_pull",
+              request_hash: validHash,
+              encrypted_envelope: {
+                owner_id: ownerId,
+                store: "operations",
+                record_id: opId,
+                key_id: keyId,
+                iv: new Uint8Array(12),
+                ciphertext: new Uint8Array(16),
+              },
+            });
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+
+          // Test 1: Mismatched hash triggers transaction abort
+          let mismatchError: string | null = null;
+          const tx1Aborted = await new Promise<boolean>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.operations, "readwrite");
+            confirmPulledOperationInTx(tx, ownerId, opId, wrongHash, {
+              onError: (err: any) => {
+                mismatchError = err.code;
+              },
+            });
+            tx.oncomplete = () => resolve(false);
+            tx.onabort = () => resolve(true);
+            tx.onerror = () => resolve(true);
+          });
+
+          const rowAfterAbort = await new Promise<any>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.operations, "readonly");
+            const req = tx.objectStore(STORAGE_STORES.operations).get([ownerId, opId]);
+            req.onsuccess = () => resolve(req.result);
+          });
+
+          // Test 2: Matching hash successfully deletes outbox row
+          const tx2Completed = await new Promise<boolean>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.operations, "readwrite");
+            confirmPulledOperationInTx(tx, ownerId, opId, validHash);
+            tx.oncomplete = () => resolve(true);
+            tx.onabort = () => resolve(false);
+            tx.onerror = () => resolve(false);
+          });
+
+          const rowAfterCommit = await new Promise<any>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.operations, "readonly");
+            const req = tx.objectStore(STORAGE_STORES.operations).get([ownerId, opId]);
+            req.onsuccess = () => resolve(req.result);
+          });
+
+          closeDatabase(db);
+
+          return {
+            ok: true,
+            tx1Aborted,
+            mismatchError,
+            rowExistedAfterAbort: Boolean(rowAfterAbort),
+            tx2Completed,
+            rowDeletedAfterCommit: rowAfterCommit === undefined,
+          };
+        },
+        { testDbName, ownerId, keyId, opId, validHash, wrongHash }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.tx1Aborted).toBe(true);
+      expect(result.mismatchError).toBe("integrity_failed");
+      expect(result.rowExistedAfterAbort).toBe(true);
+      expect(result.tx2Completed).toBe(true);
+      expect(result.rowDeletedAfterCommit).toBe(true);
     });
   });
 });

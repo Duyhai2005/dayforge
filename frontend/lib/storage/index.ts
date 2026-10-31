@@ -55,6 +55,8 @@ export {
 export {
   type OwnerAccessContext,
   type OwnerMetadata,
+  type UnlockOwnerOptions,
+  OWNER_KEY_SENTINEL_RECORD_ID,
   getOwnerMeta,
   setOwnerMeta,
   checkOwnerMetaRecord,
@@ -113,6 +115,7 @@ export {
   listPendingOperations,
   markOperationAcked,
   markOperationSynced,
+  confirmPulledOperationInTx,
 } from "./repositories";
 
 // Encrypted View Preferences Primitive
