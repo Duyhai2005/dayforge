@@ -22,6 +22,12 @@ export interface LocalStorageGateway {
   listPendingOperations(
     ctx: OwnerAccessContext
   ): Promise<StorageResult<readonly OperationEnvelope[]>>;
+  listSendableOperations(
+    ctx: OwnerAccessContext
+  ): Promise<StorageResult<readonly OperationEnvelope[]>>;
+  listOptimisticOperations(
+    ctx: OwnerAccessContext
+  ): Promise<StorageResult<readonly OperationEnvelope[]>>;
   persistOperation(
     input: PersistOperationInput
   ): Promise<StorageResult<PersistOperationResult>>;
@@ -85,17 +91,33 @@ export function createLocalStorageGateway(
     async listPending(
       ctx: OwnerAccessContext
     ): Promise<StorageResult<readonly OperationEnvelope[]>> {
-      return this.listPendingOperations(ctx);
+      return this.listSendableOperations(ctx);
     },
 
     async listPendingOperations(
+      ctx: OwnerAccessContext
+    ): Promise<StorageResult<readonly OperationEnvelope[]>> {
+      return this.listSendableOperations(ctx);
+    },
+
+    async listSendableOperations(
       ctx: OwnerAccessContext
     ): Promise<StorageResult<readonly OperationEnvelope[]>> {
       const openRes = await ensureOpen();
       if (!openRes.ok) {
         return openRes;
       }
-      return await listPendingOperations(openRes.value, ctx);
+      return await listSendableOperations(openRes.value, ctx);
+    },
+
+    async listOptimisticOperations(
+      ctx: OwnerAccessContext
+    ): Promise<StorageResult<readonly OperationEnvelope[]>> {
+      const openRes = await ensureOpen();
+      if (!openRes.ok) {
+        return openRes;
+      }
+      return await listOptimisticOperations(openRes.value, ctx);
     },
 
     async getRecord<T>(
@@ -147,9 +169,10 @@ export function createLocalStorageGateway(
   };
 }
 
-export async function listPendingOperations(
+async function listOutboxOperations(
   db: IDBDatabase,
-  ctx: OwnerAccessContext
+  ctx: OwnerAccessContext,
+  includeStatus: (status: OutboxEntry["status"]) => boolean
 ): Promise<StorageResult<readonly OperationEnvelope[]>> {
   const entries = await new Promise<StorageResult<OutboxEntry[]>>((resolve) => {
     let customError: StorageError | null = null;
@@ -260,15 +283,10 @@ export async function listPendingOperations(
     return entries;
   }
 
-  const pendingRows = entries.value.filter(
-    (row) =>
-      row.status === "queued" ||
-      row.status === "sending" ||
-      row.status === "pending"
-  );
+  const visibleRows = entries.value.filter((row) => includeStatus(row.status));
 
   const envelopes: OperationEnvelope[] = [];
-  for (const row of pendingRows) {
+  for (const row of visibleRows) {
     const decRes = await decryptPayload<OperationEnvelope>(
       ctx.key,
       row.encrypted_envelope,
@@ -306,7 +324,40 @@ export async function listPendingOperations(
   return storageOk(envelopes);
 }
 
-export const listPending = listPendingOperations;
+export async function listSendableOperations(
+  db: IDBDatabase,
+  ctx: OwnerAccessContext
+): Promise<StorageResult<readonly OperationEnvelope[]>> {
+  return listOutboxOperations(
+    db,
+    ctx,
+    (status) =>
+      status === "queued" ||
+      status === "sending" ||
+      status === "pending"
+  );
+}
+
+export async function listOptimisticOperations(
+  db: IDBDatabase,
+  ctx: OwnerAccessContext
+): Promise<StorageResult<readonly OperationEnvelope[]>> {
+  return listOutboxOperations(
+    db,
+    ctx,
+    (status) =>
+      status === "queued" ||
+      status === "sending" ||
+      status === "blocked" ||
+      status === "ack_waiting_pull" ||
+      status === "time_invalid" ||
+      status === "pending"
+  );
+}
+
+// Backwards-compatible names retain sendability semantics.
+export const listPendingOperations = listSendableOperations;
+export const listPending = listSendableOperations;
 
 export async function getRecord<T>(
   db: IDBDatabase,
