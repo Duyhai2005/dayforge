@@ -13,6 +13,8 @@ import {
   type OutboxStatus,
   type StorageCommand,
   canonicalizeJson,
+  canonicalizeCommandsForStorage,
+  assertOperationWireSize,
   sha256Hex,
   validateOperationDraft,
 } from "./outbox";
@@ -65,12 +67,16 @@ export async function persistOperationAtomic(
   db: IDBDatabase,
   input: PersistOperationInput
 ): Promise<StorageResult<PersistOperationResult>> {
+  let canonicalCommands: readonly unknown[];
   try {
+    // Canonicalize contract-defined text before validation, hashing and
+    // encryption so the immutable envelope has exactly one representation.
+    canonicalCommands = canonicalizeCommandsForStorage(input.commands);
     validateOperationDraft({
       operationId: input.operationId,
       ownerId: input.context.ownerId,
       deviceId: input.deviceId,
-      commands: input.commands,
+      commands: canonicalCommands,
       dependencies: input.dependencies,
       editTime: input.editTime,
     });
@@ -315,7 +321,7 @@ export async function persistOperationAtomic(
               device_sequence: allocatedSequence,
               edit_time: allocatedHlc,
               dependencies: input.dependencies,
-              commands: input.commands as unknown as StorageCommand[],
+              commands: canonicalCommands as readonly StorageCommand[],
             };
 
             // Start keepalive for async crypto
@@ -323,6 +329,9 @@ export async function persistOperationAtomic(
 
             try {
               const canonicalJson = canonicalizeJson(envelope);
+              // T03 limits an individual operation to 2 MiB of canonical
+              // UTF-8 wire bytes. Enforce before hash/encrypt/durable commit.
+              assertOperationWireSize(canonicalJson);
               const hashHex = await sha256Hex(canonicalJson);
               const encRes = await encryptPayload(
                 input.context.key,
