@@ -41,17 +41,36 @@ async def _probe_readiness(database: Database, *, required_revision: str) -> boo
             async with database.engine.connect() as connection:
                 if (await connection.execute(text("SELECT 1"))).scalar_one() != 1:
                     return False
-                charset, time_zone, sql_mode = (await connection.execute(text(
-                    "SELECT @@character_set_connection, @@SESSION.time_zone, @@SESSION.sql_mode"
-                ))).one()
-                if (charset != "utf8mb4" or time_zone != "+00:00"
-                        or not {"STRICT_TRANS_TABLES", "STRICT_ALL_TABLES"}.intersection(sql_mode.split(","))):
+                charset, time_zone, sql_mode = (
+                    await connection.execute(
+                        text(
+                            "SELECT @@character_set_connection, @@SESSION.time_zone, @@SESSION.sql_mode"
+                        )
+                    )
+                ).one()
+                if (
+                    charset != "utf8mb4"
+                    or time_zone != "+00:00"
+                    or not {"STRICT_TRANS_TABLES", "STRICT_ALL_TABLES"}.intersection(
+                        sql_mode.split(",")
+                    )
+                ):
                     return False
-                revisions = (await connection.execute(text("SELECT version_num FROM alembic_version"))).scalars().all()
+                revisions = (
+                    (
+                        await connection.execute(
+                            text("SELECT version_num FROM alembic_version")
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
                 if revisions != [required_revision]:
                     return False
                 await connection.execute(text("SELECT id FROM users LIMIT 0"))
-                await connection.execute(text("SELECT owner_id FROM workspace_settings LIMIT 0"))
+                await connection.execute(
+                    text("SELECT owner_id FROM workspace_settings LIMIT 0")
+                )
                 return True
     except (SQLAlchemyError, TimeoutError, OSError):
         return False

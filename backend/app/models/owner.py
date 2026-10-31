@@ -20,12 +20,18 @@ class User(Base):
     )
 
     id: Mapped[UUID] = mapped_column(UUIDBytes(), primary_key=True, autoincrement=False)
-    owner_slot: Mapped[int] = mapped_column(TINYINT(unsigned=True), server_default=text("1"))
+    owner_slot: Mapped[int] = mapped_column(
+        TINYINT(unsigned=True), server_default=text("1")
+    )
     email_canonical: Mapped[bytes] = mapped_column(VARBINARY(254))
     email_delivery: Mapped[str] = mapped_column(VARCHAR(254))
-    password_hash: Mapped[str] = mapped_column(VARCHAR(512, charset="ascii", collation="ascii_bin"))
+    password_hash: Mapped[str] = mapped_column(
+        VARCHAR(512, charset="ascii", collation="ascii_bin")
+    )
     email_verified_at: Mapped[datetime] = mapped_column(UTCMilliseconds())
-    auth_version: Mapped[int] = mapped_column(BIGINT(unsigned=True), server_default=text("1"))
+    auth_version: Mapped[int] = mapped_column(
+        BIGINT(unsigned=True), server_default=text("1")
+    )
     created_at: Mapped[datetime] = mapped_column(UTCMilliseconds())
     updated_at: Mapped[datetime] = mapped_column(UTCMilliseconds())
 
@@ -40,11 +46,20 @@ class WorkspaceSettings(Base):
     )
 
     owner_id: Mapped[UUID] = mapped_column(
-        UUIDBytes(), ForeignKey("users.id", name="fk_workspace_settings_owner_id_users", ondelete="RESTRICT"),
-        primary_key=True, autoincrement=False,
+        UUIDBytes(),
+        ForeignKey(
+            "users.id", name="fk_workspace_settings_owner_id_users", ondelete="RESTRICT"
+        ),
+        primary_key=True,
+        autoincrement=False,
     )
     time_zone: Mapped[str] = mapped_column(
-        VARCHAR(64, charset="ascii", collation="ascii_bin"), server_default=text("'Asia/Bangkok'"),
+        VARCHAR(64, charset="ascii", collation="ascii_bin"),
+        server_default=text("'Asia/Bangkok'"),
     )
-    utc_offset_minutes: Mapped[int] = mapped_column(SMALLINT(), server_default=text("420"))
-    week_start: Mapped[int] = mapped_column(TINYINT(unsigned=True), server_default=text("1"))
+    utc_offset_minutes: Mapped[int] = mapped_column(
+        SMALLINT(), server_default=text("420")
+    )
+    week_start: Mapped[int] = mapped_column(
+        TINYINT(unsigned=True), server_default=text("1")
+    )

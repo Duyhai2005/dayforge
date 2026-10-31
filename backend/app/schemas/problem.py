@@ -17,7 +17,9 @@ class Problem(ContractModel):
     detail: str
     instance: str
     code: str = Field(min_length=1)
-    request_id: str = Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[45][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+    request_id: str = Field(
+        pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[45][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    )
     retryable: bool
     server_time: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
     field_errors: list[FieldError] | None = None

@@ -7,8 +7,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.init_local import initialize_local
-
+from scripts.init_local import initialize_local  # noqa: E402
 
 TEMPLATES = (
     (".env.example", ".env"),
@@ -54,7 +53,9 @@ class InitializeLocalTests(unittest.TestCase):
 
         self.assertEqual(compose_env["MYSQL_PASSWORD"], backend_env["DB_PASSWORD"])
         self.assertGreaterEqual(len(compose_env["MYSQL_PASSWORD"]), 32)
-        self.assertNotEqual(compose_env["MYSQL_PASSWORD"], compose_env["MYSQL_ROOT_PASSWORD"])
+        self.assertNotEqual(
+            compose_env["MYSQL_PASSWORD"], compose_env["MYSQL_ROOT_PASSWORD"]
+        )
         self.assertNotIn("MYSQL_ROOT_PASSWORD", backend_env)
         self.assertEqual(frontend_env, {"API_INTERNAL_ORIGIN": "http://127.0.0.1:8000"})
 
