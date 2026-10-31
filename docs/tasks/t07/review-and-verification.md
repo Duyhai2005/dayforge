@@ -3,7 +3,8 @@
 **Date:** 31/10/2026  
 **Branch:** `feature/automated-quality-gates`  
 **Base commit:** `a49b1780ab05134108814f684d15210cc157572f`  
-**Status:** All automated quality gates, test runners, cross-platform build scripts, and GitHub Actions CI workflow are implemented and locally verified. Ready for PR review and CI run upon push.
+**Pull Request:** [#7 Add automated quality gates and CI](https://github.com/Duyhai2005/dayforge/pull/7)
+**Status:** Local verification and GitHub Actions CI run completed. Code review feedback addressed and verified. Quality gates, isolated test runners, Playwright trace capture, and pinned Node 24 CI action runtimes are active.
 
 ---
 
@@ -32,14 +33,14 @@ All public quality commands pass with zero warnings and zero errors:
 
 | Check | Command | Observed Result |
 |---|---|---|
-| Frontend lint | `pnpm lint:web` | **PASS**, ESLint with `--max-warnings=0` (0 errors, 0 warnings) |
+| Frontend lint | `pnpm lint:web` | **PASS**, ESLint covers whole workspace (`eslint . --max-warnings=0`) |
 | Backend lint | `pnpm lint:api` | **PASS**, Ruff check on `app`, `tests`, `migrations`, `scripts` |
-| Backend format check | `pnpm format:check:api` | **PASS**, Black check (41 files left unchanged) |
+| Backend format check | `pnpm format:check:api` | **PASS**, Black check (42 files left unchanged) |
 | Frontend typecheck | `pnpm typecheck:web` | **PASS**, `tsc --noEmit` passes with 0 errors |
 | Backend typecheck | `pnpm typecheck:api` | **PASS**, mypy on `app` (21 source files, 0 issues) |
-| Environment regressions | `pnpm verify:env` | **PASS**, 27 tests in 1.262s (generator, smoke, origin guard, runner regressions) |
-| Backend non-MySQL tests | `pnpm test:api` | **PASS**, 200 passed, 38 deselected in 6.85s |
-| Frontend dev suite | `pnpm test:web` | **PASS**, 32 passed in 29.8s (Playwright manages dev server on port 3010) |
+| Environment regressions | `pnpm verify:env` | **PASS**, 28 tests in 1.267s (generator, smoke, origin guard, runner regressions) |
+| Backend non-MySQL tests | `pnpm test:api` | **PASS**, 203 passed, 38 deselected in 4.18s |
+| Frontend dev suite | `pnpm test:web` | **PASS**, 32 passed in 29.8s (trace retain-on-failure enabled) |
 | Frontend production build | `pnpm build:web` | **PASS**, cross-platform via `cross-env`, no manual env required |
 | Frontend prod suite | `pnpm test:web:prod` | **PASS**, 32 passed in 9.6s (automated prod server on 3001, strict `private` header) |
 | Fast aggregate gate | `pnpm verify:fast` | **PASS**, runs lint, typecheck, verify:env, test:api sequentially |
@@ -86,25 +87,55 @@ Every gate was deliberately tested against an induced violation and confirmed to
 4. **Backend Typecheck:** Introduced `return 123` in `create_app()` in `main.py` -> `pnpm typecheck:api` failed (exit code 1). Reverted.
 5. **Pytest:** Altered driver assertion in `test_config.py` -> `pnpm test:api` failed (exit code 1). Reverted.
 6. **Production Header Check:** Altered expected `Cache-Control` header to `should-fail-private` -> `pnpm test:web:prod` failed on line 49 (exit code 1). Reverted.
+7. **Frontend Workspace Lint Scope:** Added probe component with conditional hook call in `frontend/services/` -> `pnpm lint:web` failed with `react-hooks/rules-of-hooks` (exit code 1). Removed.
+8. **MySQL Acceptance Skip Guard:** Added probe test calling `pytest.skip()` with `DAYFORGE_TEST_RUN_ID` set -> pytest failed with exit code 1 (`MySQL acceptance failed because 1 selected test(s) were skipped`). Without `DAYFORGE_TEST_RUN_ID`, skipped test exited with 0. Removed.
 
 ---
 
-## 6. GitHub Actions Workflow Architecture
+## 6. GitHub Actions Workflow Architecture & Verification Run
 
 Workflow `.github/workflows/ci.yml` is created with:
 - **Triggers:** Push and pull request on `develop` and `main`.
 - **Permissions:** `contents: read` (minimal least privilege).
 - **Concurrency:** `cancel-in-progress: true` per PR/ref.
+- **Node 24 Action Runtimes (Pinned SHAs):**
+  - `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1` (`v7.0.1`)
+  - `actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1` (`v7.1.0`)
+  - `pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413` (`v6.1.0`)
+  - `astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2` (`v10.3.3`)
+  - `actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9` (`v7.0.2`)
 - **Jobs:**
   1. `quality`: Runs `pnpm lint`, `pnpm typecheck`, `pnpm verify:env`, `pnpm test:api`, and lockfile mutation guard on Ubuntu.
   2. `backend-mysql`: Runs locked environment and `pnpm test:api:mysql` with cleanup verification.
   3. `frontend`: Runs `pnpm test:web`, `pnpm build:web`, `pnpm test:web:prod`, and uploads Playwright artifacts on failure.
 
+### Verified GitHub Actions Run:
+- **PR:** [#7](https://github.com/Duyhai2005/dayforge/pull/7)
+- **Workflow Run ID:** `41179584835`
+- **Reviewed Head:** `75c4b0cbb68842da013b404e676d8054c291554c`
+- **Observed Results:**
+  - `quality`: **SUCCESS** (28 env tests, 203 API tests, zero lint/format/typecheck errors)
+  - `backend-mysql`: **SUCCESS** (38 MySQL integration tests on isolated ephemeral container)
+  - `frontend`: **SUCCESS** (32 dev Playwright tests, production build, 32 prod Playwright tests)
+- **Branch Protection Status:** Not yet enforced via GitHub repository rulesets; merge blocking remains an administrative follow-up.
+
 ---
 
-## 7. Handoff to Subsequent Tasks
+## 7. Review Hardening & Refinements
 
-- **T08 (IndexedDB Persistence):** Will inherit unified frontend test, lint, and typecheck commands without needing separate pipelines.
-- **T09 (Authentication):** Retains production Playwright header checks and credential isolation guards.
-- **T10 (Sync API):** Will reuse generic MySQL test runner for migration and sync integration testing.
-- **Remote Push:** Ready for push to origin and PR creation onto `develop` when instructed.
+Based on PR #7 review feedback, the following quality contract gaps were closed:
+1. **Frontend Lint Coverage (PR7-01):** Standardized command to `eslint . --max-warnings=0` so all current and future frontend code (`hooks/`, `services/`, `types/`) is automatically validated.
+2. **MySQL Acceptance Skip Prevention (PR7-02):** Implemented pytest hooks (`pytest_runtest_logreport`, `pytest_sessionfinish`, `pytest_terminal_summary`) in `backend/tests/conftest.py` that fail the run with exit code 1 if any test is skipped under `DAYFORGE_TEST_RUN_ID`. Normal non-MySQL test runs remain unaffected. Added unit test and runner regression test.
+3. **Node 24 Action Runtime Upgrade (PR7-03):** Pinned actions to their latest Node 24 native versions by commit SHA, eliminating Node 20 deprecation warnings in CI logs.
+4. **Documentation & Accuracy (PR7-04, PR7-08):** Updated reports with live PR and CI run evidence, removed stale "ready for push" text, and removed CI from "future work" in development guide.
+5. **Branch Protection Status (PR7-05):** Clarified required status check enforcement as an administrative follow-up.
+6. **Playwright Trace Capture (PR7-06):** Configured `trace: "retain-on-failure"` in both `playwright.config.ts` and `playwright.production.config.ts`.
+7. **Legacy Fixture Cleanup (PR7-07):** Removed unused `t05_mysql_settings` fixture alias from `backend/tests/conftest.py`.
+
+---
+
+## 8. Handoff to Subsequent Tasks
+
+- **T08 (IndexedDB Persistence):** Inherits unified frontend test, lint, and typecheck commands without needing separate pipelines.
+- **T09 (Authentication):** Retains production Playwright header checks, trace recording on failure, and credential isolation guards.
+- **T10 (Sync API):** Will reuse generic MySQL test runner and fail-on-skip acceptance for migration and sync integration testing.

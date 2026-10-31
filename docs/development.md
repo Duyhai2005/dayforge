@@ -2,7 +2,7 @@
 
 This guide starts the T04 local environment, T05 backend and T06 Next.js shell from the repository root in Windows PowerShell 5.1 or PowerShell 7. It runs Next.js and FastAPI on the host and MySQL in Docker Desktop. First-time setup needs internet access to download packages, the browser test engine and the MySQL image.
 
-T05 adds validated settings, async MySQL sessions, Alembic migrations, strict request validation, private error/log handling, and public health/version endpoints. T06 provides the work and milestone calendar shells, navigation widget, account placeholder and email callback shells. Calendar records, real authentication, owner storage, sync, offline support, CI and production deployment remain later tasks. See the [T05 verification report](tasks/t05/review-and-verification.md) and the [T06 verification report](tasks/t06/review-and-verification.md) for results and remaining acceptance checks.
+T05 adds validated settings, async MySQL sessions, Alembic migrations, strict request validation, private error/log handling, and public health/version endpoints. T06 provides the work and milestone calendar shells, navigation widget, account placeholder and email callback shells. Calendar records, real authentication, owner storage, sync, offline support and production deployment remain later tasks. See the [T05 verification report](tasks/t05/review-and-verification.md) and the [T06 verification report](tasks/t06/review-and-verification.md) for results and remaining acceptance checks.
 
 ## 1. Install the pinned tools
 
@@ -248,7 +248,7 @@ pnpm verify
 
 - `pnpm test:api:mysql` provisions a unique Compose project (`dayforge-test-<uuid>`), dynamically extracts the canonical pinned digest from `compose.yaml` without reading `.env`, binds to a loopback port, and cleans up all containers and anonymous storage on pass and fail. It never uses or modifies the development database or volumes.
 - Clean CI checkouts run without any `.env` files or secrets.
-- GitHub Actions workflow (`.github/workflows/ci.yml`) runs three required jobs: `quality`, `backend-mysql`, and `frontend`.
+- GitHub Actions workflow (`.github/workflows/ci.yml`) runs three CI jobs: `quality`, `backend-mysql`, and `frontend`.
 
 ## Troubleshooting
 
