@@ -426,3 +426,22 @@ Maintainer `Duyhai2005` đã rà soát commit `fe0c2b75` và yêu cầu sửa 5 
    - `tsc --noEmit` và `eslint . --max-warnings=0` trên `frontend/` hoàn thành với 0 lỗi / 0 cảnh báo.
    - `pnpm build:web` (Next.js production build) thành công.
    - Backend không thay đổi trong đợt sửa này; `pnpm verify:fast` không chạy được cục bộ vì môi trường hiện tại không có `uv`, sẽ được CI xác nhận.
+
+---
+
+## 14. M06 — Kiểm tra lại ciphertext legacy trong transaction CAS
+
+Commit `c4638f3` đóng race giữa việc chụp snapshot/giải mã toàn bộ legacy inventory và Phase 3 CAS:
+
+- Phase 1 duyệt `records`, `operations`, `view_preferences`, `drafts` và `sync_meta` bằng **IndexedDB cursor** thay vì `getAll()`. Các ciphertext vẫn được lưu trong snapshot để so sánh nhưng không tạo thêm mảng `getAll()` tạm thời cho mỗi store.
+- Khi **tạo mới hoặc backfill sentinel**, Phase 3 mở **một transaction `readwrite` trên cả bảy store** (năm ciphertext stores cộng `owner_meta`, `crypto_keys`).
+- Trong transaction này, code duyệt cursor và so khớp danh tính owner/store/record, `key_id`, IV và toàn bộ ciphertext bytes với snapshot đã giải mã; phát hiện row mới, bị xóa, thay đổi hoặc malformed sẽ abort CAS và retry từ Phase 1.
+- Transaction còn giữ lock đọc-ghi trên toàn bộ stores trong lúc so khớp và tăng `lock_epoch`/cài sentinel, nên những write khác hoặc được kiểm tra trước commit, hoặc bị đẩy về sau epoch bump và sẽ bị owner gate từ chối.
+- Regression **M06** mô phỏng context cũ ghi thêm encrypted preference với khóa khác ngay sau Phase 1. Migration phải phát hiện conflict, thử lại và trả `integrity_failed` **mà không cài sentinel hoặc xóa các ciphertext cũ**.
+
+### Ràng buộc T11
+
+`markOperationSynced()` vẫn được giữ tạm cho consumer/test cũ nhưng được đánh dấu **`@deprecated`** vì xóa outbox qua transaction riêng, không ghi shadow/cursor. Network sync T11 **không được dùng hàm này**. T11 phải dùng `confirmPulledOperationInTx()` trong **cùng một transaction readwrite** chứa `owner_meta`, `operations` và những stores ghi pull shadow, projection/cursor; cả ba bước ghi shadow, tiến cursor và xóa outbox phải commit/rollback cùng nhau.
+
+> Kết quả CI của các commit sửa M06 cần được kiểm tra trực tiếp trên GitHub Actions; tài liệu không tự khẳng định đã pass trước khi CI hoàn tất.
+
