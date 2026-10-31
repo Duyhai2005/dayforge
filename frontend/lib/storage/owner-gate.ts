@@ -1014,7 +1014,13 @@ export async function unlockOwner(
           const markConflict = () => {
             inventoryMatches = false;
             isConflict = true;
-            tx.abort();
+            // Aborting the transaction also causes outstanding cursor
+            // requests to emit error events; those are not new failures.
+            try {
+              tx.abort();
+            } catch {
+              // Another cursor may have already aborted this transaction.
+            }
           };
 
           for (const storeName of stores) {
@@ -1062,12 +1068,22 @@ export async function unlockOwner(
               cursor.continue();
             };
             req.onerror = () => {
-              customError = new StorageError(
-                "transaction_aborted",
-                req.error?.message ?? ("Failed to recheck " + storeName + " during unlock"),
-                req.error
-              );
-              tx.abort();
+              // Expected: all pending cursors fail when our own CAS mismatch
+              // aborts the transaction. Preserve the conflict result so that
+              // unlockOwner retries and verifies the *new* inventory.
+              if (isConflict) return;
+              if (!customError) {
+                customError = new StorageError(
+                  "transaction_aborted",
+                  req.error?.message ?? ("Failed to recheck " + storeName + " during unlock"),
+                  req.error
+                );
+              }
+              try {
+                tx.abort();
+              } catch {
+                // The browser may have already completed the abort.
+              }
             };
           }
         }
