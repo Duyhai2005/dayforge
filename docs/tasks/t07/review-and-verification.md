@@ -65,7 +65,8 @@ All public quality commands pass with zero warnings and zero errors:
    - Anonymous storage volumes destroyed on cleanup.
    - Fail-closed cleanup in `finally` block: failures during cleanup result in exit code 1.
 4. **Regression Test Suite (`scripts/tests/test_backend_runner.py`):**
-   - 10 test cases covering: non-MySQL runner Docker independence, `.env`-free image resolution, non-digest image rejection, multiple image rejection, invalid container ID rejection, project isolation guard, cleanup on pytest failure, cleanup failure exit code, root credential exclusion, and CLI argument passthrough.
+   - 11 runner regression cases covering: non-MySQL runner Docker independence, `.env`-free image resolution, non-digest image rejection, multiple image rejection, invalid container ID rejection, project isolation guard, cleanup on pytest failure, cleanup failure exit code, root credential exclusion, CLI argument passthrough, and `DAYFORGE_TEST_RUN_ID` propagation for skip enforcement.
+   - 3 unit tests in `backend/tests/unit/test_mysql_acceptance_guard.py` verifying skip guard inactivity outside test-run ID, failure on skipped test during isolated runs, and ignore handling for expected failures (`xfail`).
 
 ---
 
@@ -111,13 +112,14 @@ Workflow `.github/workflows/ci.yml` is created with:
 
 ### Verified GitHub Actions Run:
 - **PR:** [#7](https://github.com/Duyhai2005/dayforge/pull/7)
-- **Workflow Run ID:** `41179584835`
-- **Reviewed Head:** `75c4b0cbb68842da013b404e676d8054c291554c`
+- **Workflow Run ID:** `41184911421`
+- **Reviewed Head:** `89c5cba4cdb194b7cec6524872528853c3d6db8b`
 - **Observed Results:**
-  - `quality`: **SUCCESS** (28 env tests, 203 API tests, zero lint/format/typecheck errors)
-  - `backend-mysql`: **SUCCESS** (38 MySQL integration tests on isolated ephemeral container)
-  - `frontend`: **SUCCESS** (32 dev Playwright tests, production build, 32 prod Playwright tests)
+  - `quality`: **SUCCESS** (28 env regression tests, 203 backend non-MySQL tests, zero lint/format/typecheck errors across frontend and backend)
+  - `backend-mysql`: **SUCCESS** (38 MySQL integration tests passed on isolated ephemeral container, 203 deselected, 0 selected MySQL tests skipped)
+  - `frontend`: **SUCCESS** (32 dev Playwright tests, production build, 32 prod Playwright tests with strict `Cache-Control: private, no-store` validation)
 - **Branch Protection Status:** Not yet enforced via GitHub repository rulesets; merge blocking remains an administrative follow-up.
+- **Audit Convention:** Implementation code was verified on head `89c5cba4cdb194b7cec6524872528853c3d6db8b` with CI run `41184911421`. Subsequent documentation refinements do not modify any production, test, or workflow code.
 
 ---
 
