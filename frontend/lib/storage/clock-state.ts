@@ -1,3 +1,5 @@
+import { StorageError } from "./errors";
+
 export interface HlcEditTime {
   physical_ms: number;
   logical: number;
@@ -9,6 +11,8 @@ export interface HlcEditTime {
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+export const UINT32_MAX = 0xffffffff;
+
 export function validateHlc(hlc: unknown): hlc is HlcEditTime {
   if (!hlc || typeof hlc !== "object") {
     return false;
@@ -17,7 +21,8 @@ export function validateHlc(hlc: unknown): hlc is HlcEditTime {
   if (
     typeof candidate.physical_ms !== "number" ||
     !Number.isInteger(candidate.physical_ms) ||
-    candidate.physical_ms < 0
+    candidate.physical_ms < 0 ||
+    candidate.physical_ms > Number.MAX_SAFE_INTEGER
   ) {
     return false;
   }
@@ -25,13 +30,14 @@ export function validateHlc(hlc: unknown): hlc is HlcEditTime {
     typeof candidate.logical !== "number" ||
     !Number.isInteger(candidate.logical) ||
     candidate.logical < 0 ||
-    candidate.logical > 0xffffffff
+    candidate.logical > UINT32_MAX
   ) {
     return false;
   }
   if (
     typeof candidate.raw_wall_ms !== "number" ||
-    !Number.isFinite(candidate.raw_wall_ms)
+    !Number.isFinite(candidate.raw_wall_ms) ||
+    candidate.raw_wall_ms < 0
   ) {
     return false;
   }
@@ -55,8 +61,21 @@ export function advanceHlc(
   currentHlc: HlcEditTime | null,
   wallMs: number,
   calibrationId: string,
-  quality: "calibrated" | "offline_estimate" = "calibrated"
+  quality: "calibrated" | "offline_estimate" | "untrusted" = "calibrated"
 ): HlcEditTime {
+  if (!Number.isFinite(wallMs) || wallMs < 0) {
+    throw new StorageError(
+      "invalid_data",
+      `Invalid wall clock milliseconds: ${wallMs}`
+    );
+  }
+  if (!UUID_REGEX.test(calibrationId)) {
+    throw new StorageError(
+      "invalid_data",
+      `Invalid calibration UUID: ${calibrationId}`
+    );
+  }
+
   const roundedWall = Math.floor(wallMs);
   if (!currentHlc) {
     return {
@@ -77,6 +96,12 @@ export function advanceHlc(
     logical = 0;
   } else {
     physical_ms = currentPhysical;
+    if (currentHlc.logical >= UINT32_MAX) {
+      throw new StorageError(
+        "invalid_data",
+        "HLC logical counter overflow: maximum uint32 exceeded"
+      );
+    }
     logical = currentHlc.logical + 1;
   }
 

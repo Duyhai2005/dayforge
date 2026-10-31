@@ -849,7 +849,7 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
 
           const recoveredRecordBody = recRes.ok ? recRes.value?.body : null;
           const recoveredCmdBody = listRes.ok
-            ? (listRes.value[0].commands[0] as { payload: { body: string } })?.payload?.body
+            ? (listRes.value[0].commands[0] as unknown as { payload: { body: string } })?.payload?.body
             : null;
 
           return {

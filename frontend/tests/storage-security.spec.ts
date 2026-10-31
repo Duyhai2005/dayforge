@@ -21,6 +21,9 @@ import {
   validateOwnerAccess,
   lockOwner,
   unlockOwner,
+  isOwnerUnlocked,
+  getRecord,
+  createLocalStorageGateway,
   type EncryptedRecord,
   type OwnerAccessContext,
   type OwnerMetadata,
@@ -47,6 +50,9 @@ declare global {
       validateOwnerAccess: typeof validateOwnerAccess;
       lockOwner: typeof lockOwner;
       unlockOwner: typeof unlockOwner;
+      isOwnerUnlocked: typeof isOwnerUnlocked;
+      getRecord: typeof getRecord;
+      createLocalStorageGateway: typeof createLocalStorageGateway;
     };
   }
 }
@@ -60,11 +66,16 @@ function buildStorageScript(): string {
     "db.ts",
     "crypto.ts",
     "owner-gate.ts",
+    "clock-state.ts",
+    "outbox.ts",
+    "unit-of-work.ts",
+    "repositories.ts",
   ];
 
   const combined = files
     .map((file) => fs.readFileSync(path.join(libDir, file), "utf-8"))
     .join("\n")
+    .replace(/import\s+[\s\S]*?from\s+['"][^'"]+['"];?/g, "")
     .replace(/import\s+.*?;/g, "");
 
   const transpiled = ts.transpileModule(combined, {
@@ -674,6 +685,267 @@ test.describe("Storage Security Specifications", () => {
       expect(result.ctx2Epoch).toBe(2);
       expect(result.valStaleCtx1Ok).toBe(false);
       expect(result.valStaleCtx1Error).toBe("locked");
+    });
+
+    test("re-unlocking with different key without locking increments epoch and invalidates old context", async ({
+      page,
+    }) => {
+      const script = buildStorageScript();
+      await page.addInitScript(script);
+      await page.goto("/work");
+
+      const result = await page.evaluate(async () => {
+        const {
+          openDatabase,
+          closeDatabase,
+          unlockOwner,
+          validateOwnerAccess,
+          generateTestKey,
+          getOwnerMeta,
+          isOwnerUnlocked,
+        } = window.__dayforge_security_storage;
+
+        const dbRes = await openDatabase({ name: "test-reunlock-diff-key" });
+        if (!dbRes.ok) return { ok: false, error: "open failed" };
+        const db = dbRes.value;
+
+        const key1 = await generateTestKey();
+        const unlock1 = await unlockOwner(db, "owner-alice", "key-1", key1);
+        if (!unlock1.ok) {
+          closeDatabase(db);
+          return { ok: false, error: "unlock1 failed" };
+        }
+        const ctx1 = unlock1.value;
+
+        const unlockedStatus1 = await isOwnerUnlocked(db, "owner-alice");
+
+        // Re-unlock with key2 WITHOUT calling lockOwner first
+        const key2 = await generateTestKey();
+        const unlock2 = await unlockOwner(db, "owner-alice", "key-2", key2);
+        if (!unlock2.ok) {
+          closeDatabase(db);
+          return { ok: false, error: "unlock2 failed" };
+        }
+        const ctx2 = unlock2.value;
+
+        const meta = await getOwnerMeta(db, "owner-alice");
+
+        // Old ctx1 MUST be rejected with 'locked' because epoch is bumped & keyId mismatched
+        const val1 = await validateOwnerAccess(db, ctx1);
+        // New ctx2 MUST be valid
+        const val2 = await validateOwnerAccess(db, ctx2);
+
+        closeDatabase(db);
+
+        return {
+          ok: true,
+          unlockedStatus1: unlockedStatus1.ok ? unlockedStatus1.value : null,
+          ctx1Epoch: ctx1.lockEpoch,
+          ctx2Epoch: ctx2.lockEpoch,
+          metaEpoch: meta.ok ? meta.value?.lock_epoch : null,
+          activeKeyId: meta.ok ? meta.value?.active_key_id : null,
+          val1Ok: val1.ok,
+          val1Error: !val1.ok ? val1.error.code : null,
+          val2Ok: val2.ok,
+        };
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.unlockedStatus1).toBe(true);
+      expect(result.ctx1Epoch).toBe(1);
+      expect(result.ctx2Epoch).toBe(2);
+      expect(result.activeKeyId).toBe("key-2");
+      expect(result.val1Ok).toBe(false);
+      expect(result.val1Error).toBe("locked");
+      expect(result.val2Ok).toBe(true);
+    });
+
+    test("unlockOwner rejects keys that are extractable or lack encrypt/decrypt usages", async ({
+      page,
+    }) => {
+      const script = buildStorageScript();
+      await page.addInitScript(script);
+      await page.goto("/work");
+
+      const result = await page.evaluate(async () => {
+        const { openDatabase, closeDatabase, unlockOwner } =
+          window.__dayforge_security_storage;
+
+        const dbRes = await openDatabase({ name: "test-invalid-key" });
+        if (!dbRes.ok) return { ok: false, error: "open failed" };
+        const db = dbRes.value;
+
+        // 1. Extractable key (forbidden)
+        const extractableKey = await crypto.subtle.generateKey(
+          { name: "AES-GCM", length: 256 },
+          true, // extractable = true
+          ["encrypt", "decrypt"]
+        );
+
+        const res1 = await unlockOwner(db, "owner-bad", "key-ext", extractableKey);
+
+        // 2. Key missing encrypt usage
+        const encryptOnlyKey = await crypto.subtle.generateKey(
+          { name: "AES-GCM", length: 256 },
+          false,
+          ["encrypt"]
+        );
+        const res2 = await unlockOwner(db, "owner-bad", "key-enc", encryptOnlyKey);
+
+        closeDatabase(db);
+
+        return {
+          ok: true,
+          res1Ok: res1.ok,
+          res1Error: !res1.ok ? res1.error.code : null,
+          res2Ok: res2.ok,
+          res2Error: !res2.ok ? res2.error.code : null,
+        };
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.res1Ok).toBe(false);
+      expect(result.res1Error).toBe("invalid_data");
+      expect(result.res2Ok).toBe(false);
+      expect(result.res2Error).toBe("invalid_data");
+    });
+
+    test("full-row substitution across record IDs fails closed with integrity_failed via derived AAD", async ({
+      page,
+    }) => {
+      const script = buildStorageScript();
+      await page.addInitScript(script);
+      await page.goto("/work");
+
+      const result = await page.evaluate(async () => {
+        const {
+          openDatabase,
+          closeDatabase,
+          unlockOwner,
+          generateTestKey,
+          encryptPayload,
+          getRecord,
+          STORAGE_STORES,
+        } = window.__dayforge_security_storage;
+
+        const dbRes = await openDatabase({ name: "test-row-substitution" });
+        if (!dbRes.ok) return { ok: false, error: "open failed" };
+        const db = dbRes.value;
+
+        const key = await generateTestKey();
+        const unlockRes = await unlockOwner(db, "owner-sub", "key-1", key);
+        if (!unlockRes.ok) {
+          closeDatabase(db);
+          return { ok: false, error: "unlock failed" };
+        }
+        const ctx = unlockRes.value;
+
+        const idA = "11111111-1111-4111-8111-111111111111";
+        const idB = "22222222-2222-4222-8222-222222222222";
+
+        // Encrypt record B with its legitimate record_id "plan:idB"
+        const encB = await encryptPayload(
+          key,
+          ctx.ownerId,
+          ctx.keyId,
+          STORAGE_STORES.records,
+          `plan:${idB}`,
+          { secret: "Top secret content of Record B" }
+        );
+        if (!encB.ok) {
+          closeDatabase(db);
+          return { ok: false, error: "encrypt failed" };
+        }
+
+        // Attacker substitutes record B's ciphertext under record A's row key:
+        // Attempting to fool getRecord into decrypting row B as if it were record A
+        const maliciousRow = {
+          owner_id: ctx.ownerId,
+          kind: "plan",
+          id: idA,
+          key_id: encB.value.key_id,
+          store: STORAGE_STORES.records,
+          record_id: `plan:${idB}`, // attacker leaves original or tampered field
+          iv: encB.value.iv,
+          ciphertext: encB.value.ciphertext,
+        };
+
+        await new Promise<void>((resolve) => {
+          const tx = db.transaction(STORAGE_STORES.records, "readwrite");
+          tx.objectStore(STORAGE_STORES.records).put(maliciousRow);
+          tx.oncomplete = () => resolve();
+        });
+
+        // Calling getRecord for record A:
+        // getRecord derives expected AAD strictly as STORAGE_STORES.records and "plan:idA"
+        const getRes = await getRecord(db, ctx, "plan", idA);
+
+        closeDatabase(db);
+
+        return {
+          ok: true,
+          getResOk: getRes.ok,
+          errorCode: !getRes.ok ? getRes.error.code : null,
+        };
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.getResOk).toBe(false);
+      expect(result.errorCode).toBe("integrity_failed");
+    });
+
+    test("anti-TOCTOU: locked owner meta fails closed inside single-transaction read", async ({
+      page,
+    }) => {
+      const script = buildStorageScript();
+      await page.addInitScript(script);
+      await page.goto("/work");
+
+      const result = await page.evaluate(async () => {
+        const {
+          openDatabase,
+          closeDatabase,
+          unlockOwner,
+          lockOwner,
+          generateTestKey,
+          getRecord,
+        } = window.__dayforge_security_storage;
+
+        const dbRes = await openDatabase({ name: "test-anti-toctou" });
+        if (!dbRes.ok) return { ok: false, error: "open failed" };
+        const db = dbRes.value;
+
+        const key = await generateTestKey();
+        const unlockRes = await unlockOwner(db, "owner-toctou", "key-1", key);
+        if (!unlockRes.ok) {
+          closeDatabase(db);
+          return { ok: false, error: "unlock failed" };
+        }
+        const ctx = unlockRes.value;
+
+        // Now lock the owner
+        await lockOwner(db, "owner-toctou");
+
+        // getRecord must fail immediately with 'locked' inside its single transaction
+        const getRes = await getRecord(
+          db,
+          ctx,
+          "plan",
+          "11111111-1111-4111-8111-111111111111"
+        );
+
+        closeDatabase(db);
+
+        return {
+          ok: true,
+          getResOk: getRes.ok,
+          errorCode: !getRes.ok ? getRes.error.code : null,
+        };
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.getResOk).toBe(false);
+      expect(result.errorCode).toBe("locked");
     });
   });
 });

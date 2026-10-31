@@ -1,4 +1,4 @@
-import { type StorageResult, storageErr, storageOk } from "./errors";
+import { StorageError, type StorageResult, storageErr, storageOk } from "./errors";
 import { STORAGE_STORES } from "./schema";
 
 export interface OwnerAccessContext {
@@ -67,15 +67,15 @@ export async function setOwnerMeta(
     try {
       const tx = db.transaction(STORAGE_STORES.owner_meta, "readwrite");
       const store = tx.objectStore(STORAGE_STORES.owner_meta);
-      const req = store.put(meta);
+      store.put(meta);
 
-      req.onsuccess = () => resolve(storageOk(undefined));
-      req.onerror = () => {
+      tx.oncomplete = () => resolve(storageOk(undefined));
+      tx.onerror = () => {
         resolve(
           storageErr(
             "transaction_aborted",
-            req.error?.message ?? "Failed to save owner metadata",
-            req.error
+            tx.error?.message ?? "Failed to save owner metadata",
+            tx.error
           )
         );
       };
@@ -100,6 +100,34 @@ export async function setOwnerMeta(
   });
 }
 
+export function checkOwnerMetaRecord(
+  meta: OwnerMetadata | undefined,
+  ctx: OwnerAccessContext
+): StorageError | null {
+  if (!meta) {
+    return new StorageError(
+      "locked",
+      `Owner '${ctx.ownerId}' has not been initialized or unlocked`
+    );
+  }
+  if (meta.locked) {
+    return new StorageError("locked", `Owner '${ctx.ownerId}' is currently locked`);
+  }
+  if (meta.lock_epoch !== ctx.lockEpoch) {
+    return new StorageError(
+      "locked",
+      `Stale access context: current epoch is ${meta.lock_epoch}, context epoch is ${ctx.lockEpoch}`
+    );
+  }
+  if (meta.active_key_id && meta.active_key_id !== ctx.keyId) {
+    return new StorageError(
+      "locked",
+      `Stale access context: active key ID is '${meta.active_key_id}', context key ID is '${ctx.keyId}'`
+    );
+  }
+  return null;
+}
+
 export async function validateOwnerAccess(
   db: IDBDatabase,
   ctx: OwnerAccessContext
@@ -108,23 +136,23 @@ export async function validateOwnerAccess(
   if (!metaRes.ok) {
     return metaRes;
   }
-  const meta = metaRes.value;
-  if (!meta) {
-    return storageErr(
-      "locked",
-      `Owner '${ctx.ownerId}' has not been initialized or unlocked`
-    );
-  }
-  if (meta.locked) {
-    return storageErr("locked", `Owner '${ctx.ownerId}' is currently locked`);
-  }
-  if (meta.lock_epoch !== ctx.lockEpoch) {
-    return storageErr(
-      "locked",
-      `Stale access context: current epoch is ${meta.lock_epoch}, context epoch is ${ctx.lockEpoch}`
-    );
+  const err = checkOwnerMetaRecord(metaRes.value ?? undefined, ctx);
+  if (err) {
+    return { ok: false, error: err };
   }
   return storageOk(undefined);
+}
+
+export async function isOwnerUnlocked(
+  db: IDBDatabase,
+  ownerId: string
+): Promise<StorageResult<boolean>> {
+  const metaRes = await getOwnerMeta(db, ownerId);
+  if (!metaRes.ok) {
+    return metaRes;
+  }
+  const meta = metaRes.value;
+  return storageOk(Boolean(meta && !meta.locked));
 }
 
 export async function lockOwner(
@@ -216,6 +244,20 @@ export async function unlockOwner(
   keyId: string,
   key: CryptoKey
 ): Promise<StorageResult<OwnerAccessContext>> {
+  if (
+    !key ||
+    key.type !== "secret" ||
+    (key.algorithm as { name?: string })?.name !== "AES-GCM" ||
+    key.extractable !== false ||
+    !key.usages?.includes("encrypt") ||
+    !key.usages?.includes("decrypt")
+  ) {
+    return storageErr(
+      "invalid_data",
+      "CryptoKey must be non-extractable AES-GCM with encrypt and decrypt usages"
+    );
+  }
+
   return new Promise((resolve) => {
     try {
       const tx = db.transaction(
@@ -229,10 +271,20 @@ export async function unlockOwner(
       const getReq = metaStore.get(ownerId);
       getReq.onsuccess = () => {
         const existing = getReq.result as OwnerMetadata | undefined;
-        const epoch =
+        let epoch =
           existing?.lock_epoch && existing.lock_epoch > 0
             ? existing.lock_epoch
             : 1;
+
+        // If owner is re-unlocked with a different key without locking, increment epoch
+        if (
+          existing &&
+          !existing.locked &&
+          existing.active_key_id &&
+          existing.active_key_id !== keyId
+        ) {
+          epoch = epoch + 1;
+        }
 
         const updatedMeta: OwnerMetadata = {
           owner_id: ownerId,

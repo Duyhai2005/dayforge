@@ -134,6 +134,25 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
       // -0 becomes 0, array retains [3,2,1]
       expect(canonical).toBe('{"1":0,"A":true,"_":null,"a":[3,2,1],"z":1}');
     });
+
+    test("canonicalizeJson rejects lone surrogates in strings and object keys per RFC 8785", () => {
+      // Lone high surrogate \uD800
+      expect(() => canonicalizeJson({ key: "prefix\uD800suffix" })).toThrow(/surrogate/i);
+      // Lone low surrogate \uDFFF
+      expect(() => canonicalizeJson({ key: "\uDFFF" })).toThrow(/surrogate/i);
+      // Lone surrogate in object key
+      expect(() => canonicalizeJson({ ["bad\uD800key"]: 123 })).toThrow(/surrogate/i);
+      // Valid surrogate pair must NOT throw
+      expect(() => canonicalizeJson({ key: "Valid \uD83D\uDE00 emoji" })).not.toThrow();
+    });
+
+    test("canonicalizeJson handles scientific floats and sorts keys by UTF-16 code units", () => {
+      expect(canonicalizeJson(-0)).toBe("0");
+      expect(canonicalizeJson({ zero: -0 })).toBe('{"zero":0}');
+      const obj = { "\u00e9": 1, e: 2, E: 3, a: 4, "\u0100": 5 };
+      const expected = '{"E":3,"a":4,"e":2,"\u00e9":1,"\u0100":5}';
+      expect(canonicalizeJson(obj)).toBe(expected);
+    });
   });
 
   test.describe("HLC Clock State & Advance Logic", () => {
@@ -245,7 +264,12 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           if (!persistRes.ok) {
             gateway.close();
             closeDatabase(db);
-            return { ok: false as const, error: persistRes.error.code, step: "persist" };
+            return {
+              ok: false as const,
+              error: persistRes.error.code,
+              msg: persistRes.error.message,
+              step: "persist",
+            };
           }
 
           // Read direct from stores to verify atomic writes
@@ -300,8 +324,8 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
         { testDbName, ownerId, keyId, deviceId, opId, calId }
       );
 
-      expect(result.ok).toBe(true);
       if (!result.ok) throw new Error("ST-03 failed: " + JSON.stringify(result));
+      expect(result.ok).toBe(true);
 
       expect(result.persistValue.operationId).toBe(opId);
       expect(result.persistValue.deviceSequence).toBe("1");
@@ -439,8 +463,8 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
         { testDbName, ownerId, keyId, deviceId, op1, op2, calId }
       );
 
-      expect(result.ok).toBe(true);
       if (!result.ok) throw new Error("ST-03 failed: " + JSON.stringify(result));
+      expect(result.ok).toBe(true);
 
       expect(result.op1Sequence).toBe("1");
       expect(result.op2Ok).toBe(false);
@@ -505,14 +529,13 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           const results: { opId: string; seq: string }[] = [];
           for (let i = 1; i <= 3; i++) {
             const opId = `11111111-0000-0000-0000-00000000000${i}`;
-            const editTime = advanceHlc(null, 1793140000000 + i * 10, calId);
             const res = await gateway.persistOperation({
               context: ctx,
               deviceId,
               operationId: opId,
               commands: [{ root: { kind: "task", id: `t1-${i}` }, action: "task.create", payload: {} }],
               dependencies: [],
-              editTime,
+              clockInput: { wallMs: 1793140000000 + i * 10, calibrationId: calId },
             });
             if (res.ok) {
               results.push({ opId: res.value.operationId, seq: res.value.deviceSequence });
@@ -539,14 +562,13 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           const results: { opId: string; seq: string }[] = [];
           for (let i = 1; i <= 3; i++) {
             const opId = `22222222-0000-0000-0000-00000000000${i}`;
-            const editTime = advanceHlc(null, 1793140000000 + i * 10 + 5, calId);
             const res = await gateway.persistOperation({
               context: ctx,
               deviceId,
               operationId: opId,
               commands: [{ root: { kind: "task", id: `t2-${i}` }, action: "task.create", payload: {} }],
               dependencies: [],
-              editTime,
+              clockInput: { wallMs: 1793140000000 + i * 10 + 5, calibrationId: calId },
             });
             if (res.ok) {
               results.push({ opId: res.value.operationId, seq: res.value.deviceSequence });
@@ -656,8 +678,8 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
         { testDbName, ownerId, keyId, deviceId, dupOpId, calId }
       );
 
-      expect(result.ok).toBe(true);
       if (!result.ok) throw new Error("ST-03 failed: " + JSON.stringify(result));
+      expect(result.ok).toBe(true);
 
       expect(result.firstOk).toBe(true);
       expect(result.dupOk).toBe(false);
@@ -926,8 +948,8 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
         { testDbName, ownerId, keyId, deviceId, calId }
       );
 
-      expect(result.ok).toBe(true);
       if (!result.ok) throw new Error("ST-03 failed: " + JSON.stringify(result));
+      expect(result.ok).toBe(true);
 
       expect(result.untrustedPersistOk).toBe(true);
       expect(result.untrustedStatus).toBe("time_invalid");
@@ -935,6 +957,459 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
 
       expect(result.malformedPersistOk).toBe(false);
       expect(result.malformedErrorCode).toBe("invalid_data");
+    });
+  });
+
+  test.describe("Atomicity & In-Transaction Derivation Regressions", () => {
+    test("concurrent persists with same wall-clock time derive strictly monotonic in-transaction HLCs (T.0, T.1)", async ({
+      page,
+    }) => {
+      const script = buildStorageScript();
+      await page.addInitScript(script);
+      await page.goto("/work");
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId, deviceId, calId }) => {
+          const {
+            generateTestKey,
+            openDatabase,
+            closeDatabase,
+            unlockOwner,
+            persistOperationAtomic,
+            STORAGE_STORES,
+          } = window.__dayforge_storage_atomicity;
+
+          const key = await generateTestKey();
+          const dbRes = await openDatabase({ name: testDbName });
+          if (!dbRes.ok) return { ok: false, error: "open failed" };
+          const db = dbRes.value;
+
+          const unlockRes = await unlockOwner(db, ownerId, keyId, key);
+          if (!unlockRes.ok) {
+            closeDatabase(db);
+            return { ok: false, error: "unlock failed" };
+          }
+          const ctx = unlockRes.value;
+
+          const fixedWallMs = 1793200000000;
+
+          // Tab 1 persist with fixed wallMs
+          const res1 = await persistOperationAtomic(db, {
+            context: ctx,
+            deviceId,
+            operationId: "11111111-1111-4111-8111-111111111111",
+            commands: [
+              {
+                root: { kind: "plan", id: "11111111-1111-4111-8111-111111111111" },
+                action: "create",
+                payload: { name: "Test 1" },
+                precondition: null,
+              },
+            ],
+            dependencies: [],
+            clockInput: {
+              wallMs: fixedWallMs,
+              calibrationId: calId,
+              quality: "calibrated",
+            },
+          });
+
+          // Tab 2 persist with the exact same fixed wallMs
+          const res2 = await persistOperationAtomic(db, {
+            context: ctx,
+            deviceId,
+            operationId: "22222222-2222-4222-8222-222222222222",
+            commands: [
+              {
+                root: { kind: "plan", id: "11111111-1111-4111-8111-111111111111" },
+                action: "update",
+                payload: { name: "Test 2" },
+                precondition: null,
+              },
+            ],
+            dependencies: ["11111111-1111-4111-8111-111111111111"],
+            clockInput: {
+              wallMs: fixedWallMs,
+              calibrationId: calId,
+              quality: "calibrated",
+            },
+          });
+
+          // Read persisted device metadata
+          const devMeta = await new Promise<any>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.device_meta, "readonly");
+            const req = tx.objectStore(STORAGE_STORES.device_meta).get([ownerId, deviceId]);
+            req.onsuccess = () => resolve(req.result ?? null);
+            req.onerror = () => resolve(null);
+          });
+
+          closeDatabase(db);
+
+          return {
+            ok: true,
+            res1Ok: res1.ok,
+            res2Ok: res2.ok,
+            hlc1: res1.ok ? res1.value.allocatedHlc : null,
+            hlc2: res2.ok ? res2.value.allocatedHlc : null,
+            persistedLastHlc: devMeta?.last_hlc ?? null,
+            lastSeq: devMeta?.last_sequence ?? null,
+          };
+        },
+        {
+          testDbName: `test-hlc-mono-${Date.now()}`,
+          ownerId: "11111111-1111-4111-8111-111111111111",
+          keyId: "key-1",
+          deviceId: "22222222-2222-4222-8222-222222222222",
+          calId: "33333333-3333-4333-8333-333333333333",
+        }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.res1Ok).toBe(true);
+      expect(result.res2Ok).toBe(true);
+      expect(result.hlc1?.physical_ms).toBe(1793200000000);
+      expect(result.hlc1?.logical).toBe(0);
+      expect(result.hlc2?.physical_ms).toBe(1793200000000);
+      expect(result.hlc2?.logical).toBe(1); // Increment logical counter for same wall time
+      expect(result.persistedLastHlc?.logical).toBe(1);
+      expect(result.lastSeq).toBe("2");
+    });
+
+    test("stale explicit editTime fails closed when persisted last_hlc is ahead", async ({
+      page,
+    }) => {
+      const script = buildStorageScript();
+      await page.addInitScript(script);
+      await page.goto("/work");
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId, deviceId, calId }) => {
+          const {
+            generateTestKey,
+            openDatabase,
+            closeDatabase,
+            unlockOwner,
+            persistOperationAtomic,
+            STORAGE_STORES,
+          } = window.__dayforge_storage_atomicity;
+
+          const key = await generateTestKey();
+          const dbRes = await openDatabase({ name: testDbName });
+          if (!dbRes.ok) return { ok: false, error: "open failed" };
+          const db = dbRes.value;
+
+          const unlockRes = await unlockOwner(db, ownerId, keyId, key);
+          if (!unlockRes.ok) {
+            closeDatabase(db);
+            return { ok: false, error: "unlock failed" };
+          }
+          const ctx = unlockRes.value;
+
+          // Pre-populate device_meta with a future HLC (physical: 2000000000000, logical: 5)
+          await new Promise<void>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.device_meta, "readwrite");
+            tx.objectStore(STORAGE_STORES.device_meta).put({
+              owner_id: ownerId,
+              device_id: deviceId,
+              last_sequence: "5",
+              last_hlc: {
+                physical_ms: 2000000000000,
+                logical: 5,
+                calibration_id: calId,
+                raw_wall_ms: 2000000000000,
+                quality: "calibrated",
+              },
+            });
+            tx.oncomplete = () => resolve();
+          });
+
+          // Attempt to persist an operation with a stale editTime (physical: 1900000000000)
+          const staleRes = await persistOperationAtomic(db, {
+            context: ctx,
+            deviceId,
+            operationId: "33333333-3333-4333-8333-333333333333",
+            commands: [
+              {
+                root: { kind: "plan", id: "11111111-1111-4111-8111-111111111111" },
+                action: "create",
+                payload: {},
+                precondition: null,
+              },
+            ],
+            dependencies: [],
+            editTime: {
+              physical_ms: 1900000000000,
+              logical: 0,
+              calibration_id: calId,
+              raw_wall_ms: 1900000000000,
+              quality: "calibrated",
+            },
+          });
+
+          closeDatabase(db);
+          return {
+            ok: true,
+            staleOk: staleRes.ok,
+            staleErrorCode: !staleRes.ok ? staleRes.error.code : null,
+            staleErrorMessage: !staleRes.ok ? staleRes.error.message : null,
+          };
+        },
+        {
+          testDbName: `test-stale-hlc-${Date.now()}`,
+          ownerId: "11111111-1111-4111-8111-111111111111",
+          keyId: "key-1",
+          deviceId: "22222222-2222-4222-8222-222222222222",
+          calId: "33333333-3333-4333-8333-333333333333",
+        }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.staleOk).toBe(false);
+      expect(result.staleErrorCode).toBe("invalid_data");
+      expect(result.staleErrorMessage).toContain("Stale HLC");
+    });
+
+    test("HLC logical overflow (0xffffffff) and sequence uint64 overflow fail closed with invalid_data", async ({
+      page,
+    }) => {
+      const script = buildStorageScript();
+      await page.addInitScript(script);
+      await page.goto("/work");
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId, deviceId, calId }) => {
+          const {
+            advanceHlc,
+            generateTestKey,
+            openDatabase,
+            closeDatabase,
+            unlockOwner,
+            persistOperationAtomic,
+            STORAGE_STORES,
+          } = window.__dayforge_storage_atomicity;
+
+          // 1. Direct advanceHlc overflow test
+          let overflowThrown = false;
+          try {
+            advanceHlc(
+              {
+                physical_ms: 1700000000000,
+                logical: 0xffffffff,
+                calibration_id: calId,
+                raw_wall_ms: 1700000000000,
+                quality: "calibrated",
+              },
+              1700000000000,
+              calId,
+              "calibrated"
+            );
+          } catch (e: any) {
+            if (e?.code === "invalid_data") overflowThrown = true;
+          }
+
+          // 2. Corrupted last_sequence test
+          const key = await generateTestKey();
+          const dbRes = await openDatabase({ name: testDbName });
+          if (!dbRes.ok) return { ok: false, error: "open failed" };
+          const db = dbRes.value;
+
+          const unlockRes = await unlockOwner(db, ownerId, keyId, key);
+          if (!unlockRes.ok) {
+            closeDatabase(db);
+            return { ok: false, error: "unlock failed" };
+          }
+          const ctx = unlockRes.value;
+
+          await new Promise<void>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.device_meta, "readwrite");
+            tx.objectStore(STORAGE_STORES.device_meta).put({
+              owner_id: ownerId,
+              device_id: deviceId,
+              last_sequence: "corrupted_non_numeric_seq",
+            });
+            tx.oncomplete = () => resolve();
+          });
+
+          const corruptRes = await persistOperationAtomic(db, {
+            context: ctx,
+            deviceId,
+            operationId: "44444444-4444-4444-8444-444444444444",
+            commands: [
+              {
+                root: { kind: "plan", id: "11111111-1111-4111-8111-111111111111" },
+                action: "create",
+                payload: {},
+                precondition: null,
+              },
+            ],
+            dependencies: [],
+            clockInput: { wallMs: Date.now(), calibrationId: calId },
+          });
+
+          // 3. Uint64 overflow test
+          await new Promise<void>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.device_meta, "readwrite");
+            tx.objectStore(STORAGE_STORES.device_meta).put({
+              owner_id: ownerId,
+              device_id: deviceId,
+              last_sequence: "18446744073709551615", // UINT64_MAX
+            });
+            tx.oncomplete = () => resolve();
+          });
+
+          const uint64OverflowRes = await persistOperationAtomic(db, {
+            context: ctx,
+            deviceId,
+            operationId: "55555555-5555-4555-8555-555555555555",
+            commands: [
+              {
+                root: { kind: "plan", id: "11111111-1111-4111-8111-111111111111" },
+                action: "create",
+                payload: {},
+                precondition: null,
+              },
+            ],
+            dependencies: [],
+            clockInput: { wallMs: Date.now(), calibrationId: calId },
+          });
+
+          closeDatabase(db);
+
+          return {
+            ok: true,
+            overflowThrown,
+            corruptOk: corruptRes.ok,
+            corruptErrorCode: !corruptRes.ok ? corruptRes.error.code : null,
+            uint64OverflowOk: uint64OverflowRes.ok,
+            uint64OverflowErrorCode: !uint64OverflowRes.ok ? uint64OverflowRes.error.code : null,
+          };
+        },
+        {
+          testDbName: `test-overflow-${Date.now()}`,
+          ownerId: "11111111-1111-4111-8111-111111111111",
+          keyId: "key-1",
+          deviceId: "22222222-2222-4222-8222-222222222222",
+          calId: "33333333-3333-4333-8333-333333333333",
+        }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.overflowThrown).toBe(true);
+      expect(result.corruptOk).toBe(false);
+      expect(result.corruptErrorCode).toBe("invalid_data");
+      expect(result.uint64OverflowOk).toBe(false);
+      expect(result.uint64OverflowErrorCode).toBe("invalid_data");
+    });
+
+    test("outbox entry transitions to ack_waiting_pull via markOperationAcked and is deleted via markOperationSynced", async ({
+      page,
+    }) => {
+      const script = buildStorageScript();
+      await page.addInitScript(script);
+      await page.goto("/work");
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId, deviceId, calId }) => {
+          const {
+            createLocalStorageGateway,
+            openDatabase,
+            closeDatabase,
+            unlockOwner,
+            generateTestKey,
+            STORAGE_STORES,
+          } = window.__dayforge_storage_atomicity;
+
+          const key = await generateTestKey();
+          const dbRes = await openDatabase({ name: testDbName });
+          if (!dbRes.ok) return { ok: false, error: "open failed" };
+          const db = dbRes.value;
+
+          const unlockRes = await unlockOwner(db, ownerId, keyId, key);
+          if (!unlockRes.ok) {
+            closeDatabase(db);
+            return { ok: false, error: "unlock failed" };
+          }
+          const ctx = unlockRes.value;
+
+          const gateway = createLocalStorageGateway({ name: testDbName });
+          const opId = "66666666-6666-4666-8666-666666666666";
+
+          // 1. Persist operation -> starts in 'pending'
+          const persistRes = await gateway.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId: opId,
+            commands: [
+              {
+                root: { kind: "plan", id: "11111111-1111-4111-8111-111111111111" },
+                action: "create",
+                payload: { test: true },
+                precondition: null,
+              },
+            ],
+            dependencies: [],
+            clockInput: { wallMs: Date.now(), calibrationId: calId },
+          });
+
+          // 2. listPending returns it
+          const pending1 = await gateway.listPending(ctx);
+
+          // 3. Mark operation acked (server acknowledged receipt)
+          const ackRes = await gateway.markOperationAcked(ctx, opId);
+
+          // 4. Inspect status in IndexedDB: MUST be 'ack_waiting_pull'
+          const rowAfterAck = await new Promise<any>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.operations, "readonly");
+            const req = tx.objectStore(STORAGE_STORES.operations).get([ownerId, opId]);
+            req.onsuccess = () => resolve(req.result ?? null);
+            req.onerror = () => resolve(null);
+          });
+
+          // 5. listPending should NO LONGER return it (since status is ack_waiting_pull, not pending)
+          const pending2 = await gateway.listPending(ctx);
+
+          // 6. Confirm sync via markOperationSynced (after server pull confirms processed)
+          const syncRes = await gateway.markOperationSynced(ctx, opId);
+
+          // 7. Inspect store: entry MUST be removed
+          const rowAfterSync = await new Promise<any>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.operations, "readonly");
+            const req = tx.objectStore(STORAGE_STORES.operations).get([ownerId, opId]);
+            req.onsuccess = () => resolve(req.result ?? null);
+            req.onerror = () => resolve(null);
+          });
+
+          gateway.close();
+          closeDatabase(db);
+
+          return {
+            ok: true,
+            persistOk: persistRes.ok,
+            pending1Count: pending1.ok ? pending1.value.length : -1,
+            ackOk: ackRes.ok,
+            statusAfterAck: rowAfterAck?.status ?? null,
+            pending2Count: pending2.ok ? pending2.value.length : -1,
+            syncOk: syncRes.ok,
+            rowAfterSyncIsNull: rowAfterSync === null,
+          };
+        },
+        {
+          testDbName: `test-outbox-lifecycle-${Date.now()}`,
+          ownerId: "11111111-1111-4111-8111-111111111111",
+          keyId: "key-1",
+          deviceId: "22222222-2222-4222-8222-222222222222",
+          calId: "33333333-3333-4333-8333-333333333333",
+        }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.persistOk).toBe(true);
+      expect(result.pending1Count).toBe(1);
+      expect(result.ackOk).toBe(true);
+      expect(result.statusAfterAck).toBe("ack_waiting_pull");
+      expect(result.pending2Count).toBe(0);
+      expect(result.syncOk).toBe(true);
+      expect(result.rowAfterSyncIsNull).toBe(true);
     });
   });
 });

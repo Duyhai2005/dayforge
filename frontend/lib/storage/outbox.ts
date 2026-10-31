@@ -1,6 +1,36 @@
 import { StorageError } from "./errors";
 import { type EncryptedRecord } from "./crypto";
-import { type HlcEditTime } from "./clock-state";
+import { type HlcEditTime, validateHlc } from "./clock-state";
+
+export const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export type SupportedRootKind =
+  | "plan"
+  | "milestone"
+  | "work_item"
+  | "task"
+  | "note"
+  | "auth"
+  | (string & {});
+
+export interface StorageCommand {
+  root: {
+    kind: SupportedRootKind;
+    id: string;
+  };
+  action: string;
+  payload: Record<string, unknown>;
+  precondition?: null | {
+    expected_root_hash?: string;
+    expected_bucket?: {
+      date: string;
+      period: string;
+      order_hash: string;
+    };
+    [key: string]: unknown;
+  };
+}
 
 export interface OperationEnvelope {
   protocol_version: 1;
@@ -11,11 +41,13 @@ export interface OperationEnvelope {
   device_sequence: string; // unsigned 64-bit decimal string, e.g. "1"
   edit_time: HlcEditTime;
   dependencies: readonly string[];
-  commands: readonly unknown[];
+  commands: readonly StorageCommand[];
 }
 
 export type OutboxStatus =
   | "pending"
+  | "queued"
+  | "sending"
   | "ack_waiting_pull"
   | "blocked"
   | "time_invalid"
@@ -30,6 +62,167 @@ export interface OutboxEntry {
   superseded_by?: string;
   encrypted_envelope: EncryptedRecord;
   created_at: string;
+}
+
+export function validateCommand(cmd: unknown, index = 0): cmd is StorageCommand {
+  if (!cmd || typeof cmd !== "object") {
+    throw new StorageError(
+      "invalid_data",
+      `Command at index ${index} must be an object`
+    );
+  }
+  const candidate = cmd as Partial<StorageCommand>;
+
+  if (!candidate.root || typeof candidate.root !== "object") {
+    throw new StorageError(
+      "invalid_data",
+      `Command at index ${index} missing 'root' object`
+    );
+  }
+
+  const kind = candidate.root.kind;
+  if (typeof kind !== "string" || kind.trim().length === 0) {
+    throw new StorageError(
+      "invalid_data",
+      `Command at index ${index} has invalid or empty root kind`
+    );
+  }
+
+  if (
+    typeof candidate.root.id !== "string" ||
+    candidate.root.id.trim().length === 0
+  ) {
+    throw new StorageError(
+      "invalid_data",
+      `Command at index ${index} has invalid or empty root id: '${candidate.root.id}'`
+    );
+  }
+
+  if (
+    typeof candidate.action !== "string" ||
+    candidate.action.trim().length === 0
+  ) {
+    throw new StorageError(
+      "invalid_data",
+      `Command at index ${index} has invalid or empty action`
+    );
+  }
+
+  if (
+    !candidate.payload ||
+    typeof candidate.payload !== "object" ||
+    Array.isArray(candidate.payload)
+  ) {
+    throw new StorageError(
+      "invalid_data",
+      `Command at index ${index} payload must be a non-null object`
+    );
+  }
+
+  if (
+    candidate.precondition !== undefined &&
+    candidate.precondition !== null &&
+    (typeof candidate.precondition !== "object" ||
+      Array.isArray(candidate.precondition))
+  ) {
+    throw new StorageError(
+      "invalid_data",
+      `Command at index ${index} precondition must be null or an object`
+    );
+  }
+
+  return true;
+}
+
+export function validateOperationDraft(input: {
+  operationId: string;
+  ownerId?: string;
+  deviceId: string;
+  commands: readonly unknown[];
+  dependencies: readonly string[];
+  editTime?: HlcEditTime;
+}): void {
+  if (
+    typeof input.operationId !== "string" ||
+    input.operationId.trim().length === 0
+  ) {
+    throw new StorageError(
+      "invalid_data",
+      `Invalid operation ID: '${input.operationId}'`
+    );
+  }
+
+  if (
+    input.ownerId !== undefined &&
+    (typeof input.ownerId !== "string" || input.ownerId.trim().length === 0)
+  ) {
+    throw new StorageError(
+      "invalid_data",
+      `Invalid owner ID: '${input.ownerId}'`
+    );
+  }
+
+  if (
+    typeof input.deviceId !== "string" ||
+    input.deviceId.trim().length === 0
+  ) {
+    throw new StorageError(
+      "invalid_data",
+      `Invalid device ID: '${input.deviceId}'`
+    );
+  }
+
+  if (!Array.isArray(input.commands)) {
+    throw new StorageError(
+      "invalid_data",
+      "Operation 'commands' must be an array"
+    );
+  }
+
+  if (input.commands.length > 1000) {
+    throw new StorageError(
+      "invalid_data",
+      `Operation commands length must not exceed 1000 (got ${input.commands.length})`
+    );
+  }
+
+  for (let i = 0; i < input.commands.length; i++) {
+    validateCommand(input.commands[i], i);
+  }
+
+  if (!Array.isArray(input.dependencies)) {
+    throw new StorageError(
+      "invalid_data",
+      "Operation 'dependencies' must be an array"
+    );
+  }
+
+  for (let i = 0; i < input.dependencies.length; i++) {
+    const dep = input.dependencies[i];
+    if (typeof dep !== "string" || dep.trim().length === 0) {
+      throw new StorageError(
+        "invalid_data",
+        `Dependency at index ${i} is not a valid identifier: '${dep}'`
+      );
+    }
+  }
+
+  if (input.editTime !== undefined && !validateHlc(input.editTime)) {
+    throw new StorageError(
+      "invalid_data",
+      "Operation 'editTime' contains invalid HLC fields"
+    );
+  }
+}
+
+function hasLoneSurrogates(str: string): boolean {
+  if (typeof str.isWellFormed === "function") {
+    return !str.isWellFormed();
+  }
+  // Regex checking for unpaired high or low surrogate code units
+  return /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(
+    str
+  );
 }
 
 export function canonicalizeJson(value: unknown): string {
@@ -65,7 +258,14 @@ export function canonicalizeJson(value: unknown): string {
   }
 
   if (valType === "string") {
-    return JSON.stringify(value);
+    const str = value as string;
+    if (hasLoneSurrogates(str)) {
+      throw new StorageError(
+        "invalid_data",
+        "Strings with unpaired surrogate code points are forbidden in canonical JSON (RFC 8785)"
+      );
+    }
+    return JSON.stringify(str);
   }
 
   if (valType === "undefined" || valType === "function" || valType === "symbol") {
@@ -103,6 +303,12 @@ export function canonicalizeJson(value: unknown): string {
   const entries: string[] = [];
 
   for (const key of keys) {
+    if (hasLoneSurrogates(key)) {
+      throw new StorageError(
+        "invalid_data",
+        "Object key with unpaired surrogate code points is forbidden in canonical JSON (RFC 8785)"
+      );
+    }
     const propVal = obj[key];
     if (
       propVal === undefined ||

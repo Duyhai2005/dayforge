@@ -145,11 +145,59 @@ Lớp lưu trữ T08 đã sẵn sàng cung cấp các giao diện và hợp đ�
    - `outbox.ts` đã chuẩn hóa `OperationEnvelope` và mã băm `request_hash` theo chuẩn RFC 8785 Canonical JSON SHA-256.
    - API `listPendingOperations(ownerContext)` cung cấp danh sách thao tác pending kèm theo `device_sequence` và `hlc` theo đúng định dạng wire của T03.
 3. **Bàn giao cho T11 (Bộ Điều Phối Đồng Bộ Client `sync-coordinator`):**
-   - T11 sẽ sử dụng `listPendingOperations` để lấy dữ liệu gửi push lên máy chủ khi có mạng.
-   - Sau khi nhận ACK thành công từ server, T11 gọi `markOperationSynced(ownerContext, opId, serverRevision)` để cập nhật trạng thái outbox mà không làm gián đoạn các transaction đang chạy.
+   - T11 sử dụng `listPendingOperations` (hoặc `listPending`) để lấy danh sách thao tác có trạng thái `pending` gửi push lên máy chủ khi có mạng.
+   - **Vòng đời Outbox & Xác nhận Pull (`ack_waiting_pull`):**
+     - Khi máy chủ trả về ACK xác nhận đã nhận operation, T11 gọi `markOperationAcked(ctx, operationId)` để chuyển trạng thái sang `ack_waiting_pull`. **Hàng outbox KHÔNG được xóa ngay tại thời điểm ACK!**
+     - Theo quy định hợp đồng T03 và T08, một hàng outbox BẮT BUỘC phải tiếp tục tồn tại ở trạng thái `ack_waiting_pull` cho đến khi một lượt pull tiếp theo (`subsequent pull`) xác nhận máy chủ đã xử lý thành công và cập nhật bản ghi vào projection.
+     - Tại thời điểm đó, T11 gọi `markOperationSynced(ctx, operationId)` để loại bỏ hoàn toàn hàng outbox khỏi IndexedDB một cách nguyên tử.
 4. **Bàn giao cho T12 (Bộ Thu Gọn LWW Reducer & Giải Quyết Xung Đột):**
    - T08 lưu trữ các bản ghi dưới dạng snapshot/overlay độc lập.
    - Khi T12 hoàn thành LWW reducer theo hợp đồng T03, T12 có thể đọc tuần tự các operations và áp dụng deterministic reduction lên store `records` một cách an toàn.
-5. **Bàn giao cho T13 (Cache Offline & Service Worker):**
-   - Store `view_preferences` đã được mã hóa an toàn theo từng owner, thay thế hoàn toàn `sessionStorage` tạm của T06.
+5. **Bàn giao cho T13 (Cache Offline & Primitives Lưu Trữ Tùy Chọn Xem):**
+   - **Storage Primitive / Handoff Seam (`view_preferences`):** Store `view_preferences` là một primitive lưu trữ cục bộ có schema rõ ràng (`calendar`, `date`, `scale`, `scrollY`, `updatedAt`), được mã hóa AES-256-GCM theo từng owner với AAD gắn chặt `ownerId:calendar`. Đây là một storage primitive / handoff seam độc lập với tầng UI components, cung cấp `readOwnerViewPreference` và `writeOwnerViewPreference` an toàn cho bất kỳ caller nào cần lưu trữ trạng thái hiển thị của owner mà không làm ô nhiễm store `records`.
    - Service worker ở T13 có thể phục vụ shell ứng dụng offline từ cache, trong khi toàn bộ dữ liệu nghiệp vụ offline được đảm bảo 100% bền vững trong IndexedDB của T08.
+
+---
+
+## 8. Giải Quyết Đầy Đủ Các Nhận Xét Đánh Giá PR #8 (PR #8 Review Resolution)
+
+Dưới đây là chi tiết kỹ thuật 8 hạng mục được review bởi maintainer repository `Duyhai2005` và các giải pháp đã được tích hợp:
+
+1. **Blocker 1 (Atomic In-Transaction HLC Allocation):**
+   - Đã cập nhật `PersistOperationInput` chấp nhận `clockInput?: ClockInputParams` hoặc `editTime?: HlcEditTime`.
+   - Trong `persistOperationAtomic`, `allocatedHlc` được sinh trực tiếp bên trong IndexedDB transaction dựa trên persisted `devMeta.last_hlc`.
+   - Nếu caller truyền explicit `editTime`, transaction xác thực rằng nó strictly ahead of `devMeta.last_hlc`; nếu stale, fail-closed với `StorageError("invalid_data")`.
+   - `allocatedHlc` được trả về trong `PersistOperationResult`.
+
+2. **Blocker 2 (Active Key Binding & Validation):**
+   - Hàm chuẩn hóa `checkOwnerMetaRecord(meta, ctx)` kiểm tra `meta.active_key_id && meta.active_key_id !== ctx.keyId`, fail-closed với `StorageError("locked")`.
+   - `unlockOwner` tự động kiểm tra: nếu re-unlock cùng owner với `keyId` khác mà chưa gọi lock, `lock_epoch` được tự động tăng để vô hiệu hóa context cũ.
+   - Thêm phương thức `isOwnerUnlocked(db, ownerId)` trả về boolean có lock hay không.
+
+3. **Blocker 3 (Single-Transaction Read Paths / Anti-TOCTOU):**
+   - Cả `getRecord`, `listPendingOperations`, `readOwnerViewPreference` và `writeOwnerViewPreference` đều chuyển sang transaction đơn nhất chứa `[owner_meta, target_store]`.
+   - Đọc và kiểm tra `owner_meta` ngay trong transaction, loại bỏ hoàn toàn TOCTOU window giữa lúc validate và lúc truy xuất dữ liệu.
+
+4. **Major 4 (Sequence Range & Fail-Closed Corruption):**
+   - Kiểm tra định dạng `devMeta.last_sequence`: bắt buộc khớp `/^[1-9][0-9]*$/`. Nếu chuỗi bị hỏng hoặc chứa ký tự không hợp lệ, fail-closed với `StorageError("invalid_data")` (không fallback về "1").
+   - Xác thực `currentSeq >= UINT64_MAX`: nếu đạt ngưỡng tối đa 64-bit uint64, fail-closed với `StorageError("invalid_data")`.
+
+5. **Major 5 (Strict HLC Logical Overflow Handling):**
+   - Khai báo hằng số `UINT32_MAX = 0xffffffff`.
+   - Xác thực `wallMs >= 0`, `calibrationId` UUID, `physical_ms <= Number.MAX_SAFE_INTEGER`, `logical <= UINT32_MAX`.
+   - `advanceHlc` ném `StorageError("invalid_data", "HLC logical counter overflow: maximum uint32 exceeded")` khi `logical >= UINT32_MAX`.
+
+6. **Major 6 (Record Decryption Expected AAD Derivation):**
+   - Trong `getRecord<T>(ctx, kind, id)`, expected AAD được sinh trực tiếp từ tham số gọi: store = `STORAGE_STORES.records` và recordId = `${kind}:${id}`.
+   - Không còn đọc `row.store` hay `row.record_id` từ đối tượng lưu trữ untrusted để làm expected AAD.
+
+7. **Major 7 (Outbox State Machine & Lifecycle Methods):**
+   - Bổ sung `queued` và `sending` vào `OutboxStatus`.
+   - Bổ sung `markOperationAcked(ctx, operationId)` (chuyển trạng thái sang `ack_waiting_pull`) và `markOperationSynced(ctx, operationId)` (xóa atomic khỏi outbox khi pull xác nhận) trên `LocalStorageGateway` và module `repositories.ts`.
+   - Cung cấp `listPendingOperations` song song với alias `listPending`.
+
+8. **Cleanup & Refinements:**
+   - Cắt tỉa `frontend/lib/storage/index.ts` thành curated explicit exports, ẩn các test helper nội bộ.
+   - Triển khai `escapeAadPart` (`\\` và `\:`) trong `createAad` loại trừ nguy cơ delimiter injection.
+   - Bổ sung kiểm tra `hasLoneSurrogates` trong `canonicalizeJson` từ chối lone surrogates theo chuẩn RFC 8785 section 3.2.2.2.
+   - Thêm đầy đủ các regression tests Playwright cho từng hạng mục kiểm chứng.

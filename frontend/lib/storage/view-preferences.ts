@@ -1,7 +1,12 @@
-import { type StorageResult, storageErr, storageOk } from "./errors";
+import { StorageError, type StorageResult, storageErr, storageOk } from "./errors";
 import { STORAGE_STORES } from "./schema";
 import { type EncryptedRecord, encryptPayload, decryptPayload } from "./crypto";
-import { type OwnerAccessContext, type OwnerMetadata, validateOwnerAccess } from "./owner-gate";
+import {
+  type OwnerAccessContext,
+  type OwnerMetadata,
+  checkOwnerMetaRecord,
+  validateOwnerAccess,
+} from "./owner-gate";
 
 export interface StoredViewPreference {
   date?: string;
@@ -40,48 +45,104 @@ export async function readOwnerViewPreference(
   ctx: OwnerAccessContext,
   calendar: "work" | "milestones"
 ): Promise<StorageResult<StoredViewPreference | null>> {
-  const valRes = await validateOwnerAccess(db, ctx);
-  if (!valRes.ok) {
-    return valRes;
-  }
-
   const rowResult = await new Promise<
     StorageResult<{
       owner_id: string;
       calendar: string;
       key_id: string;
-      store?: string;
-      record_id?: string;
       iv: Uint8Array;
       ciphertext: Uint8Array;
       updated_at?: string;
     } | null>
   >((resolve) => {
+    let customError: StorageError | null = null;
     try {
-      const tx = db.transaction(STORAGE_STORES.view_preferences, "readonly");
-      const store = tx.objectStore(STORAGE_STORES.view_preferences);
-      const req = store.get([ctx.ownerId, calendar]);
+      const tx = db.transaction(
+        [STORAGE_STORES.owner_meta, STORAGE_STORES.view_preferences],
+        "readonly"
+      );
+      const metaStore = tx.objectStore(STORAGE_STORES.owner_meta);
+      const prefStore = tx.objectStore(STORAGE_STORES.view_preferences);
 
-      req.onsuccess = () => {
-        resolve(storageOk(req.result ?? null));
+      const metaReq = metaStore.get(ctx.ownerId);
+      const prefReq = prefStore.get([ctx.ownerId, calendar]);
+
+      let metaChecked = false;
+      let recordValue: any = null;
+      let recordRead = false;
+
+      const finishIfReady = () => {
+        if (metaChecked && recordRead) {
+          resolve(storageOk(recordValue));
+        }
       };
-      req.onerror = () => {
-        resolve(
-          storageErr(
+
+      metaReq.onsuccess = () => {
+        const meta = metaReq.result as OwnerMetadata | undefined;
+        const checkErr = checkOwnerMetaRecord(meta, ctx);
+        if (checkErr) {
+          customError = checkErr;
+          tx.abort();
+          return;
+        }
+        metaChecked = true;
+        finishIfReady();
+      };
+      metaReq.onerror = () => {
+        if (!customError) {
+          customError = new StorageError(
             "unavailable",
-            req.error?.message ?? "Failed to read view preference",
-            req.error
-          )
-        );
+            metaReq.error?.message ?? "Failed to read owner metadata",
+            metaReq.error
+          );
+        }
       };
+
+      prefReq.onsuccess = () => {
+        recordValue = prefReq.result ?? null;
+        recordRead = true;
+        finishIfReady();
+      };
+      prefReq.onerror = () => {
+        if (!customError) {
+          customError = new StorageError(
+            "unavailable",
+            prefReq.error?.message ?? "Failed to read view preference",
+            prefReq.error
+          );
+        }
+      };
+
+      tx.onerror = () => {
+        if (customError) {
+          resolve(
+            storageErr(customError.code, customError.message, customError.cause)
+          );
+        } else {
+          resolve(
+            storageErr(
+              "unavailable",
+              tx.error?.message ?? "Transaction error reading view preference",
+              tx.error
+            )
+          );
+        }
+      };
+
       tx.onabort = () => {
-        resolve(
-          storageErr(
-            "transaction_aborted",
-            tx.error?.message ?? "Transaction aborted while reading view preference",
-            tx.error
-          )
-        );
+        if (customError) {
+          resolve(
+            storageErr(customError.code, customError.message, customError.cause)
+          );
+        } else {
+          resolve(
+            storageErr(
+              "transaction_aborted",
+              tx.error?.message ?? "Transaction aborted reading view preference",
+              tx.error
+            )
+          );
+        }
       };
     } catch (err) {
       resolve(
@@ -105,8 +166,8 @@ export async function readOwnerViewPreference(
 
   const encRecord: EncryptedRecord = {
     owner_id: row.owner_id,
-    store: row.store ?? STORAGE_STORES.view_preferences,
-    record_id: row.record_id ?? calendar,
+    store: STORAGE_STORES.view_preferences,
+    record_id: calendar,
     key_id: row.key_id,
     iv: row.iv,
     ciphertext: row.ciphertext,
@@ -188,30 +249,11 @@ export async function writeOwnerViewPreference(
       const metaReq = metaStore.get(ctx.ownerId);
       metaReq.onsuccess = () => {
         const meta = metaReq.result as OwnerMetadata | undefined;
-        if (!meta) {
+        const checkErr = checkOwnerMetaRecord(meta, ctx);
+        if (checkErr) {
           tx.abort();
           safeResolve(
-            storageErr(
-              "locked",
-              `Owner '${ctx.ownerId}' has not been initialized or unlocked`
-            )
-          );
-          return;
-        }
-
-        if (meta.locked) {
-          tx.abort();
-          safeResolve(storageErr("locked", `Owner '${ctx.ownerId}' is currently locked`));
-          return;
-        }
-
-        if (meta.lock_epoch !== ctx.lockEpoch) {
-          tx.abort();
-          safeResolve(
-            storageErr(
-              "locked",
-              `Stale access context: current epoch is ${meta.lock_epoch}, context epoch is ${ctx.lockEpoch}`
-            )
+            storageErr(checkErr.code, checkErr.message, checkErr.cause)
           );
           return;
         }

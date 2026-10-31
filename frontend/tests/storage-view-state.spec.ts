@@ -515,10 +515,12 @@ test.describe("Storage View Preferences Specifications", () => {
         expect(result.readBeta.value?.scrollY).toBe(500);
       }
 
-      // Cross-read with mismatched key must fail with integrity_failed
+      // Cross-read with mismatched key must fail with integrity_failed or locked
       expect(result.crossReadRes.ok).toBe(false);
       if (!result.crossReadRes.ok) {
-        expect(result.crossReadRes.error.code).toBe("integrity_failed");
+        expect(["integrity_failed", "locked"]).toContain(
+          result.crossReadRes.error.code
+        );
       }
     });
 

@@ -1,9 +1,21 @@
 import { StorageError, type StorageResult, storageErr, storageOk } from "./errors";
 import { STORAGE_STORES } from "./schema";
 import { type EncryptedRecord, encryptPayload } from "./crypto";
-import { type OwnerAccessContext, type OwnerMetadata } from "./owner-gate";
-import { type HlcEditTime, validateHlc } from "./clock-state";
-import { type OperationEnvelope, type OutboxEntry, type OutboxStatus, canonicalizeJson, sha256Hex } from "./outbox";
+import {
+  type OwnerAccessContext,
+  type OwnerMetadata,
+  checkOwnerMetaRecord,
+} from "./owner-gate";
+import { type HlcEditTime, advanceHlc, validateHlc } from "./clock-state";
+import {
+  type OperationEnvelope,
+  type OutboxEntry,
+  type OutboxStatus,
+  type StorageCommand,
+  canonicalizeJson,
+  sha256Hex,
+  validateOperationDraft,
+} from "./outbox";
 
 export interface RecordOverlayInput {
   kind: string;
@@ -11,13 +23,20 @@ export interface RecordOverlayInput {
   payload: unknown;
 }
 
+export interface ClockInputParams {
+  wallMs: number;
+  calibrationId: string;
+  quality?: "calibrated" | "offline_estimate" | "untrusted";
+}
+
 export interface PersistOperationInput {
   context: OwnerAccessContext;
   deviceId: string;
   operationId: string;
-  commands: readonly unknown[];
+  commands: readonly (StorageCommand | unknown)[];
   dependencies: readonly string[];
-  editTime: HlcEditTime;
+  editTime?: HlcEditTime;
+  clockInput?: ClockInputParams;
   recordOverlays?: readonly RecordOverlayInput[];
   _abortForTest?: boolean;
   _simulateQuotaExceeded?: boolean;
@@ -26,6 +45,7 @@ export interface PersistOperationInput {
 export interface PersistOperationResult {
   operationId: string;
   deviceSequence: string;
+  allocatedHlc: HlcEditTime;
   durability: "committed_to_indexeddb";
 }
 
@@ -37,20 +57,32 @@ export interface DeviceMetadata {
   updated_at?: string;
 }
 
+const UINT64_MAX = BigInt("18446744073709551615");
+
 export async function persistOperationAtomic(
   db: IDBDatabase,
   input: PersistOperationInput
 ): Promise<StorageResult<PersistOperationResult>> {
-  if (!input.operationId || typeof input.operationId !== "string") {
-    return storageErr("invalid_data", "Operation ID is required and must be a string");
-  }
-
-  if (!input.deviceId || typeof input.deviceId !== "string") {
-    return storageErr("invalid_data", "Device ID is required and must be a string");
-  }
-
-  if (!validateHlc(input.editTime)) {
-    return storageErr("invalid_data", "Invalid HLC edit time structure or values");
+  try {
+    validateOperationDraft({
+      operationId: input.operationId,
+      ownerId: input.context.ownerId,
+      deviceId: input.deviceId,
+      commands: input.commands,
+      dependencies: input.dependencies,
+      editTime: input.editTime,
+    });
+  } catch (valErr) {
+    return {
+      ok: false,
+      error:
+        valErr instanceof StorageError
+          ? valErr
+          : new StorageError(
+              "invalid_data",
+              valErr instanceof Error ? valErr.message : String(valErr)
+            ),
+    };
   }
 
   // Pre-encrypt record overlays before opening transaction
@@ -108,6 +140,13 @@ export async function persistOperationAtomic(
       const recordsStore = tx.objectStore(STORAGE_STORES.records);
 
       let allocatedSequence = "1";
+      let allocatedHlc: HlcEditTime = input.editTime ?? {
+        physical_ms: 0,
+        logical: 0,
+        calibration_id: "00000000-0000-0000-0000-000000000000",
+        raw_wall_ms: 0,
+        quality: "calibrated",
+      };
 
       // Keep transaction active during async crypto calculation
       let cryptoKeepAliveActive = true;
@@ -131,27 +170,9 @@ export async function persistOperationAtomic(
 
       ownerReq.onsuccess = () => {
         const meta = ownerReq.result as OwnerMetadata | undefined;
-        if (!meta) {
-          customError = new StorageError(
-            "locked",
-            `Owner '${input.context.ownerId}' has not been initialized or unlocked`
-          );
-          tx.abort();
-          return;
-        }
-        if (meta.locked) {
-          customError = new StorageError(
-            "locked",
-            `Owner '${input.context.ownerId}' is currently locked`
-          );
-          tx.abort();
-          return;
-        }
-        if (meta.lock_epoch !== input.context.lockEpoch) {
-          customError = new StorageError(
-            "locked",
-            `Stale access context: current epoch is ${meta.lock_epoch}, context epoch is ${input.context.lockEpoch}`
-          );
+        const checkErr = checkOwnerMetaRecord(meta, input.context);
+        if (checkErr) {
+          customError = checkErr;
           tx.abort();
           return;
         }
@@ -174,15 +195,86 @@ export async function persistOperationAtomic(
 
           devReq.onsuccess = async () => {
             const devMeta = devReq.result as DeviceMetadata | undefined;
-            if (devMeta && devMeta.last_sequence) {
-              try {
-                const currentSeq = BigInt(devMeta.last_sequence);
-                allocatedSequence = (currentSeq + BigInt(1)).toString();
-              } catch {
-                allocatedSequence = "1";
+            if (
+              devMeta &&
+              devMeta.last_sequence !== undefined &&
+              devMeta.last_sequence !== null
+            ) {
+              if (!/^[1-9][0-9]*$/.test(devMeta.last_sequence)) {
+                customError = new StorageError(
+                  "invalid_data",
+                  `Corrupted device sequence in metadata: '${devMeta.last_sequence}'`
+                );
+                tx.abort();
+                return;
               }
+              const currentSeq = BigInt(devMeta.last_sequence);
+              if (currentSeq >= UINT64_MAX) {
+                customError = new StorageError(
+                  "invalid_data",
+                  "Device sequence overflow: cannot increment sequence beyond uint64 max"
+                );
+                tx.abort();
+                return;
+              }
+              allocatedSequence = (currentSeq + BigInt(1)).toString();
             } else {
               allocatedSequence = "1";
+            }
+
+            // Derive or validate HLC
+            try {
+              if (input.clockInput) {
+                allocatedHlc = advanceHlc(
+                  devMeta?.last_hlc ?? null,
+                  input.clockInput.wallMs,
+                  input.clockInput.calibrationId,
+                  input.clockInput.quality ?? "calibrated"
+                );
+              } else if (input.editTime) {
+                if (devMeta?.last_hlc) {
+                  if (input.editTime.physical_ms < devMeta.last_hlc.physical_ms) {
+                    customError = new StorageError(
+                      "invalid_data",
+                      "Stale HLC: persisted clock state is ahead of input editTime"
+                    );
+                    tx.abort();
+                    return;
+                  }
+                  if (
+                    input.editTime.physical_ms === devMeta.last_hlc.physical_ms &&
+                    input.editTime.logical <= devMeta.last_hlc.logical
+                  ) {
+                    allocatedHlc = advanceHlc(
+                      devMeta.last_hlc,
+                      input.editTime.physical_ms,
+                      input.editTime.calibration_id,
+                      input.editTime.quality
+                    );
+                  } else {
+                    allocatedHlc = input.editTime;
+                  }
+                } else {
+                  allocatedHlc = input.editTime;
+                }
+              } else {
+                allocatedHlc = advanceHlc(
+                  devMeta?.last_hlc ?? null,
+                  Date.now(),
+                  "00000000-0000-0000-0000-000000000000",
+                  "calibrated"
+                );
+              }
+            } catch (hlcErr) {
+              customError =
+                hlcErr instanceof StorageError
+                  ? hlcErr
+                  : new StorageError(
+                      "invalid_data",
+                      hlcErr instanceof Error ? hlcErr.message : String(hlcErr)
+                    );
+              tx.abort();
+              return;
             }
 
             // Construct operation envelope
@@ -193,9 +285,9 @@ export async function persistOperationAtomic(
               owner_id: input.context.ownerId,
               device_id: input.deviceId,
               device_sequence: allocatedSequence,
-              edit_time: input.editTime,
+              edit_time: allocatedHlc,
               dependencies: input.dependencies,
-              commands: input.commands,
+              commands: input.commands as unknown as StorageCommand[],
             };
 
             // Start keepalive for async crypto
@@ -223,7 +315,7 @@ export async function persistOperationAtomic(
 
               // Determine outbox entry status (untrusted clock quality -> 'time_invalid')
               const status: OutboxStatus =
-                input.editTime.quality === "untrusted"
+                allocatedHlc.quality === "untrusted"
                   ? "time_invalid"
                   : "pending";
 
@@ -285,7 +377,7 @@ export async function persistOperationAtomic(
                 owner_id: input.context.ownerId,
                 device_id: input.deviceId,
                 last_sequence: allocatedSequence,
-                last_hlc: input.editTime,
+                last_hlc: allocatedHlc,
                 updated_at: new Date().toISOString(),
               };
               const devPutReq = devStore.put(updatedDevMeta);
@@ -367,6 +459,7 @@ export async function persistOperationAtomic(
           storageOk({
             operationId: input.operationId,
             deviceSequence: allocatedSequence,
+            allocatedHlc,
             durability: "committed_to_indexeddb",
           })
         );
