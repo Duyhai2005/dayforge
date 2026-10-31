@@ -8,3 +8,4 @@ export * from "./clock-state";
 export * from "./outbox";
 export * from "./unit-of-work";
 export * from "./repositories";
+export * from "./view-preferences";

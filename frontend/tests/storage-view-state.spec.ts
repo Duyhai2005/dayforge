@@ -82,7 +82,7 @@ test.describe("Storage View Preferences Specifications", () => {
   test.describe("Browser Runtime: ST-15 Migration and Owner Scoped View Preferences", () => {
     test.beforeEach(async ({ page }) => {
       await page.addInitScript({ content: scriptContent });
-      await page.goto("/work");
+      await page.goto("/account");
       await page.evaluate(async (dbName) => {
         sessionStorage.clear();
         return new Promise<void>((resolve, reject) => {
@@ -169,11 +169,17 @@ test.describe("Storage View Preferences Specifications", () => {
         closeDatabase(db);
 
         return {
-          migRes,
+          migRes: migRes.ok
+            ? { ok: true as const, value: migRes.value }
+            : { ok: false as const, error: { code: migRes.error.code, message: migRes.error.message } },
           workSessionAfter,
           milestonesSessionAfter,
-          workPrefRes,
-          milestonesPrefRes,
+          workPrefRes: workPrefRes.ok
+            ? { ok: true as const, value: workPrefRes.value }
+            : { ok: false as const, error: { code: workPrefRes.error.code, message: workPrefRes.error.message } },
+          milestonesPrefRes: milestonesPrefRes.ok
+            ? { ok: true as const, value: milestonesPrefRes.value }
+            : { ok: false as const, error: { code: milestonesPrefRes.error.code, message: milestonesPrefRes.error.message } },
           rawInspection,
         };
       });
@@ -250,7 +256,9 @@ test.describe("Storage View Preferences Specifications", () => {
         closeDatabase(db);
 
         return {
-          migRes,
+          migRes: migRes.ok
+            ? { ok: true as const, value: migRes.value }
+            : { ok: false as const, error: { code: migRes.error.code, message: migRes.error.message } },
           workSessionAfter,
           initialWork,
         };
@@ -306,11 +314,17 @@ test.describe("Storage View Preferences Specifications", () => {
         closeDatabase(db);
 
         return {
-          migRes,
+          migRes: migRes.ok
+            ? { ok: true as const, value: migRes.value }
+            : { ok: false as const, error: { code: migRes.error.code, message: migRes.error.message } },
           workSessionAfter,
           milestonesSessionAfter,
-          workPrefRes,
-          milestonesPrefRes,
+          workPrefRes: workPrefRes.ok
+            ? { ok: true as const, value: workPrefRes.value }
+            : { ok: false as const, error: { code: workPrefRes.error.code, message: workPrefRes.error.message } },
+          milestonesPrefRes: milestonesPrefRes.ok
+            ? { ok: true as const, value: milestonesPrefRes.value }
+            : { ok: false as const, error: { code: milestonesPrefRes.error.code, message: milestonesPrefRes.error.message } },
         };
       });
 
@@ -378,11 +392,17 @@ test.describe("Storage View Preferences Specifications", () => {
         closeDatabase(db);
 
         return {
-          migRes,
+          migRes: migRes.ok
+            ? { ok: true as const, value: migRes.value }
+            : { ok: false as const, error: { code: migRes.error.code, message: migRes.error.message } },
           workSessionAfter,
           milestonesSessionAfter,
-          workPrefRes,
-          milestonesPrefRes,
+          workPrefRes: workPrefRes.ok
+            ? { ok: true as const, value: workPrefRes.value }
+            : { ok: false as const, error: { code: workPrefRes.error.code, message: workPrefRes.error.message } },
+          milestonesPrefRes: milestonesPrefRes.ok
+            ? { ok: true as const, value: milestonesPrefRes.value }
+            : { ok: false as const, error: { code: milestonesPrefRes.error.code, message: milestonesPrefRes.error.message } },
         };
       });
 
@@ -471,9 +491,15 @@ test.describe("Storage View Preferences Specifications", () => {
         closeDatabase(db);
 
         return {
-          readAlpha,
-          readBeta,
-          crossReadRes,
+          readAlpha: readAlpha.ok
+            ? { ok: true as const, value: readAlpha.value }
+            : { ok: false as const, error: { code: readAlpha.error.code, message: readAlpha.error.message } },
+          readBeta: readBeta.ok
+            ? { ok: true as const, value: readBeta.value }
+            : { ok: false as const, error: { code: readBeta.error.code, message: readBeta.error.message } },
+          crossReadRes: crossReadRes.ok
+            ? { ok: true as const, value: crossReadRes.value }
+            : { ok: false as const, error: { code: crossReadRes.error.code, message: crossReadRes.error.message } },
         };
       });
 
@@ -568,12 +594,24 @@ test.describe("Storage View Preferences Specifications", () => {
         closeDatabase(db);
 
         return {
-          resUnder,
-          resOver,
-          resScale,
-          resScroll,
-          resMin,
-          resMax,
+          resUnder: resUnder.ok
+            ? { ok: true as const }
+            : { ok: false as const, error: { code: resUnder.error.code } },
+          resOver: resOver.ok
+            ? { ok: true as const }
+            : { ok: false as const, error: { code: resOver.error.code } },
+          resScale: resScale.ok
+            ? { ok: true as const }
+            : { ok: false as const, error: { code: resScale.error.code } },
+          resScroll: resScroll.ok
+            ? { ok: true as const }
+            : { ok: false as const, error: { code: resScroll.error.code } },
+          resMin: resMin.ok
+            ? { ok: true as const }
+            : { ok: false as const, error: { code: resMin.error.code } },
+          resMax: resMax.ok
+            ? { ok: true as const }
+            : { ok: false as const, error: { code: resMax.error.code } },
         };
       });
 
