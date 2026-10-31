@@ -74,12 +74,13 @@ export async function openDatabase(
       const db = request.result;
       const oldVersion = event.oldVersion;
       const newVersion = event.newVersion ?? version;
+      const transaction = request.transaction;
       try {
-        upgradeDatabase(db, oldVersion, newVersion);
+        upgradeDatabase(db, oldVersion, newVersion, transaction);
       } catch (err) {
         migrationError = err;
         try {
-          request.transaction?.abort();
+          transaction?.abort();
         } catch {
           // Ignore abort error
         }
@@ -126,9 +127,13 @@ export async function openDatabase(
       const errorName = error?.name;
 
       if (migrationError) {
+        const code =
+          migrationError instanceof StorageError
+            ? migrationError.code
+            : "migration_failed";
         resolve(
           storageErr(
-            "migration_failed",
+            code,
             migrationError instanceof Error
               ? migrationError.message
               : "Migration failed during database upgrade",

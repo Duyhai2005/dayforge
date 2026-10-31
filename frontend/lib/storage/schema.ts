@@ -1,3 +1,6 @@
+import { StorageError } from "./errors";
+import { executeMigrations } from "./migration";
+
 export const DB_NAME = "dayforge";
 export const CURRENT_SCHEMA_VERSION = 1;
 
@@ -78,8 +81,16 @@ export const STORE_DEFINITIONS: readonly StoreDefinition[] = [
 export function upgradeDatabase(
   db: IDBDatabase,
   oldVersion: number,
-  _newVersion: number
+  newVersion: number,
+  transaction?: IDBTransaction | null
 ): void {
+  if (newVersion < oldVersion) {
+    throw new StorageError(
+      "unsupported_version",
+      `Cannot downgrade database from version ${oldVersion} to ${newVersion}`
+    );
+  }
+
   if (oldVersion < 1) {
     for (const def of STORE_DEFINITIONS) {
       const store = !db.objectStoreNames.contains(def.name)
@@ -96,5 +107,14 @@ export function upgradeDatabase(
         }
       }
     }
+  }
+
+  if (newVersion > Math.max(1, oldVersion)) {
+    executeMigrations(
+      db,
+      transaction as IDBTransaction,
+      oldVersion,
+      newVersion
+    );
   }
 }
