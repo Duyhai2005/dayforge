@@ -40,12 +40,12 @@ async def query(settings, sql, parameters=None):
 
 
 @pytest.fixture
-def migrated(t05_mysql_settings):
+def migrated(mysql_test_settings):
     # The guarded fixture must run before any CLI command; no create_all shortcut.
     alembic("downgrade", "base")
     alembic("upgrade", "head")
     try:
-        yield t05_mysql_settings
+        yield mysql_test_settings
     finally:
         alembic("downgrade", "base")
 

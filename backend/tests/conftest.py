@@ -45,12 +45,12 @@ def system_client(settings_factory):
 
 
 @pytest.fixture
-def mysql_control(t05_mysql_settings):
+def mysql_control(mysql_test_settings):
     import subprocess
     from time import monotonic, sleep
 
-    container = os.environ["DAYFORGE_T05_TEST_CONTAINER_ID"]
-    project = os.environ["DAYFORGE_T05_TEST_PROJECT"]
+    container = os.environ["DAYFORGE_TEST_CONTAINER_ID"]
+    project = os.environ["DAYFORGE_TEST_PROJECT"]
 
     def docker(*arguments, timeout=15):
         try:
@@ -145,7 +145,7 @@ def settings_factory():
             public_origin="https://localhost:3000",
             db_host="127.0.0.1",
             db_port=3306,
-            db_name="dayforge_t05_test",
+            db_name="dayforge_test",
             db_user="dayforge_test",
             db_password="test-only-password",
         )
@@ -156,21 +156,26 @@ def settings_factory():
 
 
 @pytest.fixture
-def t05_mysql_settings():
+def mysql_test_settings():
     from app.core.config import load_settings
 
-    run_id = os.environ.get("DAYFORGE_T05_TEST_RUN_ID", "")
+    run_id = os.environ.get("DAYFORGE_TEST_RUN_ID", "")
     if not re.fullmatch(r"[0-9a-f]{32}", run_id):
         pytest.fail("MySQL tests require an isolated runner test-run ID")
     if (
-        os.environ.get("DB_NAME") != "dayforge_t05_test"
+        os.environ.get("DB_NAME") != "dayforge_test"
         or os.environ.get("APP_ENV") != "test"
         or os.environ.get("DB_USER") != "dayforge_test"
         or os.environ.get("DB_HOST") != "127.0.0.1"
         or not re.fullmatch(
-            r"[0-9a-f]{12,64}", os.environ.get("DAYFORGE_T05_TEST_CONTAINER_ID", "")
+            r"[0-9a-f]{12,64}", os.environ.get("DAYFORGE_TEST_CONTAINER_ID", "")
         )
-        or os.environ.get("DAYFORGE_T05_TEST_PROJECT") != f"dayforge-t05-{run_id}"
+        or os.environ.get("DAYFORGE_TEST_PROJECT") != f"dayforge-test-{run_id}"
     ):
         pytest.fail("MySQL test environment is not isolated")
     return load_settings()
+
+
+@pytest.fixture
+def t05_mysql_settings(mysql_test_settings):
+    return mysql_test_settings

@@ -46,20 +46,20 @@ async def round_trip_local_date(settings: Settings, value: str) -> str:
 @pytest.mark.parametrize(
     "value", ["0001-01-01", "0999-12-31", "2000-02-29", "9999-12-31"]
 )
-def test_local_date_round_trip_has_no_year_1000_floor(t05_mysql_settings, value):
-    assert asyncio.run(round_trip_local_date(t05_mysql_settings, value)) == value
+def test_local_date_round_trip_has_no_year_1000_floor(mysql_test_settings, value):
+    assert asyncio.run(round_trip_local_date(mysql_test_settings, value)) == value
 
 
-def test_uuid_bytes_use_network_order(t05_mysql_settings):
+def test_uuid_bytes_use_network_order(mysql_test_settings):
     value = UUID("00112233-4455-4677-8899-aabbccddeeff")
-    result, raw = asyncio.run(round_trip(t05_mysql_settings, UUIDBytes(), value))
+    result, raw = asyncio.run(round_trip(mysql_test_settings, UUIDBytes(), value))
     assert result == value
     assert raw == "00112233445546778899AABBCCDDEEFF"
 
 
-def test_utc_milliseconds_round_trip(t05_mysql_settings):
+def test_utc_milliseconds_round_trip(mysql_test_settings):
     value = datetime(2026, 10, 29, 8, 2, 3, 456000, tzinfo=timezone(timedelta(hours=7)))
-    result, _ = asyncio.run(round_trip(t05_mysql_settings, UTCMilliseconds(), value))
+    result, _ = asyncio.run(round_trip(mysql_test_settings, UTCMilliseconds(), value))
     assert result == datetime(2026, 10, 29, 1, 2, 3, 456000, tzinfo=timezone.utc)
     assert result.tzinfo is timezone.utc
 
@@ -68,6 +68,6 @@ def test_utc_milliseconds_round_trip(t05_mysql_settings):
     "value",
     [datetime(2026, 1, 1), datetime(2026, 1, 1, microsecond=1, tzinfo=timezone.utc)],
 )
-def test_naive_or_submillisecond_datetime_is_rejected(t05_mysql_settings, value):
+def test_naive_or_submillisecond_datetime_is_rejected(mysql_test_settings, value):
     with pytest.raises(StatementError, match="invalid_timestamp"):
-        asyncio.run(round_trip(t05_mysql_settings, UTCMilliseconds(), value))
+        asyncio.run(round_trip(mysql_test_settings, UTCMilliseconds(), value))

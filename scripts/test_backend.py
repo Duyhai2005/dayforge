@@ -56,16 +56,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         return subprocess.run(pytest, cwd=BACKEND).returncode
 
     run_id = uuid4().hex
-    project = f"dayforge-t05-{run_id}"
+    project = f"dayforge-test-{run_id}"
     environ = os.environ.copy()
     compose = None
     exit_code = 1
-    with tempfile.TemporaryDirectory(prefix="dayforge-t05-") as directory:
+    with tempfile.TemporaryDirectory(prefix="dayforge-test-") as directory:
         env_file = Path(directory) / "empty.env"
         env_file.write_text("", encoding="utf-8")
         try:
+            image_probe_environ = environ.copy()
+            image_probe_environ.update(
+                MYSQL_DATABASE="dayforge_probe",
+                MYSQL_USER="dayforge_probe",
+                MYSQL_PASSWORD="probe",
+                MYSQL_ROOT_PASSWORD="probe",
+            )
             images = _docker(
-                ["compose", "--env-file", ".env", "config", "--images"], environ
+                [
+                    "compose",
+                    "--env-file",
+                    str(env_file),
+                    "-f",
+                    str(ROOT / "compose.yaml"),
+                    "config",
+                    "--images",
+                ],
+                image_probe_environ,
             ).splitlines()
             if len(images) != 1 or not re.fullmatch(
                 r"mysql:[^\s@]+@sha256:[0-9a-f]{64}", images[0]
@@ -78,10 +94,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 probe.bind(("127.0.0.1", 0))
                 test_port = str(probe.getsockname()[1])
             environ.update(
-                DAYFORGE_T05_MYSQL_IMAGE=images[0],
-                DAYFORGE_T05_MYSQL_PASSWORD=secrets.token_hex(32),
-                DAYFORGE_T05_MYSQL_ROOT_PASSWORD=secrets.token_hex(32),
-                DAYFORGE_T05_MYSQL_PORT=test_port,
+                DAYFORGE_TEST_MYSQL_IMAGE=images[0],
+                DAYFORGE_TEST_MYSQL_PASSWORD=secrets.token_hex(32),
+                DAYFORGE_TEST_MYSQL_ROOT_PASSWORD=secrets.token_hex(32),
+                DAYFORGE_TEST_MYSQL_PORT=test_port,
             )
             compose = [
                 "compose",
@@ -107,19 +123,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 PUBLIC_ORIGIN="https://localhost:3000",
                 DB_HOST="127.0.0.1",
                 DB_PORT=match[1],
-                DB_NAME="dayforge_t05_test",
+                DB_NAME="dayforge_test",
                 DB_USER="dayforge_test",
-                DB_PASSWORD=environ["DAYFORGE_T05_MYSQL_PASSWORD"],
-                DAYFORGE_T05_TEST_RUN_ID=run_id,
-                DAYFORGE_T05_TEST_PROJECT=project,
-                DAYFORGE_T05_TEST_CONTAINER_ID=container,
+                DB_PASSWORD=environ["DAYFORGE_TEST_MYSQL_PASSWORD"],
+                DAYFORGE_TEST_RUN_ID=run_id,
+                DAYFORGE_TEST_PROJECT=project,
+                DAYFORGE_TEST_CONTAINER_ID=container,
             )
             # Tests receive only the application credential, never the root credential.
             test_environ = {
                 key: value
                 for key, value in environ.items()
                 if key
-                not in ("DAYFORGE_T05_MYSQL_ROOT_PASSWORD", "MYSQL_ROOT_PASSWORD")
+                not in ("DAYFORGE_TEST_MYSQL_ROOT_PASSWORD", "MYSQL_ROOT_PASSWORD")
             }
             exit_code = subprocess.run(pytest, cwd=BACKEND, env=test_environ).returncode
         except (RunnerError, OSError):
@@ -129,7 +145,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         finally:
             if compose is not None and re.fullmatch(
-                r"dayforge-t05-[0-9a-f]{32}", project
+                r"dayforge-test-[0-9a-f]{32}", project
             ):
                 try:
                     _docker(

@@ -48,23 +48,23 @@ def _check_transaction(settings, action, expected):
     asyncio.run(check())
 
 
-def test_explicit_transaction_commits(t05_mysql_settings):
-    _check_transaction(t05_mysql_settings, "commit", 1)
+def test_explicit_transaction_commits(mysql_test_settings):
+    _check_transaction(mysql_test_settings, "commit", 1)
 
 
-def test_exception_rolls_back(t05_mysql_settings):
-    _check_transaction(t05_mysql_settings, "exception", 0)
+def test_exception_rolls_back(mysql_test_settings):
+    _check_transaction(mysql_test_settings, "exception", 0)
 
 
-def test_close_without_commit_rolls_back(t05_mysql_settings):
-    _check_transaction(t05_mysql_settings, "close", 0)
+def test_close_without_commit_rolls_back(mysql_test_settings):
+    _check_transaction(mysql_test_settings, "close", 0)
 
 
-def test_database_round_trip_uses_utf8mb4_utc_and_strict_mode(t05_mysql_settings):
+def test_database_round_trip_uses_utf8mb4_utc_and_strict_mode(mysql_test_settings):
     from app.core.database import close_database, create_database
 
     async def check():
-        database = create_database(t05_mysql_settings)
+        database = create_database(mysql_test_settings)
         try:
             async with database.engine.connect() as connection:
                 row = (
