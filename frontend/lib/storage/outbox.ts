@@ -9,6 +9,31 @@ export const HASH_PATTERN = /^[0-9a-f]{64}$/;
 
 export const DATE_PATTERN = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/;
 
+export function isCanonicalLocalDate(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  if (value < "0001-01-01" || value > "9999-12-31") return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return (
+    Number.isFinite(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === value
+  );
+}
+
+const INT64_MIN = BigInt("-9223372036854775808");
+const INT64_MAX = BigInt("9223372036854775807");
+const ORDER_KEY_PATTERN = /^(0|-?[1-9][0-9]*)$/;
+
+export function isCanonicalInt64(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  if (value.length > 20 || !ORDER_KEY_PATTERN.test(value)) return false;
+  try {
+    const n = BigInt(value);
+    return n >= INT64_MIN && n <= INT64_MAX;
+  } catch {
+    return false;
+  }
+}
+
 export type SupportedRootKind = "plan" | "milestone" | "work_item";
 
 export const SUPPORTED_ACTIONS = [
@@ -72,7 +97,7 @@ export interface StorageCommand {
   };
   action: SupportedAction;
   payload: Record<string, unknown>;
-  precondition?: null | StoragePrecondition;
+  precondition: null | StoragePrecondition;
 }
 
 export interface OperationEnvelope {
@@ -171,8 +196,8 @@ function validateMilestoneData(data: unknown, prefix: string): void {
   ) {
     throw new StorageError("invalid_data", `${prefix} data.title must be 1..120 chars without control characters`);
   }
-  if (typeof obj.date !== "string" || !DATE_PATTERN.test(obj.date)) {
-    throw new StorageError("invalid_data", `${prefix} data.date must be YYYY-MM-DD`);
+  if (!isCanonicalLocalDate(obj.date)) {
+    throw new StorageError("invalid_data", `${prefix} data.date must be a valid canonical LocalDate`);
   }
   if (obj.period !== null && (typeof obj.period !== "string" || !VALID_PERIODS.has(obj.period))) {
     throw new StorageError("invalid_data", `${prefix} data.period must be Period or null`);
@@ -223,8 +248,8 @@ function validateTaskData(data: unknown, prefix: string): void {
   ) {
     throw new StorageError("invalid_data", `${prefix} data.title must be 1..120 chars without control characters`);
   }
-  if (typeof obj.date !== "string" || !DATE_PATTERN.test(obj.date)) {
-    throw new StorageError("invalid_data", `${prefix} data.date must be YYYY-MM-DD`);
+  if (!isCanonicalLocalDate(obj.date)) {
+    throw new StorageError("invalid_data", `${prefix} data.date must be a valid canonical LocalDate`);
   }
   if (typeof obj.period !== "string" || !VALID_PERIODS.has(obj.period)) {
     throw new StorageError("invalid_data", `${prefix} data.period must be Period`);
@@ -247,11 +272,7 @@ function validateTaskData(data: unknown, prefix: string): void {
   if (obj.status !== "pending" && obj.status !== "completed") {
     throw new StorageError("invalid_data", `${prefix} data.status must be 'pending' or 'completed'`);
   }
-  if (
-    typeof obj.order_key !== "string" ||
-    obj.order_key.length > 20 ||
-    !/^(0|-?[1-9][0-9]*)$/.test(obj.order_key)
-  ) {
+  if (!isCanonicalInt64(obj.order_key)) {
     throw new StorageError("invalid_data", `${prefix} data.order_key must be signed int64 decimal string`);
   }
 }
@@ -300,11 +321,7 @@ function validateTaskTemplate(template: unknown, prefix: string): void {
   if (typeof obj.standalone_color_id !== "string" || !VALID_COLORS.has(obj.standalone_color_id)) {
     throw new StorageError("invalid_data", `${prefix} template.standalone_color_id must be Color`);
   }
-  if (
-    typeof obj.order_key !== "string" ||
-    obj.order_key.length > 20 ||
-    !/^(0|-?[1-9][0-9]*)$/.test(obj.order_key)
-  ) {
+  if (!isCanonicalInt64(obj.order_key)) {
     throw new StorageError("invalid_data", `${prefix} template.order_key must be signed int64 decimal string`);
   }
 }
@@ -322,12 +339,14 @@ function validateRecurrenceRule(rule: unknown, prefix: string): void {
   if (!Array.isArray(obj.weekdays) || obj.weekdays.length < 1 || obj.weekdays.length > 7) {
     throw new StorageError("invalid_data", `${prefix} rule.weekdays must be array of 1..7 integers`);
   }
-  const seen = new Set<number>();
-  for (const day of obj.weekdays) {
-    if (typeof day !== "number" || !Number.isInteger(day) || day < 1 || day > 7 || seen.has(day)) {
-      throw new StorageError("invalid_data", `${prefix} rule.weekdays must contain unique integers 1..7`);
+  for (let i = 0; i < obj.weekdays.length; i++) {
+    const day = obj.weekdays[i];
+    if (typeof day !== "number" || !Number.isInteger(day) || day < 1 || day > 7) {
+      throw new StorageError("invalid_data", `${prefix} rule.weekdays must contain integers 1..7`);
     }
-    seen.add(day);
+    if (i > 0 && day <= (obj.weekdays[i - 1] as number)) {
+      throw new StorageError("invalid_data", `${prefix} rule.weekdays must be strictly ascending`);
+    }
   }
 }
 
@@ -349,8 +368,8 @@ function validateTaskTarget(target: unknown, prefix: string): void {
     if (typeof obj.source_segment_id !== "string" || !UUID_PATTERN.test(obj.source_segment_id)) {
       throw new StorageError("invalid_data", `${prefix} target.source_segment_id must be UUID`);
     }
-    if (typeof obj.original_date !== "string" || !DATE_PATTERN.test(obj.original_date)) {
-      throw new StorageError("invalid_data", `${prefix} target.original_date must be YYYY-MM-DD`);
+    if (!isCanonicalLocalDate(obj.original_date)) {
+      throw new StorageError("invalid_data", `${prefix} target.original_date must be a valid canonical LocalDate`);
     }
   } else if (obj.kind === "detached") {
     for (const k of Object.keys(obj)) {
@@ -507,8 +526,8 @@ export function validateCommand(cmd: unknown, index = 0): cmd is StorageCommand 
           throw new StorageError("invalid_data", `${prefix} payload contains unknown property '${k}'`);
         }
       }
-      if (typeof candidate.payload.start_date !== "string" || !DATE_PATTERN.test(candidate.payload.start_date)) {
-        throw new StorageError("invalid_data", `${prefix} payload.start_date must be YYYY-MM-DD`);
+      if (!isCanonicalLocalDate(candidate.payload.start_date)) {
+        throw new StorageError("invalid_data", `${prefix} payload.start_date must be a valid canonical LocalDate`);
       }
       validateRecurrenceRule(candidate.payload.rule, prefix);
       validateTaskTemplate(candidate.payload.template, prefix);
@@ -533,8 +552,8 @@ export function validateCommand(cmd: unknown, index = 0): cmd is StorageCommand 
       if (typeof candidate.payload.source_segment_id !== "string" || !UUID_PATTERN.test(candidate.payload.source_segment_id)) {
         throw new StorageError("invalid_data", `${prefix} payload.source_segment_id must be UUID`);
       }
-      if (typeof candidate.payload.original_date !== "string" || !DATE_PATTERN.test(candidate.payload.original_date)) {
-        throw new StorageError("invalid_data", `${prefix} payload.original_date must be YYYY-MM-DD`);
+      if (!isCanonicalLocalDate(candidate.payload.original_date)) {
+        throw new StorageError("invalid_data", `${prefix} payload.original_date must be a valid canonical LocalDate`);
       }
       validateTaskData(candidate.payload.data, prefix);
       break;
@@ -548,8 +567,8 @@ export function validateCommand(cmd: unknown, index = 0): cmd is StorageCommand 
       if (typeof candidate.payload.source_segment_id !== "string" || !UUID_PATTERN.test(candidate.payload.source_segment_id)) {
         throw new StorageError("invalid_data", `${prefix} payload.source_segment_id must be UUID`);
       }
-      if (typeof candidate.payload.original_date !== "string" || !DATE_PATTERN.test(candidate.payload.original_date)) {
-        throw new StorageError("invalid_data", `${prefix} payload.original_date must be YYYY-MM-DD`);
+      if (!isCanonicalLocalDate(candidate.payload.original_date)) {
+        throw new StorageError("invalid_data", `${prefix} payload.original_date must be a valid canonical LocalDate`);
       }
       break;
     }
@@ -585,8 +604,8 @@ export function validateCommand(cmd: unknown, index = 0): cmd is StorageCommand 
       if (typeof candidate.payload.source_segment_id !== "string" || !UUID_PATTERN.test(candidate.payload.source_segment_id)) {
         throw new StorageError("invalid_data", `${prefix} payload.source_segment_id must be UUID`);
       }
-      if (typeof candidate.payload.cutoff_original_date !== "string" || !DATE_PATTERN.test(candidate.payload.cutoff_original_date)) {
-        throw new StorageError("invalid_data", `${prefix} payload.cutoff_original_date must be YYYY-MM-DD`);
+      if (!isCanonicalLocalDate(candidate.payload.cutoff_original_date)) {
+        throw new StorageError("invalid_data", `${prefix} payload.cutoff_original_date must be a valid canonical LocalDate`);
       }
       validateRecurrenceRule(candidate.payload.rule, prefix);
       validateTaskTemplate(candidate.payload.template, prefix);
@@ -601,8 +620,8 @@ export function validateCommand(cmd: unknown, index = 0): cmd is StorageCommand 
       if (typeof candidate.payload.source_segment_id !== "string" || !UUID_PATTERN.test(candidate.payload.source_segment_id)) {
         throw new StorageError("invalid_data", `${prefix} payload.source_segment_id must be UUID`);
       }
-      if (typeof candidate.payload.cutoff_original_date !== "string" || !DATE_PATTERN.test(candidate.payload.cutoff_original_date)) {
-        throw new StorageError("invalid_data", `${prefix} payload.cutoff_original_date must be YYYY-MM-DD`);
+      if (!isCanonicalLocalDate(candidate.payload.cutoff_original_date)) {
+        throw new StorageError("invalid_data", `${prefix} payload.cutoff_original_date must be a valid canonical LocalDate`);
       }
       break;
     }
@@ -613,11 +632,7 @@ export function validateCommand(cmd: unknown, index = 0): cmd is StorageCommand 
         }
       }
       validateTaskTarget(candidate.payload.target, prefix);
-      if (
-        typeof candidate.payload.order_key !== "string" ||
-        candidate.payload.order_key.length > 20 ||
-        !/^(0|-?[1-9][0-9]*)$/.test(candidate.payload.order_key)
-      ) {
+      if (!isCanonicalInt64(candidate.payload.order_key)) {
         throw new StorageError("invalid_data", `${prefix} payload.order_key must be signed int64 decimal string`);
       }
       if (candidate.payload.intent !== "user_reorder" && candidate.payload.intent !== "rank_maintenance") {
@@ -645,14 +660,25 @@ export function validateCommand(cmd: unknown, index = 0): cmd is StorageCommand 
       if (!Array.isArray(candidate.payload.expected_states) || candidate.payload.expected_states.length === 0 || candidate.payload.expected_states.length > 1000) {
         throw new StorageError("invalid_data", `${prefix} payload.expected_states must be array of 1..1000 items`);
       }
+      const seenRoots = new Set<string>();
       for (let sIdx = 0; sIdx < candidate.payload.expected_states.length; sIdx++) {
         const state = candidate.payload.expected_states[sIdx] as Record<string, unknown>;
-        if (!state || typeof state !== "object") {
+        if (!state || typeof state !== "object" || Array.isArray(state)) {
           throw new StorageError("invalid_data", `${prefix} expected_states[${sIdx}] must be an object`);
         }
+        for (const sk of Object.keys(state)) {
+          if (sk !== "root" && sk !== "hash") {
+            throw new StorageError("invalid_data", `${prefix} expected_states[${sIdx}] contains unknown property '${sk}'`);
+          }
+        }
         const stateRoot = state.root as Record<string, unknown> | undefined;
-        if (!stateRoot || typeof stateRoot !== "object" || !stateRoot.kind || !stateRoot.id) {
-          throw new StorageError("invalid_data", `${prefix} expected_states[${sIdx}].root must have kind and id`);
+        if (!stateRoot || typeof stateRoot !== "object" || Array.isArray(stateRoot)) {
+          throw new StorageError("invalid_data", `${prefix} expected_states[${sIdx}].root must be an object`);
+        }
+        for (const rk of Object.keys(stateRoot)) {
+          if (rk !== "kind" && rk !== "id") {
+            throw new StorageError("invalid_data", `${prefix} expected_states[${sIdx}].root contains unknown property '${rk}'`);
+          }
         }
         if (stateRoot.kind !== "plan" && stateRoot.kind !== "milestone" && stateRoot.kind !== "work_item") {
           throw new StorageError("invalid_data", `${prefix} expected_states[${sIdx}].root.kind must be plan, milestone, or work_item`);
@@ -663,15 +689,34 @@ export function validateCommand(cmd: unknown, index = 0): cmd is StorageCommand 
         if (typeof state.hash !== "string" || !HASH_PATTERN.test(state.hash)) {
           throw new StorageError("invalid_data", `${prefix} expected_states[${sIdx}].hash must be 64-hex string`);
         }
+        const rootKey = `${stateRoot.kind}:${stateRoot.id}`;
+        if (seenRoots.has(rootKey)) {
+          throw new StorageError("invalid_data", `${prefix} expected_states contains duplicate root '${rootKey}'`);
+        }
+        seenRoots.add(rootKey);
       }
       break;
     }
   }
 
   if (
-    candidate.precondition !== undefined &&
-    candidate.precondition !== null
+    !Object.prototype.hasOwnProperty.call(cmd, "precondition") ||
+    candidate.precondition === undefined
   ) {
+    throw new StorageError(
+      "invalid_data",
+      `Command at index ${index} must include precondition (use null when unguarded)`
+    );
+  }
+
+  if (candidate.precondition === null) {
+    if (candidate.action === "set_order") {
+      throw new StorageError(
+        "invalid_data",
+        `Command at index ${index} action 'set_order' requires a precondition with 'expected_root_hash'`
+      );
+    }
+  } else {
     if (
       typeof candidate.precondition !== "object" ||
       Array.isArray(candidate.precondition)
@@ -695,6 +740,12 @@ export function validateCommand(cmd: unknown, index = 0): cmd is StorageCommand 
           `Command at index ${index} precondition contains unknown property '${key}'`
         );
       }
+    }
+    if (candidate.action === "set_order" && !candidate.precondition.expected_root_hash) {
+      throw new StorageError(
+        "invalid_data",
+        `Command at index ${index} action 'set_order' requires a precondition with 'expected_root_hash'`
+      );
     }
     if (candidate.precondition.expected_root_hash !== undefined) {
       if (
@@ -724,10 +775,10 @@ export function validateCommand(cmd: unknown, index = 0): cmd is StorageCommand 
           );
         }
       }
-      if (typeof bucket.date !== "string" || !DATE_PATTERN.test(bucket.date)) {
+      if (!isCanonicalLocalDate(bucket.date)) {
         throw new StorageError(
           "invalid_data",
-          `Command at index ${index} precondition expected_bucket date must be YYYY-MM-DD`
+          `Command at index ${index} precondition expected_bucket date must be a valid canonical LocalDate`
         );
       }
       if (
@@ -826,11 +877,21 @@ export function validateOperationDraft(input: {
     }
   }
 
-  if (hasUndo && input.commands.length !== 1) {
-    throw new StorageError(
-      "invalid_data",
-      `Operation with 'undo' action must contain exactly 1 command (got ${input.commands.length})`
-    );
+  if (hasUndo) {
+    if (input.commands.length !== 1) {
+      throw new StorageError(
+        "invalid_data",
+        `Operation with 'undo' action must contain exactly 1 command (got ${input.commands.length})`
+      );
+    }
+    const undoCmd = input.commands[0] as StorageCommand;
+    const origOpId = (undoCmd.payload as { original_operation_id?: string })?.original_operation_id;
+    if (!origOpId || !input.dependencies.includes(origOpId)) {
+      throw new StorageError(
+        "invalid_data",
+        `Operation with 'undo' action must include original_operation_id '${origOpId}' in dependencies`
+      );
+    }
   }
 
   if (hasSetOrder && !hasExpectedBucket) {

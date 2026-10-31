@@ -1,5 +1,24 @@
 import { StorageError, type StorageResult, storageErr, storageOk } from "./errors";
 import { STORAGE_STORES } from "./schema";
+import { encryptPayload, decryptPayload } from "./crypto";
+
+export const OWNER_KEY_SENTINEL_RECORD_ID = "owner-key-sentinel";
+
+interface SentinelPayload {
+  kind: "dayforge-owner-key-check";
+  format_version: 1;
+  owner_id: string;
+  key_id: string;
+}
+
+interface SentinelSyncMetaRow {
+  owner_id: string;
+  key: string;
+  key_id: string;
+  iv: Uint8Array;
+  ciphertext: Uint8Array;
+  created_at?: string;
+}
 
 export interface OwnerAccessContext {
   readonly ownerId: string;
@@ -260,56 +279,224 @@ export async function unlockOwner(
     );
   }
 
+  // Phase 1: Read existing state
+  type Phase1State = {
+    meta: OwnerMetadata | null;
+    sentinel: SentinelSyncMetaRow | null;
+    recordsCount: number;
+    operationsCount: number;
+  };
+
+  const phase1Result = await new Promise<StorageResult<Phase1State>>((resolve) => {
+    try {
+      const tx = db.transaction(
+        [
+          STORAGE_STORES.owner_meta,
+          STORAGE_STORES.sync_meta,
+          STORAGE_STORES.records,
+          STORAGE_STORES.operations,
+        ],
+        "readonly"
+      );
+      const metaStore = tx.objectStore(STORAGE_STORES.owner_meta);
+      const syncStore = tx.objectStore(STORAGE_STORES.sync_meta);
+      const recStore = tx.objectStore(STORAGE_STORES.records);
+      const opStore = tx.objectStore(STORAGE_STORES.operations);
+
+      const metaReq = metaStore.get(ownerId);
+      const syncReq = syncStore.get([ownerId, OWNER_KEY_SENTINEL_RECORD_ID]);
+      const recReq = recStore.index("by_kind").count(IDBKeyRange.bound([ownerId, ""], [ownerId, "\uffff"]));
+      const opReq = opStore.count(IDBKeyRange.bound([ownerId, ""], [ownerId, "\uffff"]));
+
+      tx.oncomplete = () => {
+        resolve(
+          storageOk({
+            meta: (metaReq.result as OwnerMetadata) ?? null,
+            sentinel: (syncReq.result as SentinelSyncMetaRow) ?? null,
+            recordsCount: recReq.result ?? 0,
+            operationsCount: opReq.result ?? 0,
+          })
+        );
+      };
+
+      tx.onerror = () => {
+        resolve(
+          storageErr(
+            "transaction_aborted",
+            tx.error?.message ?? "Failed to read owner state for unlock",
+            tx.error
+          )
+        );
+      };
+
+      tx.onabort = () => {
+        resolve(
+          storageErr(
+            "transaction_aborted",
+            tx.error?.message ?? "Transaction aborted while reading owner state",
+            tx.error
+          )
+        );
+      };
+    } catch (err) {
+      resolve(
+        storageErr(
+          "unavailable",
+          err instanceof Error ? err.message : "Error executing unlock read transaction",
+          err
+        )
+      );
+    }
+  });
+
+  if (!phase1Result.ok) {
+    return phase1Result;
+  }
+
+  const { meta: existing, sentinel, recordsCount, operationsCount } = phase1Result.value;
+
+  // Phase 2: Metadata validation & Key continuity verification
+  if (existing) {
+    if (!existing.locked) {
+      if (!existing.active_key_id) {
+        return storageErr(
+          "invalid_data",
+          `Unlocked owner '${ownerId}' is missing active_key_id; lock and re-unlock required`
+        );
+      }
+      if (existing.active_key_id !== keyId) {
+        return storageErr(
+          "invalid_data",
+          `Cannot switch active key from '${existing.active_key_id}' to '${keyId}' while owner is unlocked`
+        );
+      }
+    } else {
+      if (existing.active_key_id && existing.active_key_id !== keyId) {
+        return storageErr(
+          "invalid_data",
+          `Cannot unlock owner with key '${keyId}'; expected stable key '${existing.active_key_id}'`
+        );
+      }
+    }
+  }
+
+  let newSentinelRecord: SentinelSyncMetaRow | null = null;
+
+  if (sentinel) {
+    // Sentinel exists: verify key continuity by authenticating and decrypting the sentinel
+    const decRes = await decryptPayload<SentinelPayload>(
+      key,
+      {
+        owner_id: ownerId,
+        store: STORAGE_STORES.sync_meta,
+        record_id: OWNER_KEY_SENTINEL_RECORD_ID,
+        key_id: sentinel.key_id ?? keyId,
+        iv: sentinel.iv,
+        ciphertext: sentinel.ciphertext,
+      },
+      ownerId,
+      STORAGE_STORES.sync_meta,
+      OWNER_KEY_SENTINEL_RECORD_ID
+    );
+
+    if (!decRes.ok) {
+      return storageErr(
+        "integrity_failed",
+        `Key continuity check failed for owner '${ownerId}' and key '${keyId}': provided key cannot authenticate existing data`
+      );
+    }
+
+    const payload = decRes.value;
+    if (
+      !payload ||
+      payload.kind !== "dayforge-owner-key-check" ||
+      payload.owner_id !== ownerId ||
+      payload.key_id !== keyId
+    ) {
+      return storageErr(
+        "integrity_failed",
+        `Key continuity sentinel payload corrupted for owner '${ownerId}'`
+      );
+    }
+  } else {
+    // Sentinel does not exist
+    const hasExistingData =
+      existing?.active_key_id !== undefined && (recordsCount > 0 || operationsCount > 0);
+
+    if (hasExistingData) {
+      return storageErr(
+        "integrity_failed",
+        `Key sentinel missing for owner '${ownerId}' with existing data; key continuity cannot be verified`
+      );
+    }
+
+    // Fresh owner initialization: create new encrypted sentinel
+    const sentinelPlaintext: SentinelPayload = {
+      kind: "dayforge-owner-key-check",
+      format_version: 1,
+      owner_id: ownerId,
+      key_id: keyId,
+    };
+
+    const encRes = await encryptPayload(
+      key,
+      ownerId,
+      keyId,
+      STORAGE_STORES.sync_meta,
+      OWNER_KEY_SENTINEL_RECORD_ID,
+      sentinelPlaintext
+    );
+
+    if (!encRes.ok) {
+      return encRes;
+    }
+
+    newSentinelRecord = {
+      owner_id: ownerId,
+      key: OWNER_KEY_SENTINEL_RECORD_ID,
+      key_id: keyId,
+      iv: encRes.value.iv,
+      ciphertext: encRes.value.ciphertext,
+      created_at: new Date().toISOString(),
+    };
+  }
+
+  // Phase 3: Write Transaction (Atomic Commit)
   return new Promise((resolve) => {
     try {
       const tx = db.transaction(
-        [STORAGE_STORES.owner_meta, STORAGE_STORES.crypto_keys],
+        [
+          STORAGE_STORES.owner_meta,
+          STORAGE_STORES.crypto_keys,
+          STORAGE_STORES.sync_meta,
+        ],
         "readwrite"
       );
       const metaStore = tx.objectStore(STORAGE_STORES.owner_meta);
       const cryptoStore = tx.objectStore(STORAGE_STORES.crypto_keys);
+      const syncStore = tx.objectStore(STORAGE_STORES.sync_meta);
+
       let customError: StorageError | null = null;
       let contextResult: OwnerAccessContext | null = null;
 
       const getReq = metaStore.get(ownerId);
       getReq.onsuccess = () => {
-        const existing = getReq.result as OwnerMetadata | undefined;
-        const epoch =
-          existing?.lock_epoch && existing.lock_epoch > 0
-            ? existing.lock_epoch
-            : 1;
+        const currentMeta = getReq.result as OwnerMetadata | undefined;
 
-        if (existing) {
-          if (!existing.locked) {
-            // Owner is currently unlocked
-            if (!existing.active_key_id) {
-              customError = new StorageError(
-                "invalid_data",
-                `Unlocked owner '${ownerId}' is missing active_key_id; lock and re-unlock required`
-              );
-              tx.abort();
-              return;
-            }
-            if (existing.active_key_id !== keyId) {
-              customError = new StorageError(
-                "invalid_data",
-                `Cannot switch active key from '${existing.active_key_id}' to '${keyId}' while owner is unlocked`
-              );
-              tx.abort();
-              return;
-            }
-          } else {
-            // Owner is locked. Enforce stable key identity per T03 vault contract:
-            if (existing.active_key_id && existing.active_key_id !== keyId) {
-              customError = new StorageError(
-                "invalid_data",
-                `Cannot unlock owner with key '${keyId}'; expected stable key '${existing.active_key_id}'`
-              );
-              tx.abort();
-              return;
-            }
-          }
+        // Anti-TOCTOU: if lock_epoch changed while decrypting, abort!
+        if (existing && currentMeta && currentMeta.lock_epoch !== existing.lock_epoch) {
+          customError = new StorageError(
+            "locked",
+            `Owner '${ownerId}' lock epoch changed concurrently (expected ${existing.lock_epoch}, got ${currentMeta.lock_epoch})`
+          );
+          tx.abort();
+          return;
         }
+
+        const epoch =
+          currentMeta?.lock_epoch && currentMeta.lock_epoch > 0
+            ? currentMeta.lock_epoch
+            : 1;
 
         const updatedMeta: OwnerMetadata = {
           owner_id: ownerId,
@@ -326,6 +513,10 @@ export async function unlockOwner(
           created_at: new Date().toISOString(),
         });
 
+        if (newSentinelRecord) {
+          syncStore.put(newSentinelRecord);
+        }
+
         contextResult = {
           ownerId,
           keyId,
@@ -338,7 +529,7 @@ export async function unlockOwner(
         resolve(
           storageErr(
             "transaction_aborted",
-            getReq.error?.message ?? "Failed to read owner metadata for unlock",
+            getReq.error?.message ?? "Failed to read owner metadata for unlock commit",
             getReq.error
           )
         );
@@ -349,7 +540,8 @@ export async function unlockOwner(
           resolve(
             storageErr(
               "transaction_aborted",
-              "Failed to construct OwnerAccessContext"
+              customError?.message ?? "Transaction completed without establishing owner access context",
+              customError
             )
           );
           return;
@@ -358,41 +550,29 @@ export async function unlockOwner(
       };
 
       tx.onerror = () => {
-        if (customError) {
-          resolve(
-            storageErr(customError.code, customError.message, customError.cause)
-          );
-        } else {
-          resolve(
-            storageErr(
-              "transaction_aborted",
-              tx.error?.message ?? "Transaction aborted while unlocking owner",
-              tx.error
-            )
-          );
-        }
+        resolve(
+          storageErr(
+            customError ? customError.code : "transaction_aborted",
+            customError ? customError.message : tx.error?.message ?? "Transaction aborted while unlocking owner",
+            customError ?? tx.error
+          )
+        );
       };
 
       tx.onabort = () => {
-        if (customError) {
-          resolve(
-            storageErr(customError.code, customError.message, customError.cause)
-          );
-        } else {
-          resolve(
-            storageErr(
-              "transaction_aborted",
-              tx.error?.message ?? "Transaction aborted while unlocking owner",
-              tx.error
-            )
-          );
-        }
+        resolve(
+          storageErr(
+            customError ? customError.code : "transaction_aborted",
+            customError ? customError.message : "Transaction aborted while unlocking owner",
+            customError ?? tx.error
+          )
+        );
       };
     } catch (err) {
       resolve(
         storageErr(
           "unavailable",
-          err instanceof Error ? err.message : "Error executing unlockOwner transaction",
+          err instanceof Error ? err.message : "Error executing unlock write transaction",
           err
         )
       );

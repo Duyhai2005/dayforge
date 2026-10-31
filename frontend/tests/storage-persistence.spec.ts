@@ -15,6 +15,7 @@ import {
   upgradeDatabase,
   checkVersionCompatibility,
   isVersionSupported,
+  clearMigrationSteps,
 } from "../lib/storage";
 
 declare global {
@@ -64,6 +65,14 @@ function buildStorageScript(): string {
 
 test.describe("Storage Foundation Specifications", () => {
   test.describe("ST-02: Server-side and SSR Safety", () => {
+    test.beforeEach(() => {
+      clearMigrationSteps();
+    });
+
+    test.afterEach(() => {
+      clearMigrationSteps();
+    });
+
     test("calling openDatabase in Node environment returns unavailable error without throwing", async () => {
       const result = await openDatabase();
       expect(result.ok).toBe(false);
@@ -95,6 +104,7 @@ test.describe("Storage Foundation Specifications", () => {
     test("version compatibility check rejects unsupported higher versions", () => {
       expect(isVersionSupported(1)).toBe(true);
       expect(isVersionSupported(2)).toBe(false);
+      expect(isVersionSupported(2, 1)).toBe(false);
 
       const okRes = checkVersionCompatibility(1);
       expect(okRes.ok).toBe(true);
@@ -103,6 +113,12 @@ test.describe("Storage Foundation Specifications", () => {
       expect(errRes.ok).toBe(false);
       if (!errRes.ok) {
         expect(errRes.error.code).toBe("unsupported_version");
+      }
+
+      const explicitErrRes = checkVersionCompatibility(2, 1);
+      expect(explicitErrRes.ok).toBe(false);
+      if (!explicitErrRes.ok) {
+        expect(explicitErrRes.error.code).toBe("unsupported_version");
       }
     });
   });

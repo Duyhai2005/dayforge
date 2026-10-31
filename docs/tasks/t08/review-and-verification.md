@@ -275,3 +275,57 @@ Reviewer `Duyhai2005` đã rà soát chuyên sâu commit `1a3db33d` và yêu c�
    - Toàn bộ 107 bài test Playwright e2e/unit frontend (`pnpm test:web`) đều PASSED (29.3s).
    - `pnpm lint:web` và `pnpm typecheck:web` hoàn thành với 0 cảnh báo.
    - `pnpm verify:fast` vượt qua 100% (203 pytest API tests, 28 python unittests, black formatting, ruff linter, mypy typing).
+
+## 11. Giải Quyết Nhận Xét Đánh Giá Bổ Sung PR #8 (Review Comment ID 6545873304)
+
+Reviewer `Duyhai2005` đã rà soát commit tiếp theo và chỉ ra 6 phát hiện (F01–F06) cùng 1 yêu cầu bàn giao cho T11 (H01):
+
+1. **F01 (BLOCKER) — Cách Ly State Kiểm Thử Migration (`isVersionSupported(2)` trên CI Production):**
+   - **Nguyên nhân gốc:** `storage-migrations.spec.ts` đăng ký các bước migration động vào registry module mutable `migrationRegistry` nhưng thiếu dọn dẹp trong `afterEach`/`afterAll`. Khi chạy trên cùng một worker tiến trình Node của Playwright trong cấu hình production (`playwright.production.config.ts`), `storage-persistence.spec.ts` kế thừa registry bị ô nhiễm và báo version 2 là supported dù DB version hiện hành chỉ là 1.
+   - **Khắc phục:** Bổ sung `clearMigrationSteps()` vào `afterEach` và `afterAll` của `storage-migrations.spec.ts`, đồng thời bổ sung `beforeEach` và `afterEach` trong `storage-persistence.spec.ts`.
+
+2. **F02 (P1) — Bắt Buộc Thuộc Tính `precondition` Trên Toàn Bộ Lệnh T03:**
+   - Hợp đồng wire protocol T03 quy định mọi `StorageCommand` đều bắt buộc phải có thuộc tính `precondition` (`Object.prototype.hasOwnProperty(cmd, "precondition")` và `!== undefined`). Khi lệnh không có guard, giá trị bắt buộc là `null` (`precondition: null | StoragePrecondition`).
+   - Lệnh `set_order` bắt buộc phải có guard (`precondition: null` bị từ chối; yêu cầu tối thiểu `expected_root_hash`).
+   - Đối tượng rỗng `precondition: {}` bị từ chối với `StorageError("invalid_data")`.
+
+3. **F03 (P1) — Kiểm Tra Ngữ Nghĩa Lịch Gregory Canonical `LocalDate`:**
+   - Thay thế regex thô bằng hàm kiểm tra ngữ nghĩa toàn diện `isCanonicalLocalDate(value)`:
+     - Năm 4 chữ số `0001..9999` (từ chối năm `0000` và `>= 10000`).
+     - Kiểm tra số ngày hợp lệ theo từng tháng (tháng 30 ngày, 31 ngày).
+     - Quy tắc năm nhuận Gregory chuẩn xác: chia hết cho 4, ngoại trừ năm tròn thế kỷ không chia hết cho 400 (chấp nhận `2024-02-29`, `2000-02-29`; từ chối `2026-02-30`, `2025-02-29`, `1900-02-29`).
+   - Áp dụng kiểm tra `isCanonicalLocalDate` đồng bộ cho mọi trường ngày tháng trong T03 DTOs (`MilestoneData.date`, `TaskData.date`, `work_item.create_recurrence.start_date`, `occurrence.replace/delete.original_date`, `series.edit/stop_future.cutoff_original_date`, `TaskTarget.original_date`, `expected_bucket.date`).
+
+4. **F04 (P1) — Ràng Buộc Miền Giá Trị Số Nguyên 64-bit Có Dấu Của `OrderKey`:**
+   - Bổ sung hàm kiểm tra chuẩn `isCanonicalInt64(value)`:
+     - Định dạng chuỗi số nguyên chuẩn: `/^(0|-?[1-9][0-9]*)$/` (từ chối số có số 0 ở đầu như `"01"`, từ chối `"-0"`).
+     - Sử dụng `BigInt` kiểm tra trong khoảng đóng `[-9223372036854775808, 9223372036854775807]` (tương ứng $[-2^{63}, 2^{63} - 1]$).
+   - Áp dụng cho `TaskData.order_key`, `TaskTemplate.order_key`, và `set_order.payload.order_key`.
+
+5. **F05 (P1) — Đảm Bảo Tính Liên Tục Của Khóa Mã Hóa (Authenticated Sentinel Record):**
+   - Để ngăn ngừa tấn công hoặc lỗi cấu hình khi cùng một `keyId` được mở khóa với khóa `CryptoKey` khác sau khi khóa:
+   - `unlockOwner()` thực hiện quy trình hai pha:
+     - Lưu trữ một bản ghi sentinel xác thực mã hóa AES-256-GCM trong object store `sync_meta` với key `[owner_id, "owner-key-sentinel"]` và AAD `${owner_id}:${key_id}:sync_meta:owner-key-sentinel`.
+     - Ở các lần mở khóa tiếp theo, `unlockOwner` giải mã sentinel này bằng khóa mới nạp trước khi commit unlock vào bộ nhớ hoặc IDB. Nếu tag xác thực GCM không khớp, lập tức trả về `StorageError("integrity_failed")` mà không làm thay đổi trạng thái database.
+     - Nếu một owner đã có dữ liệu trong kho nhưng thiếu sentinel key, hệ thống tự động fail-closed với `StorageError("integrity_failed")`.
+
+6. **F06 (P1/P2) — Quy Chuẩn Thứ Tự `weekdays` Tăng Ngặt & Kiểm Soát Chặt Chẽ Lệnh `undo`:**
+   - `RecurrenceRule.weekdays`: các số nguyên từ 1 đến 7 bắt buộc phải được sắp xếp tăng ngặt (`weekdays[i - 1] < weekdays[i]`), từ chối danh sách trùng lặp hoặc chưa sắp xếp.
+   - Lệnh `undo`:
+     - Kiểm soát thuộc tính chính xác: `expected_states` chỉ chứa chính xác `["root", "hash"]`; `root` chỉ chứa chính xác `["kind", "id"]`.
+     - Kiểm tra tính duy nhất: các root bị ảnh hưởng `(kind, id)` phải là duy nhất trên toàn bộ danh sách `expected_states`.
+     - Ràng buộc quan hệ: trường `dependencies` của thao tác outbox bắt buộc phải chứa `original_operation_id` của lệnh undo.
+
+7. **H01 (T11 HANDOFF REQUIREMENT) — Phối Hợp Atomic Pull-to-Shadow Cho T11:**
+   - `markOperationSynced(context, opId, expectedRequestHash)` chỉ là primitive cấp thấp có trách nhiệm xác thực hash và xóa hàng outbox đã được ACK. Hàm này **không** thể và **không** được sử dụng độc lập để hoàn thành chu trình kéo dữ liệu từ server.
+   - Nhiệm vụ T11 (Network Sync Engine) khi nhận payload pull từ server bắt buộc phải thực hiện trong **1 transaction IndexedDB duy nhất (readwrite)** trên các stores liên quan:
+     - Áp dụng thay đổi vào shadow records.
+     - Cập nhật server pull cursor.
+     - Xóa / cập nhật outbox entry tương ứng thông qua primitive `markOperationSynced`.
+   - Bất kỳ thiết kế tách rời nào giữa apply shadow và xóa outbox đều vi phạm invariant chống mất mát dữ liệu và xung đột đồng bộ của Dayforge.
+
+8. **Kết Quả Xác Minh Toàn Bộ Hệ Thống:**
+   - 111/111 bài test Playwright e2e/unit frontend (`pnpm test:web`) PASSED.
+   - 111/111 bài test Playwright Production (`pnpm test:web:prod` với `playwright.production.config.ts`) PASSED 100%.
+   - `pnpm lint:web` và `pnpm typecheck:web` hoàn thành với 0 lỗi / 0 cảnh báo.
+   - `pnpm verify:fast` vượt qua 100% (203 pytest tests, 28 unittest tests, ruff, black, mypy).

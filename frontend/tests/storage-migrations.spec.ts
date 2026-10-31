@@ -85,6 +85,14 @@ test.describe("Storage Schema Migration Specifications", () => {
       clearMigrationSteps();
     });
 
+    test.afterEach(() => {
+      clearMigrationSteps();
+    });
+
+    test.afterAll(() => {
+      clearMigrationSteps();
+    });
+
     test("executeMigrations throws unsupported_version when targetVersion < oldVersion (downgrade prevention)", () => {
       const dummyDb = {} as IDBDatabase;
       const dummyTx = {} as IDBTransaction;

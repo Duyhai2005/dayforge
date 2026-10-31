@@ -1191,5 +1191,112 @@ test.describe("Storage Security Specifications", () => {
       expect(result.getOk).toBe(false);
       expect(result.errorCode).toBe("locked");
     });
+
+    test("F05: unlockOwner authenticated sentinel enforces key continuity across lock/unlock cycles", async ({
+      page,
+    }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+
+      const testDbName = `test-sentinel-${Date.now()}`;
+      const ownerId = "11111111-1111-4111-8111-111111111111";
+      const keyId = "key-sentinel-1";
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId }) => {
+          const {
+            openDatabase,
+            closeDatabase,
+            importRawKey,
+            unlockOwner,
+            lockOwner,
+            STORAGE_STORES,
+          } = window.__dayforge_security_storage;
+
+          const openRes = await openDatabase({ name: testDbName });
+          if (!openRes.ok) return { step: "open", ok: false, error: openRes.error.code };
+          const db = openRes.value;
+
+          // 1. Initial unlock with key1 generates and writes sentinel to sync_meta
+          const key1Raw = new Uint8Array(32);
+          for (let i = 0; i < 32; i++) key1Raw[i] = i + 1;
+          const key1 = await importRawKey(key1Raw);
+
+          const unlock1Res = await unlockOwner(db, ownerId, keyId, key1);
+          if (!unlock1Res.ok) {
+            closeDatabase(db);
+            return { step: "unlock1", ok: false, error: unlock1Res.error.code };
+          }
+
+          // Insert a sample record overlay to represent existing owner data
+          await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(STORAGE_STORES.records, "readwrite");
+            tx.objectStore(STORAGE_STORES.records).put({
+              owner_id: ownerId,
+              kind: "plan",
+              id: "22222222-2222-4222-8222-222222222222",
+              key_id: keyId,
+              iv: "000000000000000000000000",
+              ciphertext: "00000000",
+            });
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+
+          // Verify sentinel exists in sync_meta store
+          const sentinelRecord = await new Promise<any>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.sync_meta, "readonly");
+            const req = tx.objectStore(STORAGE_STORES.sync_meta).get([ownerId, "owner-key-sentinel"]);
+            req.onsuccess = () => resolve(req.result);
+          });
+
+          // 2. Lock owner
+          await lockOwner(db, ownerId);
+
+          // 3. Unlock attempt with a DIFFERENT key2 (same keyId) -> MUST fail with integrity_failed
+          const key2Raw = new Uint8Array(32);
+          for (let i = 0; i < 32; i++) key2Raw[i] = 255 - i;
+          const key2 = await importRawKey(key2Raw);
+
+          const wrongKeyUnlockRes = await unlockOwner(db, ownerId, keyId, key2);
+
+          // 4. Unlock attempt with SAME key1 re-imported from raw bytes -> MUST succeed
+          const key1Reimported = await importRawKey(key1Raw);
+          const sameKeyUnlockRes = await unlockOwner(db, ownerId, keyId, key1Reimported);
+
+          // 5. Lock and delete the sentinel while existing records remain -> MUST fail closed with integrity_failed
+          await lockOwner(db, ownerId);
+          await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(STORAGE_STORES.sync_meta, "readwrite");
+            tx.objectStore(STORAGE_STORES.sync_meta).delete([ownerId, "owner-key-sentinel"]);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+
+          const missingSentinelUnlockRes = await unlockOwner(db, ownerId, keyId, key1Reimported);
+
+          closeDatabase(db);
+
+          return {
+            ok: true,
+            hasSentinel: !!sentinelRecord,
+            wrongKeyOk: wrongKeyUnlockRes.ok,
+            wrongKeyCode: !wrongKeyUnlockRes.ok ? wrongKeyUnlockRes.error.code : null,
+            sameKeyOk: sameKeyUnlockRes.ok,
+            missingSentinelOk: missingSentinelUnlockRes.ok,
+            missingSentinelCode: !missingSentinelUnlockRes.ok ? missingSentinelUnlockRes.error.code : null,
+          };
+        },
+        { testDbName, ownerId, keyId }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.hasSentinel).toBe(true);
+      expect(result.wrongKeyOk).toBe(false);
+      expect(result.wrongKeyCode).toBe("integrity_failed");
+      expect(result.sameKeyOk).toBe(true);
+      expect(result.missingSentinelOk).toBe(false);
+      expect(result.missingSentinelCode).toBe("integrity_failed");
+    });
   });
 });

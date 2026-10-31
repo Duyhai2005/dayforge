@@ -76,6 +76,8 @@ export {
   UUID_PATTERN,
   HASH_PATTERN,
   DATE_PATTERN,
+  isCanonicalLocalDate,
+  isCanonicalInt64,
   SUPPORTED_ACTIONS,
   type SupportedAction,
   type SupportedRootKind,
