@@ -26,6 +26,8 @@ import {
   persistOperationAtomic,
   isCanonicalLocalDate,
   isCanonicalInt64,
+  MAX_OPERATION_WIRE_BYTES,
+  assertOperationWireSize,
   createLocalStorageGateway,
   type LocalStorageGateway,
 } from "../lib/storage";
@@ -2679,5 +2681,395 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
       expect(result.validWeekdaysError).toBe(null);
       expect(result.validWeekdaysOk).toBe(true);
     });
+    test("N01: canonical text is normalized before immutable hashing and Unicode limits count code points", async ({
+      page,
+    }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+      const dbName = `test-n01-${Date.now()}`;
+      const result = await page.evaluate(async (dbName) => {
+        const {
+          openDatabase, closeDatabase, importRawKey, unlockOwner,
+          createLocalStorageGateway,
+        } = window.__dayforge_storage_atomicity;
+        const ownerId = "11111111-2101-4000-8000-000000000001";
+        const keyId = "key-n01";
+        const deviceId = "22222222-2101-4000-8000-000000000001";
+        const calId = "33333333-2101-4000-8000-000000000001";
+        const opened = await openDatabase({ name: dbName });
+        if (!opened.ok) return { setup: false };
+        const db = opened.value;
+        const key = await importRawKey(new Uint8Array(32).fill(0x21));
+        const unlock = await unlockOwner(db, ownerId, keyId, key);
+        if (!unlock.ok) return { setup: false };
+        const ctx = unlock.value;
+        const gateway = createLocalStorageGateway({ name: dbName });
+
+        const canonicalized = await gateway.persistOperation({
+          context: ctx,
+          deviceId,
+          operationId: "44444444-2101-4000-8000-000000000001",
+          commands: [
+            {
+              root: { kind: "plan", id: "55555555-2101-4000-8000-000000000001" },
+              action: "plan.create",
+              payload: { data: { name: "  Cafe\u0301  ", color_id: "green" } },
+              precondition: null,
+            },
+            {
+              root: { kind: "milestone", id: "66666666-2101-4000-8000-000000000001" },
+              action: "milestone.create",
+              payload: {
+                data: {
+                  title: "  A\u030A  ",
+                  date: "2026-11-01",
+                  period: null,
+                  note: "line1\r\nline2\rline3",
+                  plan_id: null,
+                  standalone_color_id: "blue",
+                  show_in_work_calendar: true,
+                },
+              },
+              precondition: null,
+            },
+          ],
+          dependencies: [],
+          clockInput: {
+            estimatedUtcMs: 1793480000000,
+            rawWallMs: 1793480000000,
+            calibrationId: calId,
+            quality: "calibrated",
+          },
+        });
+
+        const astral120 = "😀".repeat(120);
+        const astral121 = "😀".repeat(121);
+        const validAstral = await gateway.persistOperation({
+          context: ctx,
+          deviceId,
+          operationId: "44444444-2101-4000-8000-000000000002",
+          commands: [{
+            root: { kind: "work_item", id: "77777777-2101-4000-8000-000000000001" },
+            action: "work_item.create_single",
+            payload: { data: {
+              title: astral120,
+              date: "2026-11-01",
+              period: "morning",
+              duration_minutes: 30,
+              plan_id: null,
+              standalone_color_id: "green",
+              status: "pending",
+              order_key: "0",
+            } },
+            precondition: null,
+          }],
+          dependencies: [],
+          clockInput: {
+            estimatedUtcMs: 1793480000001,
+            rawWallMs: 1793480000001,
+            calibrationId: calId,
+            quality: "calibrated",
+          },
+        });
+        const invalidAstral = await gateway.persistOperation({
+          context: ctx,
+          deviceId,
+          operationId: "44444444-2101-4000-8000-000000000003",
+          commands: [{
+            root: { kind: "work_item", id: "77777777-2101-4000-8000-000000000002" },
+            action: "work_item.create_single",
+            payload: { data: {
+              title: astral121,
+              date: "2026-11-01",
+              period: "morning",
+              duration_minutes: 30,
+              plan_id: null,
+              standalone_color_id: "green",
+              status: "pending",
+              order_key: "0",
+            } },
+            precondition: null,
+          }],
+          dependencies: [],
+          clockInput: {
+            estimatedUtcMs: 1793480000002,
+            rawWallMs: 1793480000002,
+            calibrationId: calId,
+            quality: "calibrated",
+          },
+        });
+
+        const sendable = await gateway.listSendableOperations(ctx);
+        const first = sendable.ok ? sendable.value.find(
+          (op: any) => op.operation_id === "44444444-2101-4000-8000-000000000001"
+        ) as any : null;
+        const planData = first?.commands?.[0]?.payload?.data;
+        const milestoneData = first?.commands?.[1]?.payload?.data;
+
+        gateway.close();
+        closeDatabase(db);
+        return {
+          setup: true,
+          canonicalizedOk: canonicalized.ok,
+          planName: planData?.name ?? null,
+          milestoneTitle: milestoneData?.title ?? null,
+          milestoneNote: milestoneData?.note ?? null,
+          validAstralOk: validAstral.ok,
+          invalidAstralOk: invalidAstral.ok,
+          invalidAstralCode: !invalidAstral.ok ? invalidAstral.error.code : null,
+        };
+      }, dbName);
+
+      expect(result.setup).toBe(true);
+      expect(result.canonicalizedOk).toBe(true);
+      expect(result.planName).toBe("Café");
+      expect(result.milestoneTitle).toBe("Å");
+      expect(result.milestoneNote).toBe("line1\nline2\nline3");
+      expect(result.validAstralOk).toBe(true);
+      expect(result.invalidAstralOk).toBe(false);
+      expect(result.invalidAstralCode).toBe("invalid_data");
+    });
+
+    test("N02: 2 MiB canonical UTF-8 boundary is enforced before durable outbox commit", async ({
+      page,
+    }) => {
+      const exact = canonicalizeJson("x".repeat(MAX_OPERATION_WIRE_BYTES - 2));
+      const over = canonicalizeJson("x".repeat(MAX_OPERATION_WIRE_BYTES - 1));
+      expect(assertOperationWireSize(exact)).toBe(MAX_OPERATION_WIRE_BYTES);
+      expect(() => assertOperationWireSize(over)).toThrow(StorageError);
+
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+      const dbName = `test-n02-${Date.now()}`;
+      const result = await page.evaluate(async (dbName) => {
+        const {
+          openDatabase, closeDatabase, importRawKey, unlockOwner,
+          createLocalStorageGateway, STORAGE_STORES,
+        } = window.__dayforge_storage_atomicity;
+        const ownerId = "11111111-2202-4000-8000-000000000001";
+        const deviceId = "22222222-2202-4000-8000-000000000001";
+        const calId = "33333333-2202-4000-8000-000000000001";
+        const operationId = "44444444-2202-4000-8000-000000000001";
+        const opened = await openDatabase({ name: dbName });
+        if (!opened.ok) return { setup: false };
+        const db = opened.value;
+        const key = await importRawKey(new Uint8Array(32).fill(0x22));
+        const unlock = await unlockOwner(db, ownerId, "key-n02", key);
+        if (!unlock.ok) return { setup: false };
+        const gateway = createLocalStorageGateway({ name: dbName });
+        const commands = Array.from({ length: 525 }, (_, i) => ({
+          root: {
+            kind: "milestone",
+            id:
+              i.toString(16).padStart(8, "0") +
+              "-2202-4000-8000-" +
+              (i + 1).toString(16).padStart(12, "0"),
+          },
+          action: "milestone.create",
+          payload: { data: {
+            title: "Large operation",
+            date: "2026-11-01",
+            period: null,
+            note: "x".repeat(4000),
+            plan_id: null,
+            standalone_color_id: "neutral",
+            show_in_work_calendar: true,
+          } },
+          precondition: null,
+        }));
+        const saved = await gateway.persistOperation({
+          context: unlock.value,
+          deviceId,
+          operationId,
+          commands,
+          dependencies: [],
+          clockInput: {
+            estimatedUtcMs: 1793480001000,
+            rawWallMs: 1793480001000,
+            calibrationId: calId,
+            quality: "calibrated",
+          },
+        });
+        const row = await new Promise<any>((resolve) => {
+          const tx = db.transaction(STORAGE_STORES.operations, "readonly");
+          const req = tx.objectStore(STORAGE_STORES.operations).get([ownerId, operationId]);
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => resolve(null);
+        });
+        gateway.close();
+        closeDatabase(db);
+        return {
+          setup: true,
+          savedOk: saved.ok,
+          code: !saved.ok ? saved.error.code : null,
+          persisted: Boolean(row),
+        };
+      }, dbName);
+
+      expect(result.setup).toBe(true);
+      expect(result.savedOk).toBe(false);
+      expect(result.code).toBe("invalid_data");
+      expect(result.persisted).toBe(false);
+    });
+
+    test("N03/N05: enable_recurrence requires matching weekday and operations reject self-dependency", async ({
+      page,
+    }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+      const dbName = `test-n03-n05-${Date.now()}`;
+      const result = await page.evaluate(async (dbName) => {
+        const {
+          openDatabase, closeDatabase, importRawKey, unlockOwner,
+          createLocalStorageGateway,
+        } = window.__dayforge_storage_atomicity;
+        const ownerId = "11111111-2303-4000-8000-000000000001";
+        const deviceId = "22222222-2303-4000-8000-000000000001";
+        const calId = "33333333-2303-4000-8000-000000000001";
+        const opened = await openDatabase({ name: dbName });
+        if (!opened.ok) return { setup: false };
+        const db = opened.value;
+        const key = await importRawKey(new Uint8Array(32).fill(0x23));
+        const unlock = await unlockOwner(db, ownerId, "key-n03", key);
+        if (!unlock.ok) return { setup: false };
+        const gateway = createLocalStorageGateway({ name: dbName });
+        const data = {
+          title: "Monday task",
+          date: "2026-11-02",
+          period: "morning",
+          duration_minutes: 30,
+          plan_id: null,
+          standalone_color_id: "green",
+          status: "pending",
+          order_key: "0",
+        };
+        const make = (operationId: string, weekdays: number[], dependencies: string[] = []) =>
+          gateway.persistOperation({
+            context: unlock.value,
+            deviceId,
+            operationId,
+            commands: [{
+              root: { kind: "work_item", id: "55555555-2303-4000-8000-000000000001" },
+              action: "work_item.enable_recurrence",
+              payload: { data, rule: { weekdays } },
+              precondition: null,
+            }],
+            dependencies,
+            clockInput: {
+              estimatedUtcMs: 1793480002000 + Number(operationId.slice(-1)),
+              rawWallMs: 1793480002000 + Number(operationId.slice(-1)),
+              calibrationId: calId,
+              quality: "calibrated",
+            },
+          });
+        const valid = await make("44444444-2303-4000-8000-000000000001", [1]);
+        const mismatch = await make("44444444-2303-4000-8000-000000000002", [2, 4]);
+        const selfId = "44444444-2303-4000-8000-000000000003";
+        const self = await make(selfId, [1], [selfId]);
+        gateway.close();
+        closeDatabase(db);
+        return {
+          setup: true,
+          validOk: valid.ok,
+          mismatchOk: mismatch.ok,
+          mismatchCode: !mismatch.ok ? mismatch.error.code : null,
+          selfOk: self.ok,
+          selfCode: !self.ok ? self.error.code : null,
+        };
+      }, dbName);
+
+      expect(result.setup).toBe(true);
+      expect(result.validOk).toBe(true);
+      expect(result.mismatchOk).toBe(false);
+      expect(result.mismatchCode).toBe("invalid_data");
+      expect(result.selfOk).toBe(false);
+      expect(result.selfCode).toBe("invalid_data");
+    });
+
+    test("N04: ACKed operation remains replay-visible after gateway reload until pull confirmation", async ({
+      page,
+    }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+      const dbName = `test-n04-${Date.now()}`;
+      const result = await page.evaluate(async (dbName) => {
+        const {
+          openDatabase, closeDatabase, importRawKey, unlockOwner,
+          createLocalStorageGateway, STORAGE_STORES,
+        } = window.__dayforge_storage_atomicity;
+        const ownerId = "11111111-2404-4000-8000-000000000001";
+        const deviceId = "22222222-2404-4000-8000-000000000001";
+        const calId = "33333333-2404-4000-8000-000000000001";
+        const operationId = "44444444-2404-4000-8000-000000000001";
+        const opened = await openDatabase({ name: dbName });
+        if (!opened.ok) return { setup: false };
+        const db = opened.value;
+        const key = await importRawKey(new Uint8Array(32).fill(0x24));
+        const unlock = await unlockOwner(db, ownerId, "key-n04", key);
+        if (!unlock.ok) return { setup: false };
+        const ctx = unlock.value;
+
+        const gateway1 = createLocalStorageGateway({ name: dbName });
+        const saved = await gateway1.persistOperation({
+          context: ctx,
+          deviceId,
+          operationId,
+          commands: [{
+            root: { kind: "plan", id: "55555555-2404-4000-8000-000000000001" },
+            action: "plan.create",
+            payload: { data: { name: "Replay plan", color_id: "green" } },
+            precondition: null,
+          }],
+          dependencies: [],
+          clockInput: {
+            estimatedUtcMs: 1793480003000,
+            rawWallMs: 1793480003000,
+            calibrationId: calId,
+            quality: "calibrated",
+          },
+        });
+        if (!saved.ok) return { setup: false };
+        const ack = await gateway1.markOperationAcked(ctx, operationId);
+        const sendableBefore = await gateway1.listSendableOperations(ctx);
+        const optimisticBefore = await gateway1.listOptimisticOperations(ctx);
+        gateway1.close();
+
+        const gateway2 = createLocalStorageGateway({ name: dbName });
+        const sendableReload = await gateway2.listSendableOperations(ctx);
+        const optimisticReload = await gateway2.listOptimisticOperations(ctx);
+        const row = await new Promise<any>((resolve) => {
+          const tx = db.transaction(STORAGE_STORES.operations, "readonly");
+          const req = tx.objectStore(STORAGE_STORES.operations).get([ownerId, operationId]);
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => resolve(null);
+        });
+        const confirmed = row
+          ? await gateway2.markOperationSynced(ctx, operationId, row.request_hash)
+          : null;
+        const optimisticAfter = await gateway2.listOptimisticOperations(ctx);
+        gateway2.close();
+        closeDatabase(db);
+        return {
+          setup: true,
+          ackOk: ack.ok,
+          sendableBefore: sendableBefore.ok ? sendableBefore.value.length : -1,
+          optimisticBefore: optimisticBefore.ok ? optimisticBefore.value.length : -1,
+          sendableReload: sendableReload.ok ? sendableReload.value.length : -1,
+          optimisticReload: optimisticReload.ok ? optimisticReload.value.length : -1,
+          confirmedOk: confirmed?.ok ?? false,
+          optimisticAfter: optimisticAfter.ok ? optimisticAfter.value.length : -1,
+        };
+      }, dbName);
+
+      expect(result.setup).toBe(true);
+      expect(result.ackOk).toBe(true);
+      expect(result.sendableBefore).toBe(0);
+      expect(result.optimisticBefore).toBe(1);
+      expect(result.sendableReload).toBe(0);
+      expect(result.optimisticReload).toBe(1);
+      expect(result.confirmedOk).toBe(true);
+      expect(result.optimisticAfter).toBe(0);
+    });
+
   });
 });
