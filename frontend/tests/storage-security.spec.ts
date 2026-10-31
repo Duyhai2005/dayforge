@@ -634,9 +634,8 @@ test.describe("Storage Security Specifications", () => {
         // Crypto key in IDB MUST have been purged
         const keyAfterLock = await getCryptoKey(db, "owner-bob", "key-bob-1");
 
-        // Step 4: Re-unlock with a new key and verify stale context rejection
-        const key2 = await generateTestKey();
-        const unlock2Res = await unlockOwner(db, "owner-bob", "key-bob-2", key2);
+        // Step 4: Re-unlock with the same stable key after lock and verify stale context rejection
+        const unlock2Res = await unlockOwner(db, "owner-bob", "key-bob-1", key1);
         if (!unlock2Res.ok) {
           closeDatabase(db);
           return { step: "unlock2", ok: false as const, error: unlock2Res.error.code };
@@ -687,7 +686,7 @@ test.describe("Storage Security Specifications", () => {
       expect(result.valStaleCtx1Error).toBe("locked");
     });
 
-    test("re-unlocking with different key without locking increments epoch and invalidates old context", async ({
+    test("unlockOwner rejects unexpected different keyId (both when unlocked and after lock) and fails closed on missing active_key_id", async ({
       page,
     }) => {
       const script = buildStorageScript();
@@ -699,13 +698,15 @@ test.describe("Storage Security Specifications", () => {
           openDatabase,
           closeDatabase,
           unlockOwner,
+          lockOwner,
           validateOwnerAccess,
           generateTestKey,
           getOwnerMeta,
           isOwnerUnlocked,
+          STORAGE_STORES,
         } = window.__dayforge_security_storage;
 
-        const dbRes = await openDatabase({ name: "test-reunlock-diff-key" });
+        const dbRes = await openDatabase({ name: "test-reject-diff-key" });
         if (!dbRes.ok) return { ok: false, error: "open failed" };
         const db = dbRes.value;
 
@@ -717,47 +718,78 @@ test.describe("Storage Security Specifications", () => {
         }
         const ctx1 = unlock1.value;
 
-        const unlockedStatus1 = await isOwnerUnlocked(db, "owner-alice");
-
-        // Re-unlock with key2 WITHOUT calling lockOwner first
+        // 1. Attempt re-unlock with different key while unlocked -> MUST be rejected with invalid_data
         const key2 = await generateTestKey();
-        const unlock2 = await unlockOwner(db, "owner-alice", "key-2", key2);
-        if (!unlock2.ok) {
+        const unlockDiffWhileUnlocked = await unlockOwner(db, "owner-alice", "key-2", key2);
+
+        // 2. Lock owner
+        const lockRes = await lockOwner(db, "owner-alice");
+        if (!lockRes.ok) {
           closeDatabase(db);
-          return { ok: false, error: "unlock2 failed" };
+          return { ok: false, error: "lock failed" };
         }
-        const ctx2 = unlock2.value;
 
-        const meta = await getOwnerMeta(db, "owner-alice");
+        // 3. Attempt unlock with different key while locked -> MUST be rejected with invalid_data
+        const unlockDiffWhileLocked = await unlockOwner(db, "owner-alice", "key-2", key2);
 
-        // Old ctx1 MUST be rejected with 'locked' because epoch is bumped & keyId mismatched
-        const val1 = await validateOwnerAccess(db, ctx1);
-        // New ctx2 MUST be valid
-        const val2 = await validateOwnerAccess(db, ctx2);
+        // 4. Missing active_key_id fail-closed check
+        await new Promise<void>((resolve) => {
+          const tx = db.transaction(STORAGE_STORES.owner_meta, "readwrite");
+          tx.objectStore(STORAGE_STORES.owner_meta).put({
+            owner_id: "owner-alice",
+            lock_epoch: 2,
+            locked: false,
+            // active_key_id omitted
+          });
+          tx.oncomplete = () => resolve();
+        });
+
+        // Missing active_key_id fails closed in validateOwnerAccess
+        const missingKeyAccess = await validateOwnerAccess(db, ctx1);
+
+        // Missing active_key_id also fails closed in unlockOwner
+        const unlockMissingKey = await unlockOwner(db, "owner-alice", "key-1", key1);
+
+        // Restore stable state after lock: re-unlock with key-1 succeeds
+        await lockOwner(db, "owner-alice");
+        await new Promise<void>((resolve) => {
+          const tx = db.transaction(STORAGE_STORES.owner_meta, "readwrite");
+          tx.objectStore(STORAGE_STORES.owner_meta).put({
+            owner_id: "owner-alice",
+            lock_epoch: 3,
+            locked: true,
+            active_key_id: "key-1",
+          });
+          tx.oncomplete = () => resolve();
+        });
+        const unlockStable = await unlockOwner(db, "owner-alice", "key-1", key1);
 
         closeDatabase(db);
 
         return {
           ok: true,
-          unlockedStatus1: unlockedStatus1.ok ? unlockedStatus1.value : null,
-          ctx1Epoch: ctx1.lockEpoch,
-          ctx2Epoch: ctx2.lockEpoch,
-          metaEpoch: meta.ok ? meta.value?.lock_epoch : null,
-          activeKeyId: meta.ok ? meta.value?.active_key_id : null,
-          val1Ok: val1.ok,
-          val1Error: !val1.ok ? val1.error.code : null,
-          val2Ok: val2.ok,
+          unlockDiffWhileUnlockedOk: unlockDiffWhileUnlocked.ok,
+          unlockDiffWhileUnlockedCode: !unlockDiffWhileUnlocked.ok ? unlockDiffWhileUnlocked.error.code : null,
+          unlockDiffWhileLockedOk: unlockDiffWhileLocked.ok,
+          unlockDiffWhileLockedCode: !unlockDiffWhileLocked.ok ? unlockDiffWhileLocked.error.code : null,
+          missingKeyAccessOk: missingKeyAccess.ok,
+          missingKeyAccessCode: !missingKeyAccess.ok ? missingKeyAccess.error.code : null,
+          unlockMissingKeyOk: unlockMissingKey.ok,
+          unlockMissingKeyCode: !unlockMissingKey.ok ? unlockMissingKey.error.code : null,
+          unlockStableOk: unlockStable.ok,
         };
       });
 
       expect(result.ok).toBe(true);
-      expect(result.unlockedStatus1).toBe(true);
-      expect(result.ctx1Epoch).toBe(1);
-      expect(result.ctx2Epoch).toBe(2);
-      expect(result.activeKeyId).toBe("key-2");
-      expect(result.val1Ok).toBe(false);
-      expect(result.val1Error).toBe("locked");
-      expect(result.val2Ok).toBe(true);
+      expect(result.unlockDiffWhileUnlockedOk).toBe(false);
+      expect(result.unlockDiffWhileUnlockedCode).toBe("invalid_data");
+      expect(result.unlockDiffWhileLockedOk).toBe(false);
+      expect(result.unlockDiffWhileLockedCode).toBe("invalid_data");
+      expect(result.missingKeyAccessOk).toBe(false);
+      expect(result.missingKeyAccessCode).toBe("locked");
+      expect(result.unlockMissingKeyOk).toBe(false);
+      expect(result.unlockMissingKeyCode).toBe("invalid_data");
+      expect(result.unlockStableOk).toBe(true);
     });
 
     test("unlockOwner rejects keys that are extractable or lack encrypt/decrypt usages", async ({

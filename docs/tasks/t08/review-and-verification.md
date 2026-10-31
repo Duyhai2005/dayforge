@@ -235,3 +235,43 @@ Maintainer `Duyhai2005` đã tiến hành rà soát chuyên sâu bổ sung sau c
 
 7. **Minh Bạch Bề Mặt API & Dọn Dẹp (Item 7):**
    - `frontend/lib/storage/index.ts` xuất khẩu tường minh các hợp đồng kiểu, gateway facade, và các primitives cần thiết cho harness kiểm thử và các task tích hợp tiếp theo.
+
+---
+
+## 10. Giải Quyết Nhận Xét Đánh Giá Chuyên Sâu T03 Schema Parity (Review Comment ID 6545156728)
+
+Reviewer `Duyhai2005` đã rà soát chuyên sâu commit `1a3db33d` và yêu cầu 6 nhóm sửa đổi trọng yếu về tính toàn vẹn schema wire protocol T03 cùng bảo mật vault key:
+
+1. **Khớp Hoàn Toàn T03 `Command.oneOf` Payload DTO Schemas & Ràng Buộc Phối Hợp Lệnh (Finding 1):**
+   - **Tương thích Root/Action:** Ràng buộc chặt chẽ root kind với action được phép (`plan` chỉ cho phép `plan.create`, `plan.replace`, `undo`; `milestone` cho phép `milestone.create`, `milestone.replace`, `milestone.delete`, `undo`; `work_item` cho phép 11 action task/series/detached/occurrence cùng `set_order` và `undo`). Mọi cặp root/action không hợp lệ đều bị từ chối với `StorageError("invalid_data")`.
+   - **Đặc tả Payload DTO Đầy Đủ:** Bổ sung validators kiểm tra chi tiết theo hợp đồng T03 JSON Schema: `PlanData` (`name` 1..100 ký tự, `color_id` thuộc 10 màu hợp lệ), `MilestoneData` (`title`, `date`, `period`, `note` tối đa 4000 codepoints Unicode không chứa control characters, `plan_id`, `standalone_color_id`, `show_in_work_calendar`), `TaskData`, `TaskTemplate`, `RecurrenceRule`, `TaskTarget`, và `ExpectedState[]`.
+   - **Chặn Thuộc Tính Lạ:** Mọi payload và DTO con đều áp dụng quy tắc `additionalProperties: false`, phát hiện và từ chối các thuộc tính thừa.
+   - **Quy tắc Solitary Undo:** Lệnh `undo` bắt buộc phải là lệnh duy nhất trong thao tác (`commands.length === 1`). Bất kỳ thao tác nào kết hợp `undo` với lệnh khác đều bị fail-closed.
+   - **Bảo Vệ Lệnh `set_order`:** Bắt buộc root kind là `work_item`, command precondition phải có `expected_root_hash` (chuỗi hex 64 ký tự), và thao tác outbox phải chứa ít nhất một command có guard `expected_bucket` (`date`, `period`, `order_hash`).
+
+2. **Chuẩn Hóa Canonical UUID Theo Quy Chuẩn T03 (Finding 2):**
+   - Áp dụng regex canonical UUID chuẩn trong toàn bộ tầng lưu trữ (`clock-state.ts`, `outbox.ts`, `owner-gate.ts`, `repositories.ts`):
+     `/^[0-9a-f]{8}-[0-9a-f]{4}-[45][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/`
+   - Chỉ chấp nhận ký tự thường, phiên bản 4 hoặc 5, và variant 8, 9, a, b. Từ chối hoàn toàn UUID viết hoa hoặc UUID phiên bản cũ.
+
+3. **Bắt Buộc Xác Thực Hash Khi Xác Nhận Kéo Dữ Liệu (`markOperationSynced`) (Finding 3):**
+   - Tham số `expectedRequestHash: string` trên `LocalStorageGateway` và `repositories.ts` trở thành bắt buộc (loại bỏ tùy chọn `?: string`).
+   - Kiểm tra định dạng hash bắt buộc là chuỗi hex 64 ký tự thường (`/^[0-9a-f]{64}$/`).
+   - Bắt buộc hàng outbox phải ở trạng thái `"ack_waiting_pull"` và `entry.request_hash === expectedRequestHash` mới cho phép xóa; nếu không khớp, trả về `StorageError("integrity_failed")`.
+
+4. **Bảo Vệ Khóa Danh Tính Vault Bền Vững & Gate An Toàn (Finding 4):**
+   - `unlockOwner()` kiểm tra danh tính khóa: từ chối thay đổi `keyId` đối với owner đã được khởi tạo (kể cả khi đang mở khóa hoặc sau khi khóa lại) với `StorageError("invalid_data")`, bảo vệ tính nhất quán của dữ liệu mã hóa A256GCM.
+   - Owner gate (`checkOwnerMetaRecord`) và `unlockOwner` tự động fail-closed nếu bản ghi owner đã mở khóa thiếu trường `active_key_id`.
+
+5. **Ràng Buộc Số Nguyên An Toàn HLC (`raw_wall_ms` & `estimatedUtcMs`) (Finding 5):**
+   - `validateHlc()` yêu cầu `Number.isSafeInteger(candidate.raw_wall_ms)`, `>= 0`, `<= Number.MAX_SAFE_INTEGER`, và canonical UUID cho `calibration_id`.
+   - `advanceHlc()` kiểm tra `Number.isSafeInteger` cho cả `estimatedUtcMs` và `rawWallMs`, từ chối các số thực dấu phẩy động hoặc số không an toàn.
+
+6. **Thu Hẹp Kiểu Dữ Liệu `StorageCommand.action` (Finding 6):**
+   - Kiểu `action` được thu hẹp về `SupportedAction` (loại bỏ `| string`), ngăn chặn các action không hợp lệ ngay tại thời điểm biên dịch TypeScript.
+
+7. **Bổ Sung Bộ Test Kiểm Chứng Schema Parity & Kết Quả Xác Minh Toàn Diện:**
+   - Đã bổ sung bộ test kiểm chứng parity toàn diện trong `storage-atomicity.spec.ts` (test 22) và cập nhật `storage-failures.spec.ts`, `storage-security.spec.ts`.
+   - Toàn bộ 107 bài test Playwright e2e/unit frontend (`pnpm test:web`) đều PASSED (29.3s).
+   - `pnpm lint:web` và `pnpm typecheck:web` hoàn thành với 0 cảnh báo.
+   - `pnpm verify:fast` vượt qua 100% (203 pytest API tests, 28 python unittests, black formatting, ruff linter, mypy typing).

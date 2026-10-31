@@ -7,7 +7,7 @@ import {
   type OwnerMetadata,
   checkOwnerMetaRecord,
 } from "./owner-gate";
-import { type OperationEnvelope, type OutboxEntry } from "./outbox";
+import { type OperationEnvelope, type OutboxEntry, HASH_PATTERN } from "./outbox";
 import {
   type PersistOperationInput,
   type PersistOperationResult,
@@ -37,7 +37,7 @@ export interface LocalStorageGateway {
   markOperationSynced(
     ctx: OwnerAccessContext,
     operationId: string,
-    expectedRequestHash?: string
+    expectedRequestHash: string
   ): Promise<StorageResult<void>>;
   close(): void;
 }
@@ -120,7 +120,7 @@ export function createLocalStorageGateway(
     async markOperationSynced(
       ctx: OwnerAccessContext,
       operationId: string,
-      expectedRequestHash?: string
+      expectedRequestHash: string
     ): Promise<StorageResult<void>> {
       const openRes = await ensureOpen();
       if (!openRes.ok) {
@@ -583,8 +583,18 @@ export async function markOperationSynced(
   db: IDBDatabase,
   ctx: OwnerAccessContext,
   operationId: string,
-  expectedRequestHash?: string
+  expectedRequestHash: string
 ): Promise<StorageResult<void>> {
+  if (
+    typeof expectedRequestHash !== "string" ||
+    !HASH_PATTERN.test(expectedRequestHash)
+  ) {
+    return storageErr(
+      "invalid_data",
+      `expectedRequestHash must be a lowercase 64-hex SHA-256 hash: got '${expectedRequestHash}'`
+    );
+  }
+
   return new Promise((resolve) => {
     let customError: StorageError | null = null;
     try {
@@ -624,10 +634,7 @@ export async function markOperationSynced(
             tx.abort();
             return;
           }
-          if (
-            expectedRequestHash !== undefined &&
-            entry.request_hash !== expectedRequestHash
-          ) {
+          if (entry.request_hash !== expectedRequestHash) {
             customError = new StorageError(
               "integrity_failed",
               `Pull confirmation request_hash mismatch for operation '${operationId}': expected '${expectedRequestHash}', got '${entry.request_hash}'`

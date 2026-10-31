@@ -119,10 +119,10 @@ export function checkOwnerMetaRecord(
       `Stale access context: current epoch is ${meta.lock_epoch}, context epoch is ${ctx.lockEpoch}`
     );
   }
-  if (meta.active_key_id && meta.active_key_id !== ctx.keyId) {
+  if (!meta.active_key_id || meta.active_key_id !== ctx.keyId) {
     return new StorageError(
       "locked",
-      `Stale access context: active key ID is '${meta.active_key_id}', context key ID is '${ctx.keyId}'`
+      `Stale access context: active key ID is '${meta.active_key_id ?? "missing"}', context key ID is '${ctx.keyId}'`
     );
   }
   return null;
@@ -268,24 +268,47 @@ export async function unlockOwner(
       );
       const metaStore = tx.objectStore(STORAGE_STORES.owner_meta);
       const cryptoStore = tx.objectStore(STORAGE_STORES.crypto_keys);
+      let customError: StorageError | null = null;
       let contextResult: OwnerAccessContext | null = null;
 
       const getReq = metaStore.get(ownerId);
       getReq.onsuccess = () => {
         const existing = getReq.result as OwnerMetadata | undefined;
-        let epoch =
+        const epoch =
           existing?.lock_epoch && existing.lock_epoch > 0
             ? existing.lock_epoch
             : 1;
 
-        // If owner is re-unlocked with a different key without locking, increment epoch
-        if (
-          existing &&
-          !existing.locked &&
-          existing.active_key_id &&
-          existing.active_key_id !== keyId
-        ) {
-          epoch = epoch + 1;
+        if (existing) {
+          if (!existing.locked) {
+            // Owner is currently unlocked
+            if (!existing.active_key_id) {
+              customError = new StorageError(
+                "invalid_data",
+                `Unlocked owner '${ownerId}' is missing active_key_id; lock and re-unlock required`
+              );
+              tx.abort();
+              return;
+            }
+            if (existing.active_key_id !== keyId) {
+              customError = new StorageError(
+                "invalid_data",
+                `Cannot switch active key from '${existing.active_key_id}' to '${keyId}' while owner is unlocked`
+              );
+              tx.abort();
+              return;
+            }
+          } else {
+            // Owner is locked. Enforce stable key identity per T03 vault contract:
+            if (existing.active_key_id && existing.active_key_id !== keyId) {
+              customError = new StorageError(
+                "invalid_data",
+                `Cannot unlock owner with key '${keyId}'; expected stable key '${existing.active_key_id}'`
+              );
+              tx.abort();
+              return;
+            }
+          }
         }
 
         const updatedMeta: OwnerMetadata = {
@@ -335,23 +358,35 @@ export async function unlockOwner(
       };
 
       tx.onerror = () => {
-        resolve(
-          storageErr(
-            "transaction_aborted",
-            tx.error?.message ?? "Transaction aborted while unlocking owner",
-            tx.error
-          )
-        );
+        if (customError) {
+          resolve(
+            storageErr(customError.code, customError.message, customError.cause)
+          );
+        } else {
+          resolve(
+            storageErr(
+              "transaction_aborted",
+              tx.error?.message ?? "Transaction aborted while unlocking owner",
+              tx.error
+            )
+          );
+        }
       };
 
       tx.onabort = () => {
-        resolve(
-          storageErr(
-            "transaction_aborted",
-            tx.error?.message ?? "Transaction aborted while unlocking owner",
-            tx.error
-          )
-        );
+        if (customError) {
+          resolve(
+            storageErr(customError.code, customError.message, customError.cause)
+          );
+        } else {
+          resolve(
+            storageErr(
+              "transaction_aborted",
+              tx.error?.message ?? "Transaction aborted while unlocking owner",
+              tx.error
+            )
+          );
+        }
       };
     } catch (err) {
       resolve(

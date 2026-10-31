@@ -254,7 +254,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             context: ctx,
             deviceId,
             operationId: opId,
-            commands: [{ root: { kind: "plan", id: planId }, action: "plan.create", payload: planPayload }],
+            commands: [{ root: { kind: "plan", id: planId }, action: "plan.create", payload: { data: planPayload } }],
             dependencies: [],
             editTime,
             recordOverlays: [
@@ -406,7 +406,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             context: ctx,
             deviceId,
             operationId: op1,
-            commands: [{ root: { kind: "plan", id: p1Id }, action: "plan.create", payload: {} }],
+            commands: [{ root: { kind: "plan", id: p1Id }, action: "plan.create", payload: { data: { name: "Original Plan", color_id: "green" } } }],
             dependencies: [],
             editTime,
             recordOverlays: [{ kind: "plan", id: p1Id, payload: { name: "Original Plan" } }],
@@ -422,7 +422,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             context: ctx,
             deviceId,
             operationId: op2,
-            commands: [{ root: { kind: "plan", id: p2Id }, action: "plan.create", payload: {} }],
+            commands: [{ root: { kind: "plan", id: p2Id }, action: "plan.create", payload: { data: { name: "Aborted Plan", color_id: "green" } } }],
             dependencies: [],
             editTime,
             recordOverlays: [{ kind: "plan", id: p2Id, payload: { name: "Aborted Plan" } }],
@@ -536,14 +536,14 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
 
           const results: { opId: string; seq: string }[] = [];
           for (let i = 1; i <= 3; i++) {
-            const opId = `11111111-0000-0000-0000-00000000000${i}`;
+            const opId = `11111111-0000-4000-8000-00000000000${i}`;
             const res = await gateway.persistOperation({
               context: ctx,
               deviceId,
               operationId: opId,
-              commands: [{ root: { kind: "work_item", id: `33333333-0000-0000-0000-00000000000${i}` }, action: "work_item.create_single", payload: {} }],
+              commands: [{ root: { kind: "plan", id: `33333333-0000-4000-8000-00000000000${i}` }, action: "plan.create", payload: { data: { name: `Tab1 Plan ${i}`, color_id: "green" } } }],
               dependencies: [],
-              clockInput: { wallMs: 1793140000000 + i * 10, calibrationId: calId },
+              clockInput: { estimatedUtcMs: 1793140000000 + i * 10, rawWallMs: 1793140000000 + i * 10, calibrationId: calId },
             });
             if (res.ok) {
               results.push({ opId: res.value.operationId, seq: res.value.deviceSequence });
@@ -569,14 +569,14 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
 
           const results: { opId: string; seq: string }[] = [];
           for (let i = 1; i <= 3; i++) {
-            const opId = `22222222-0000-0000-0000-00000000000${i}`;
+            const opId = `22222222-0000-4000-8000-00000000000${i}`;
             const res = await gateway.persistOperation({
               context: ctx,
               deviceId,
               operationId: opId,
-              commands: [{ root: { kind: "work_item", id: `44444444-0000-0000-0000-00000000000${i}` }, action: "work_item.create_single", payload: {} }],
+              commands: [{ root: { kind: "plan", id: `44444444-0000-4000-8000-00000000000${i}` }, action: "plan.create", payload: { data: { name: `Tab2 Plan ${i}`, color_id: "blue" } } }],
               dependencies: [],
-              clockInput: { wallMs: 1793140000000 + i * 10 + 5, calibrationId: calId },
+              clockInput: { estimatedUtcMs: 1793140000000 + i * 10 + 5, rawWallMs: 1793140000000 + i * 10 + 5, calibrationId: calId },
             });
             if (res.ok) {
               results.push({ opId: res.value.operationId, seq: res.value.deviceSequence });
@@ -654,7 +654,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             context: ctx,
             deviceId,
             operationId: dupOpId,
-            commands: [{ root: { kind: "plan", id: planId }, action: "plan.create", payload: { name: "First Write" } }],
+            commands: [{ root: { kind: "plan", id: planId }, action: "plan.create", payload: { data: { name: "First Write", color_id: "green" } } }],
             dependencies: [],
             editTime,
             recordOverlays: [{ kind: "plan", id: planId, payload: { name: "First Write" } }],
@@ -665,7 +665,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             context: ctx,
             deviceId,
             operationId: dupOpId,
-            commands: [{ root: { kind: "plan", id: planId }, action: "plan.create", payload: { name: "Overwriting Attempt" } }],
+            commands: [{ root: { kind: "plan", id: planId }, action: "plan.create", payload: { data: { name: "Overwriting Attempt", color_id: "blue" } } }],
             dependencies: [],
             editTime,
             recordOverlays: [{ kind: "plan", id: planId, payload: { name: "Overwriting Attempt" } }],
@@ -739,7 +739,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             context: ctx,
             deviceId,
             operationId: opId,
-            commands: [{ root: { kind: "plan", id: planId }, action: "plan.create", payload: { name: "Persistent Plan" } }],
+            commands: [{ root: { kind: "plan", id: planId }, action: "plan.create", payload: { data: { name: "Persistent Plan", color_id: "green" } } }],
             dependencies: [],
             editTime,
             recordOverlays: [{ kind: "plan", id: planId, payload: { name: "Persistent Plan" } }],
@@ -840,7 +840,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             context: ctx,
             deviceId,
             operationId: opId,
-            commands: [{ root: { kind: "plan", id: "00000000-0000-4000-8000-000000000001" }, action: "plan.create", payload: {} }],
+            commands: [{ root: { kind: "plan", id: "00000000-0000-4000-8000-000000000001" }, action: "plan.create", payload: { data: { name: "Max Seq Plan", color_id: "green" } } }],
             dependencies: [],
             editTime,
           });
@@ -907,7 +907,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             context: ctx,
             deviceId,
             operationId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-            commands: [{ root: { kind: "plan", id: "00000000-0000-4000-8000-000000000001" }, action: "plan.create", payload: {} }],
+            commands: [{ root: { kind: "plan", id: "00000000-0000-4000-8000-000000000001" }, action: "plan.create", payload: { data: { name: "Max Seq Plan", color_id: "green" } } }],
             dependencies: [],
             editTime: untrustedHlc,
           });
@@ -925,7 +925,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             context: ctx,
             deviceId,
             operationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-            commands: [{ root: { kind: "plan", id: "00000000-0000-4000-8000-000000000001" }, action: "plan.create", payload: {} }],
+            commands: [{ root: { kind: "plan", id: "00000000-0000-4000-8000-000000000001" }, action: "plan.create", payload: { data: { name: "Max Seq Plan", color_id: "green" } } }],
             dependencies: [],
             editTime: malformedHlc,
           });
@@ -1013,7 +1013,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
               {
                 root: { kind: "plan", id: "11111111-1111-4111-8111-111111111111" },
                 action: "plan.create",
-                payload: { name: "Test 1" },
+                payload: { data: { name: "Test 1", color_id: "green" } },
                 precondition: null,
               },
             ],
@@ -1034,7 +1034,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
               {
                 root: { kind: "plan", id: "11111111-1111-4111-8111-111111111111" },
                 action: "plan.replace",
-                payload: { name: "Test 2" },
+                payload: { data: { name: "Test 2", color_id: "green" } },
                 precondition: null,
               },
             ],
@@ -1143,7 +1143,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
               {
                 root: { kind: "plan", id: "11111111-1111-4111-8111-111111111111" },
                 action: "plan.create",
-                payload: {},
+                payload: { data: { name: "Stale Plan", color_id: "green" } },
                 precondition: null,
               },
             ],
@@ -1249,7 +1249,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
               {
                 root: { kind: "plan", id: "11111111-1111-4111-8111-111111111111" },
                 action: "plan.create",
-                payload: {},
+                payload: { data: { name: "Stale Plan", color_id: "green" } },
                 precondition: null,
               },
             ],
@@ -1276,7 +1276,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
               {
                 root: { kind: "plan", id: "11111111-1111-4111-8111-111111111111" },
                 action: "plan.create",
-                payload: {},
+                payload: { data: { name: "Stale Plan", color_id: "green" } },
                 precondition: null,
               },
             ],
@@ -1354,7 +1354,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
               {
                 root: { kind: "plan", id: "11111111-1111-4111-8111-111111111111" },
                 action: "plan.create",
-                payload: { test: true },
+                payload: { data: { name: "Ack Plan", color_id: "green" } },
                 precondition: null,
               },
             ],
@@ -1380,7 +1380,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           const pending2 = await gateway.listPending(ctx);
 
           // 6. Confirm sync via markOperationSynced (after server pull confirms processed)
-          const syncRes = await gateway.markOperationSynced(ctx, opId);
+          const syncRes = await gateway.markOperationSynced(ctx, opId, rowAfterAck.request_hash);
 
           // 7. Inspect store: entry MUST be removed
           const rowAfterSync = await new Promise<any>((resolve) => {
@@ -1463,7 +1463,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
               {
                 root: { kind: "plan", id: "22222222-2222-4222-8222-222222222222" },
                 action: "plan.create",
-                payload: { name: "Offset Plan" },
+                payload: { data: { name: "Offset Plan", color_id: "green" } },
               },
             ],
             dependencies: [],
@@ -1485,7 +1485,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
               {
                 root: { kind: "plan", id: "22222222-2222-4222-8222-222222222222" },
                 action: "plan.replace",
-                payload: { name: "No Evidence Plan" },
+                payload: { data: { name: "No Evidence Plan", color_id: "green" } },
               },
             ],
             dependencies: [],
@@ -1579,7 +1579,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
               {
                 root: { kind: "plan", id: "22222222-2222-4222-8222-222222222222" },
                 action: "plan.create",
-                payload: { name: "Test Plan" },
+                payload: { data: { name: "Test Plan", color_id: "green" } },
               },
             ],
             dependencies: [],
@@ -1705,7 +1705,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
               {
                 root: { kind: "plan", id: validPlanId },
                 action: "plan.create",
-                payload: {},
+                payload: { data: { name: "Stale Plan", color_id: "green" } },
                 precondition: { unknown_property_forbidden: "value" } as any,
               },
             ],
@@ -1794,7 +1794,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
               {
                 root: { kind: "plan", id: "11111111-1111-4111-8111-111111111111" },
                 action: "plan.create",
-                payload: { test: true },
+                payload: { data: { name: "Test Plan", color_id: "green" } },
               },
             ],
             dependencies: [],
@@ -1802,7 +1802,8 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           });
 
           // 2. Attempt markOperationSynced before ACK -> MUST fail closed
-          const prematureSyncRes = await gateway.markOperationSynced(ctx, opId);
+          const dummyHash = "0000000000000000000000000000000000000000000000000000000000000000";
+          const prematureSyncRes = await gateway.markOperationSynced(ctx, opId, dummyHash);
 
           // 3. Mark ACK -> transitions to ack_waiting_pull
           const ackRes = await gateway.markOperationAcked(ctx, opId);
@@ -1865,6 +1866,366 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
       expect(result.rowStillExistsAfterWrongHash).toBe(true);
       expect(result.correctSyncOk).toBe(true);
       expect(result.rowDeletedAfterCorrectSync).toBe(true);
+    });
+
+    test("T03 schema parity: rejects wrong root/action pair, missing payload.data, extra properties, non-canonical UUID, invalid set_order guards, mixed undo, mandatory sync hash, and fractional clock", async ({
+      page,
+    }) => {
+      const script = buildStorageScript();
+      await page.addInitScript(script);
+      await page.goto("/work");
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId, deviceId, calId }) => {
+          const {
+            createLocalStorageGateway,
+            openDatabase,
+            closeDatabase,
+            unlockOwner,
+            generateTestKey,
+            validateHlc,
+            advanceHlc,
+            StorageError,
+          } = window.__dayforge_storage_atomicity;
+
+          const key = await generateTestKey();
+          const dbRes = await openDatabase({ name: testDbName });
+          if (!dbRes.ok) return { ok: false, error: "open failed" };
+          const db = dbRes.value;
+
+          const unlockRes = await unlockOwner(db, ownerId, keyId, key);
+          if (!unlockRes.ok) {
+            closeDatabase(db);
+            return { ok: false, error: "unlock failed" };
+          }
+          const ctx = unlockRes.value;
+          const gateway = createLocalStorageGateway({ name: testDbName });
+
+          const baseClock = {
+            estimatedUtcMs: 1793150000000,
+            calibrationId: calId,
+            quality: "calibrated" as const,
+          };
+          const validPlanId = "22222222-2222-4222-8222-222222222222";
+          const validTaskId = "33333333-3333-4333-8333-333333333333";
+          const dummyHash64 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+          // 1. Wrong root/action pair: root kind "plan", action "occurrence.replace" -> rejected
+          const wrongRootActionRes = await gateway.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId: "11111111-0001-4000-8000-000000000001",
+            commands: [
+              {
+                root: { kind: "plan", id: validPlanId },
+                action: "occurrence.replace" as any,
+                payload: { data: { name: "Test Plan", color_id: "green" } },
+              },
+            ],
+            dependencies: [],
+            clockInput: baseClock,
+          });
+
+          // 2. Missing plan.create.payload.data -> rejected
+          const missingDataRes = await gateway.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId: "11111111-0002-4000-8000-000000000002",
+            commands: [
+              {
+                root: { kind: "plan", id: validPlanId },
+                action: "plan.create",
+                payload: { name: "No Data Wrapper" } as any,
+              },
+            ],
+            dependencies: [],
+            clockInput: baseClock,
+          });
+
+          // 3. Extra nested properties in payload (additionalProperties: false) -> rejected
+          const extraPropertyRes = await gateway.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId: "11111111-0003-4000-8000-000000000003",
+            commands: [
+              {
+                root: { kind: "plan", id: validPlanId },
+                action: "plan.create",
+                payload: {
+                  data: { name: "Test Plan", color_id: "green", forbidden_extra: true },
+                } as any,
+              },
+            ],
+            dependencies: [],
+            clockInput: baseClock,
+          });
+
+          // 4. Non-canonical UUIDs -> rejected
+          // 4a. Uppercase UUID
+          const uppercaseUuidRes = await gateway.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId: "11111111-0004-4000-8000-000000000004",
+            commands: [
+              {
+                root: { kind: "plan", id: "22222222-2222-4222-8222-22222222222A" },
+                action: "plan.create",
+                payload: { data: { name: "Test Plan", color_id: "green" } },
+              },
+            ],
+            dependencies: [],
+            clockInput: baseClock,
+          });
+          // 4b. Non-v4/v5 (v1 UUID)
+          const v1UuidRes = await gateway.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId: "11111111-0004-4000-8000-000000000005",
+            commands: [
+              {
+                root: { kind: "plan", id: "22222222-2222-1222-8222-222222222222" },
+                action: "plan.create",
+                payload: { data: { name: "Test Plan", color_id: "green" } },
+              },
+            ],
+            dependencies: [],
+            clockInput: baseClock,
+          });
+          // 4c. Non-canonical variant (nibble '0' instead of 8,9,a,b)
+          const badVariantUuidRes = await gateway.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId: "11111111-0004-4000-8000-000000000006",
+            commands: [
+              {
+                root: { kind: "plan", id: "22222222-2222-4222-0222-222222222222" },
+                action: "plan.create",
+                payload: { data: { name: "Test Plan", color_id: "green" } },
+              },
+            ],
+            dependencies: [],
+            clockInput: baseClock,
+          });
+
+          // 5. Invalid set_order guards
+          // 5a. set_order missing expected_root_hash
+          const setOrderMissingHashRes = await gateway.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId: "11111111-0005-4000-8000-000000000007",
+            commands: [
+              {
+                root: { kind: "work_item", id: validTaskId },
+                action: "set_order",
+                payload: {
+                  target: { kind: "single" },
+                  order_key: "100",
+                  intent: "user_reorder",
+                },
+                precondition: {
+                  expected_bucket: { date: "2026-10-31", period: "morning", order_hash: dummyHash64 },
+                } as any,
+              },
+            ],
+            dependencies: [],
+            clockInput: baseClock,
+          });
+          // 5b. set_order with expected_root_hash but operation missing expected_bucket
+          const setOrderMissingBucketRes = await gateway.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId: "11111111-0005-4000-8000-000000000008",
+            commands: [
+              {
+                root: { kind: "work_item", id: validTaskId },
+                action: "set_order",
+                payload: {
+                  target: { kind: "single" },
+                  order_key: "100",
+                  intent: "user_reorder",
+                },
+                precondition: { expected_root_hash: dummyHash64 },
+              },
+            ],
+            dependencies: [],
+            clockInput: baseClock,
+          });
+          // 5c. Valid set_order with both guards
+          const validSetOrderRes = await gateway.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId: "11111111-0005-4000-8000-000000000009",
+            commands: [
+              {
+                root: { kind: "work_item", id: validTaskId },
+                action: "set_order",
+                payload: {
+                  target: { kind: "single" },
+                  order_key: "100",
+                  intent: "user_reorder",
+                },
+                precondition: {
+                  expected_root_hash: dummyHash64,
+                  expected_bucket: { date: "2026-10-31", period: "morning", order_hash: dummyHash64 },
+                },
+              },
+            ],
+            dependencies: [],
+            clockInput: baseClock,
+          });
+
+          // 6. Solitary undo requirement
+          const validUndoPayload = {
+            original_operation_id: "11111111-0005-4000-8000-000000000009",
+            expected_states: [
+              {
+                root: { kind: "work_item", id: validTaskId },
+                hash: dummyHash64,
+              },
+            ],
+          };
+          // 6a. undo combined with another command -> rejected
+          const mixedUndoRes = await gateway.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId: "11111111-0006-4000-8000-00000000000a",
+            commands: [
+              {
+                root: { kind: "plan", id: validPlanId },
+                action: "undo",
+                payload: validUndoPayload,
+              },
+              {
+                root: { kind: "plan", id: validPlanId },
+                action: "plan.replace",
+                payload: { data: { name: "Test Plan 2", color_id: "green" } },
+              },
+            ],
+            dependencies: [],
+            clockInput: baseClock,
+          });
+          // 6b. Single undo command -> succeeds
+          const singleUndoRes = await gateway.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId: "11111111-0006-4000-8000-00000000000b",
+            commands: [
+              {
+                root: { kind: "plan", id: validPlanId },
+                action: "undo",
+                payload: validUndoPayload,
+              },
+            ],
+            dependencies: [],
+            clockInput: baseClock,
+          });
+
+          // 7. markOperationSynced mandatory hash validation
+          // Setup an op waiting for pull
+          await gateway.markOperationAcked(ctx, "11111111-0006-4000-8000-00000000000b");
+          const syncUndefinedHash = await gateway.markOperationSynced(ctx, "11111111-0006-4000-8000-00000000000b", undefined as any);
+          const syncShortHash = await gateway.markOperationSynced(ctx, "11111111-0006-4000-8000-00000000000b", "not-a-hash");
+          const syncUpperHash = await gateway.markOperationSynced(ctx, "11111111-0006-4000-8000-00000000000b", "A".repeat(64));
+
+          // 8. Strict HLC validation: fractional raw_wall_ms and non-canonical calibration_id
+          const fractionalRawWallRejected = !validateHlc({
+            physical_ms: 1793150000000,
+            logical: 0,
+            calibration_id: calId,
+            raw_wall_ms: 1793150000000.5,
+            quality: "calibrated",
+          });
+
+          const badCalIdRejected = !validateHlc({
+            physical_ms: 1793150000000,
+            logical: 0,
+            calibration_id: "UPPERCASE-CALIB-0000-0000-000000000000",
+            raw_wall_ms: 1793150000000,
+            quality: "calibrated",
+          });
+
+          let fractionalAdvanceRejected = false;
+          try {
+            advanceHlc(null, 1793150000000.5, calId, "calibrated");
+          } catch (e: any) {
+            fractionalAdvanceRejected = e instanceof StorageError && e.code === "invalid_data";
+          }
+
+          gateway.close();
+          closeDatabase(db);
+
+          return {
+            ok: true,
+            wrongRootActionOk: wrongRootActionRes.ok,
+            wrongRootActionCode: !wrongRootActionRes.ok ? wrongRootActionRes.error.code : null,
+            missingDataOk: missingDataRes.ok,
+            missingDataCode: !missingDataRes.ok ? missingDataRes.error.code : null,
+            extraPropertyOk: extraPropertyRes.ok,
+            extraPropertyCode: !extraPropertyRes.ok ? extraPropertyRes.error.code : null,
+            uppercaseUuidOk: uppercaseUuidRes.ok,
+            uppercaseUuidCode: !uppercaseUuidRes.ok ? uppercaseUuidRes.error.code : null,
+            v1UuidOk: v1UuidRes.ok,
+            v1UuidCode: !v1UuidRes.ok ? v1UuidRes.error.code : null,
+            badVariantUuidOk: badVariantUuidRes.ok,
+            badVariantUuidCode: !badVariantUuidRes.ok ? badVariantUuidRes.error.code : null,
+            setOrderMissingHashOk: setOrderMissingHashRes.ok,
+            setOrderMissingHashCode: !setOrderMissingHashRes.ok ? setOrderMissingHashRes.error.code : null,
+            setOrderMissingBucketOk: setOrderMissingBucketRes.ok,
+            setOrderMissingBucketCode: !setOrderMissingBucketRes.ok ? setOrderMissingBucketRes.error.code : null,
+            validSetOrderOk: validSetOrderRes.ok,
+            mixedUndoOk: mixedUndoRes.ok,
+            mixedUndoCode: !mixedUndoRes.ok ? mixedUndoRes.error.code : null,
+            singleUndoOk: singleUndoRes.ok,
+            syncUndefinedHashOk: syncUndefinedHash.ok,
+            syncUndefinedHashCode: !syncUndefinedHash.ok ? syncUndefinedHash.error.code : null,
+            syncShortHashOk: syncShortHash.ok,
+            syncShortHashCode: !syncShortHash.ok ? syncShortHash.error.code : null,
+            syncUpperHashOk: syncUpperHash.ok,
+            syncUpperHashCode: !syncUpperHash.ok ? syncUpperHash.error.code : null,
+            fractionalRawWallRejected,
+            badCalIdRejected,
+            fractionalAdvanceRejected,
+          };
+        },
+        {
+          testDbName: `test-schema-parity-${Date.now()}`,
+          ownerId: "11111111-1111-4111-8111-111111111111",
+          keyId: "key-1",
+          deviceId: "22222222-2222-4222-8222-222222222222",
+          calId: "33333333-3333-4333-8333-333333333333",
+        }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.wrongRootActionOk).toBe(false);
+      expect(result.wrongRootActionCode).toBe("invalid_data");
+      expect(result.missingDataOk).toBe(false);
+      expect(result.missingDataCode).toBe("invalid_data");
+      expect(result.extraPropertyOk).toBe(false);
+      expect(result.extraPropertyCode).toBe("invalid_data");
+      expect(result.uppercaseUuidOk).toBe(false);
+      expect(result.uppercaseUuidCode).toBe("invalid_data");
+      expect(result.v1UuidOk).toBe(false);
+      expect(result.v1UuidCode).toBe("invalid_data");
+      expect(result.badVariantUuidOk).toBe(false);
+      expect(result.badVariantUuidCode).toBe("invalid_data");
+      expect(result.setOrderMissingHashOk).toBe(false);
+      expect(result.setOrderMissingHashCode).toBe("invalid_data");
+      expect(result.setOrderMissingBucketOk).toBe(false);
+      expect(result.setOrderMissingBucketCode).toBe("invalid_data");
+      expect(result.validSetOrderOk).toBe(true);
+      expect(result.mixedUndoOk).toBe(false);
+      expect(result.mixedUndoCode).toBe("invalid_data");
+      expect(result.singleUndoOk).toBe(true);
+      expect(result.syncUndefinedHashOk).toBe(false);
+      expect(result.syncUndefinedHashCode).toBe("invalid_data");
+      expect(result.syncShortHashOk).toBe(false);
+      expect(result.syncShortHashCode).toBe("invalid_data");
+      expect(result.syncUpperHashOk).toBe(false);
+      expect(result.syncUpperHashCode).toBe("invalid_data");
+      expect(result.fractionalRawWallRejected).toBe(true);
+      expect(result.badCalIdRejected).toBe(true);
+      expect(result.fractionalAdvanceRejected).toBe(true);
     });
   });
 });

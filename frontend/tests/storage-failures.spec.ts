@@ -142,7 +142,7 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
             context: ctx,
             deviceId,
             operationId: opId,
-            commands: [{ root: { kind: "plan", id: planId }, action: "plan.create", payload: { name: "Pending Plan" } }],
+            commands: [{ root: { kind: "plan", id: planId }, action: "plan.create", payload: { data: { name: "Pending Plan", color_id: "green" } } }],
             dependencies: [],
             editTime,
             recordOverlays: [{ kind: "plan", id: planId, payload: { name: "Pending Plan" } }],
@@ -255,7 +255,7 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
               context: ctx,
               deviceId,
               operationId: opId,
-              commands: [{ root: { kind: "plan", id: "bbbbbbbb-2222-4222-8222-222222222222" }, action: "plan.create", payload: { name: "Quota Plan" } }],
+              commands: [{ root: { kind: "plan", id: "bbbbbbbb-2222-4222-8222-222222222222" }, action: "plan.create", payload: { data: { name: "Quota Plan", color_id: "green" } } }],
               dependencies: [],
               editTime,
               recordOverlays: [{ kind: "plan", id: "bbbbbbbb-2222-4222-8222-222222222222", payload: { name: "Quota Plan" } }],
@@ -439,7 +439,7 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
             context: ctx,
             deviceId,
             operationId: opId,
-            commands: [{ root: { kind: "plan", id: "aaaaaaaa-1111-4111-8111-111111111111" }, action: "plan.create", payload: {} }],
+            commands: [{ root: { kind: "plan", id: "aaaaaaaa-1111-4111-8111-111111111111" }, action: "plan.create", payload: { data: { name: "Aborted Plan", color_id: "green" } } }],
             dependencies: [],
             editTime,
             recordOverlays: [{ kind: "plan", id: "aaaaaaaa-1111-4111-8111-111111111111", payload: { name: "Aborted Plan" } }],
@@ -527,7 +527,7 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
             context: ctx,
             deviceId,
             operationId: opId,
-            commands: [{ root: { kind: "plan", id: planId }, action: "plan.create", payload: { secret: "abc" } }],
+            commands: [{ root: { kind: "plan", id: planId }, action: "plan.create", payload: { data: { name: "Secret Plan", color_id: "green" } } }],
             dependencies: [],
             editTime,
             recordOverlays: [{ kind: "plan", id: planId, payload: { secret: "abc" } }],
@@ -685,9 +685,16 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
               },
               action: "work_item.create_single",
               payload: {
-                title: `Scale Command Task ${i}`,
-                index: i,
-                plan_id: "11111111-1111-4111-8111-111111111111",
+                data: {
+                  title: `Scale Command Task ${i}`,
+                  date: "2026-10-31",
+                  period: "morning",
+                  duration_minutes: 30,
+                  plan_id: "11111111-1111-4111-8111-111111111111",
+                  standalone_color_id: "green",
+                  status: "pending",
+                  order_key: "0",
+                },
               },
             });
           }
@@ -834,10 +841,26 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
             context: ctx,
             deviceId,
             operationId: opId,
-            commands: [{ root: { kind: "work_item", id: noteId }, action: "work_item.create_single", payload: { body: note } }],
+            commands: [
+              {
+                root: { kind: "milestone", id: noteId },
+                action: "milestone.create",
+                payload: {
+                  data: {
+                    title: "Multiline Milestone",
+                    date: "2026-10-31",
+                    period: null,
+                    note,
+                    plan_id: null,
+                    standalone_color_id: "green",
+                    show_in_work_calendar: false,
+                  },
+                },
+              },
+            ],
             dependencies: [],
             editTime,
-            recordOverlays: [{ kind: "work_item", id: noteId, payload: { body: note } }],
+            recordOverlays: [{ kind: "milestone", id: noteId, payload: { note } }],
           });
 
           if (!persistRes.ok) {
@@ -847,16 +870,16 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
           }
 
           // Read back overlay
-          const recRes = await gateway.getRecord<{ body: string }>(ctx, "work_item", noteId);
+          const recRes = await gateway.getRecord<{ note: string }>(ctx, "milestone", noteId);
           // Read back outbox envelope
           const listRes = await gateway.listPending(ctx);
 
           closeDatabase(db);
           gateway.close();
 
-          const recoveredRecordBody = recRes.ok ? recRes.value?.body : null;
+          const recoveredRecordBody = recRes.ok ? recRes.value?.note : null;
           const recoveredCmdBody = listRes.ok
-            ? (listRes.value[0].commands[0] as unknown as { payload: { body: string } })?.payload?.body
+            ? (listRes.value[0].commands[0] as unknown as { payload: { data: { note: string } } })?.payload?.data?.note
             : null;
 
           return {
@@ -937,16 +960,26 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
             operationId: opId,
             commands: [
               {
-                root: { kind: "work_item", id: authId },
-                action: "work_item.create_single",
-                payload: { token: rawSessionToken, secret: rawUserPassword },
+                root: { kind: "milestone", id: authId },
+                action: "milestone.create",
+                payload: {
+                  data: {
+                    title: "Auth Milestone",
+                    date: "2026-10-31",
+                    period: null,
+                    note: `${rawSessionToken} ${rawUserPassword}`,
+                    plan_id: null,
+                    standalone_color_id: "green",
+                    show_in_work_calendar: false,
+                  },
+                },
               },
             ],
             dependencies: [],
             editTime,
             recordOverlays: [
               {
-                kind: "work_item",
+                kind: "milestone",
                 id: authId,
                 payload: { token: rawSessionToken, secret: rawUserPassword },
               },
@@ -1089,22 +1122,35 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
             const opId = `10000000-0000-4000-8000-${i.toString(16).padStart(12, "0")}`;
             const planId = `20000000-0000-4000-8000-${i.toString(16).padStart(12, "0")}`;
             const taskId = `30000000-0000-4000-8000-${i.toString(16).padStart(12, "0")}`;
-            const planPayload = { title: `Performance Plan ${i}`, index: i };
-            const taskPayload = { title: `Performance Task ${i}`, plan_id: planId };
+            const planCmdPayload = { data: { name: `Performance Plan ${i}`, color_id: "green" } };
+            const taskCmdPayload = {
+              data: {
+                title: `Performance Task ${i}`,
+                date: "2026-10-31",
+                period: "morning",
+                duration_minutes: 30,
+                plan_id: planId,
+                standalone_color_id: "green",
+                status: "pending",
+                order_key: "0",
+              },
+            };
+            const planOverlay = { name: `Performance Plan ${i}` };
+            const taskOverlay = { title: `Performance Task ${i}`, plan_id: planId };
 
             const pRes = await gateway.persistOperation({
               context: ctx,
               deviceId,
               operationId: opId,
               commands: [
-                { root: { kind: "plan", id: planId }, action: "plan.create", payload: planPayload },
-                { root: { kind: "work_item", id: taskId }, action: "work_item.create_single", payload: taskPayload },
+                { root: { kind: "plan", id: planId }, action: "plan.create", payload: planCmdPayload },
+                { root: { kind: "work_item", id: taskId }, action: "work_item.create_single", payload: taskCmdPayload },
               ],
               dependencies: i > 1 ? [`10000000-0000-4000-8000-${(i - 1).toString(16).padStart(12, "0")}`] : [],
               editTime: currentHlc,
               recordOverlays: [
-                { kind: "plan", id: planId, payload: planPayload },
-                { kind: "work_item", id: taskId, payload: taskPayload },
+                { kind: "plan", id: planId, payload: planOverlay },
+                { kind: "work_item", id: taskId, payload: taskOverlay },
               ],
             });
 

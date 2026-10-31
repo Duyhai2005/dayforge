@@ -9,7 +9,7 @@ export interface HlcEditTime {
 }
 
 const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[45][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 export const UINT32_MAX = 0xffffffff;
 
@@ -36,8 +36,9 @@ export function validateHlc(hlc: unknown): hlc is HlcEditTime {
   }
   if (
     typeof candidate.raw_wall_ms !== "number" ||
-    !Number.isFinite(candidate.raw_wall_ms) ||
-    candidate.raw_wall_ms < 0
+    !Number.isSafeInteger(candidate.raw_wall_ms) ||
+    candidate.raw_wall_ms < 0 ||
+    candidate.raw_wall_ms > Number.MAX_SAFE_INTEGER
   ) {
     return false;
   }
@@ -65,7 +66,8 @@ export function advanceHlc(
   rawWallMs: number = estimatedUtcMs
 ): HlcEditTime {
   if (
-    !Number.isFinite(estimatedUtcMs) ||
+    typeof estimatedUtcMs !== "number" ||
+    !Number.isSafeInteger(estimatedUtcMs) ||
     estimatedUtcMs < 0 ||
     estimatedUtcMs > Number.MAX_SAFE_INTEGER
   ) {
@@ -75,7 +77,8 @@ export function advanceHlc(
     );
   }
   if (
-    !Number.isFinite(rawWallMs) ||
+    typeof rawWallMs !== "number" ||
+    !Number.isSafeInteger(rawWallMs) ||
     rawWallMs < 0 ||
     rawWallMs > Number.MAX_SAFE_INTEGER
   ) {
