@@ -7,6 +7,7 @@
 > Feature branch: `feature/automated-quality-gates`  
 > Task nguồn: `docs/tasks/README.md` — **T07 — Thiết lập kiểm tra tự động**  
 > Phạm vi: lint, format check cần thiết, type check, test runners, MySQL test cô lập, CI test/build và tài liệu bàn giao.
+> Trạng thái: **Hoàn thành** theo [báo cáo kiểm chứng](review-and-verification.md).
 
 ---
 

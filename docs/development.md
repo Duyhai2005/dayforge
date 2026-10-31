@@ -202,6 +202,54 @@ pnpm db:down
 
 This stops and removes the Compose container/network while retaining the named data volume. Do not add `-v` or delete the volume during routine shutdown. Changing passwords in `.env` does not change credentials already initialized in an existing MySQL volume; restore the matching original local configuration or use a deliberate database credential migration.
 
+## 7. Automated checks and quality gates
+
+T07 establishes unified quality gates matching GitHub Actions CI:
+
+### Fast non-browser checks
+
+Run static checks and unit/regression suites before pushing:
+
+```powershell
+pnpm verify:fast
+```
+
+This sequentially runs `pnpm lint`, `pnpm typecheck`, `pnpm verify:env`, and `pnpm test:api`.
+
+### Frontend quality commands
+
+```powershell
+pnpm lint:web       # ESLint with --max-warnings=0
+pnpm typecheck:web  # tsc --noEmit
+pnpm test:web       # Playwright dev suite (manages dev server on port 3010)
+pnpm build:web      # Cross-platform Next.js production build
+pnpm test:web:prod  # Playwright production suite (manages prod server on port 3001, strict headers)
+```
+
+### Backend quality commands
+
+```powershell
+pnpm lint:api          # Ruff check (app, tests, migrations, scripts)
+pnpm format:check:api  # Black check (120 line length)
+pnpm typecheck:api     # mypy app
+pnpm test:api          # pytest -m "not mysql" (runs without Docker)
+pnpm test:api:mysql    # Isolated MySQL integration tests (requires Docker daemon)
+```
+
+### Complete verification
+
+Run the complete test and build pipeline locally (does not require Docker):
+
+```powershell
+pnpm verify
+```
+
+### Docker and CI notes
+
+- `pnpm test:api:mysql` provisions a unique Compose project (`dayforge-test-<uuid>`), dynamically extracts the canonical pinned digest from `compose.yaml` without reading `.env`, binds to a loopback port, and cleans up all containers and anonymous storage on pass and fail. It never uses or modifies the development database or volumes.
+- Clean CI checkouts run without any `.env` files or secrets.
+- GitHub Actions workflow (`.github/workflows/ci.yml`) runs three required jobs: `quality`, `backend-mysql`, and `frontend`.
+
 ## Troubleshooting
 
 | Symptom | Check |
@@ -227,5 +275,7 @@ This stops and removes the Compose container/network while retaining the named d
 - [T05 verification results and limits](tasks/t05/review-and-verification.md)
 - [T06 shell plan](tasks/t06/plan.md)
 - [T06 verification and handoff](tasks/t06/review-and-verification.md)
+- [T07 automated quality plan](tasks/t07/plan.md)
+- [T07 verification and handoff](tasks/t07/review-and-verification.md)
 - [Overall task status and dependencies](tasks/README.md)
 - [Project architecture](project-definition/04-technical-architecture.md)
