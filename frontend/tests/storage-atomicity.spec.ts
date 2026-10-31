@@ -9,6 +9,7 @@ import {
   DB_NAME,
   STORAGE_STORES,
   generateTestKey,
+  importRawKey,
   unlockOwner,
   type OwnerAccessContext,
   type HlcEditTime,
@@ -36,6 +37,7 @@ declare global {
       openDatabase: typeof openDatabase;
       closeDatabase: typeof closeDatabase;
       generateTestKey: typeof generateTestKey;
+      importRawKey: typeof importRawKey;
       unlockOwner: typeof unlockOwner;
       validateHlc: typeof validateHlc;
       advanceHlc: typeof advanceHlc;
@@ -66,6 +68,7 @@ function buildStorageScript(): string {
   const combined = files
     .map((file) => fs.readFileSync(path.join(libDir, file), "utf-8"))
     .join("\n")
+    .replace(/import\s+[\s\S]*?from\s+['"][^'"]+['"];?/g, "")
     .replace(/import\s+.*?;/g, "");
 
   const transpiled = ts.transpileModule(combined, {
@@ -208,14 +211,14 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           } = window.__dayforge_storage_atomicity;
 
           const openRes = await openDatabase({ name: testDbName });
-          if (!openRes.ok) return { ok: false, error: openRes.error.code, step: "open" };
+          if (!openRes.ok) return { ok: false as const, error: openRes.error.code, step: "open" };
           const db = openRes.value;
 
           const key = await generateTestKey();
           const unlockRes = await unlockOwner(db, ownerId, keyId, key);
           if (!unlockRes.ok) {
             closeDatabase(db);
-            return { ok: false, error: unlockRes.error.code, step: "unlock" };
+            return { ok: false as const, error: unlockRes.error.code, step: "unlock" };
           }
           const ctx = unlockRes.value;
 
@@ -242,7 +245,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           if (!persistRes.ok) {
             gateway.close();
             closeDatabase(db);
-            return { ok: false, error: persistRes.error.code, step: "persist" };
+            return { ok: false as const, error: persistRes.error.code, step: "persist" };
           }
 
           // Read direct from stores to verify atomic writes
@@ -285,7 +288,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           closeDatabase(db);
 
           return {
-            ok: true,
+            ok: true as const,
             persistValue: persistRes.value,
             storeInspection,
             pendingCount: pendingRes.ok ? pendingRes.value.length : -1,
@@ -298,7 +301,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
       );
 
       expect(result.ok).toBe(true);
-      if (!result.ok) return;
+      if (!result.ok) throw new Error("ST-03 failed: " + JSON.stringify(result));
 
       expect(result.persistValue.operationId).toBe(opId);
       expect(result.persistValue.deviceSequence).toBe("1");
@@ -350,14 +353,14 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           } = window.__dayforge_storage_atomicity;
 
           const openRes = await openDatabase({ name: testDbName });
-          if (!openRes.ok) return { ok: false, error: openRes.error.code };
+          if (!openRes.ok) return { ok: false as const, error: openRes.error.code };
           const db = openRes.value;
 
           const key = await generateTestKey();
           const unlockRes = await unlockOwner(db, ownerId, keyId, key);
           if (!unlockRes.ok) {
             closeDatabase(db);
-            return { ok: false, error: unlockRes.error.code };
+            return { ok: false as const, error: unlockRes.error.code };
           }
           const ctx = unlockRes.value;
 
@@ -379,7 +382,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           if (!op1Res.ok) {
             gateway.close();
             closeDatabase(db);
-            return { ok: false, error: op1Res.error.code, step: "op1" };
+            return { ok: false as const, error: op1Res.error.code, step: "op1" };
           }
 
           // 2. Attempt op2 with explicit abort
@@ -426,7 +429,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           closeDatabase(db);
 
           return {
-            ok: true,
+            ok: true as const,
             op1Sequence: op1Res.value.deviceSequence,
             op2Ok: op2Res.ok,
             op2ErrorCode: !op2Res.ok ? op2Res.error.code : null,
@@ -437,7 +440,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
       );
 
       expect(result.ok).toBe(true);
-      if (!result.ok) return;
+      if (!result.ok) throw new Error("ST-03 failed: " + JSON.stringify(result));
 
       expect(result.op1Sequence).toBe("1");
       expect(result.op2Ok).toBe(false);
@@ -459,43 +462,41 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
       const deviceId = "22222222-2222-4222-8222-222222222222";
       const calId = "33333333-3333-4333-8333-333333333333";
 
-      // Context 1 (Tab 1)
-      const context1 = await browser.newContext();
-      const page1 = await context1.newPage();
+      // Two tabs (pages) sharing the same browser context / IndexedDB database
+      const context = await browser.newContext();
+      const page1 = await context.newPage();
       await page1.addInitScript(buildStorageScript());
       await page1.goto("/work");
 
-      // Context 2 (Tab 2)
-      const context2 = await browser.newContext();
-      const page2 = await context2.newPage();
+      const page2 = await context.newPage();
       await page2.addInitScript(buildStorageScript());
       await page2.goto("/work");
 
-      // Setup shared key and unlock in Tab 1
-      const rawKeyBytes = await page1.evaluate(async ({ testDbName, ownerId, keyId }) => {
-        const { openDatabase, closeDatabase, generateTestKey, unlockOwner } =
-          window.__dayforge_storage_atomicity;
-        const openRes = await openDatabase({ name: testDbName });
-        if (!openRes.ok) return null;
-        const key = await generateTestKey();
-        const unlockRes = await unlockOwner(openRes.value, ownerId, keyId, key);
-        closeDatabase(openRes.value);
-        if (!unlockRes.ok) return null;
+      // Setup shared 32-byte key for both contexts
+      const rawKeyBytes = Array.from({ length: 32 }, (_, i) => (i * 7 + 13) % 256);
 
-        // Export key for tab 2
-        const raw = await crypto.subtle.exportKey("raw", key);
-        return Array.from(new Uint8Array(raw));
-      }, { testDbName, ownerId, keyId });
+      const unlockRes = await page1.evaluate(
+        async ({ testDbName, ownerId, keyId, rawKeyBytes }) => {
+          const { openDatabase, closeDatabase, importRawKey, unlockOwner } =
+            window.__dayforge_storage_atomicity;
+          const openRes = await openDatabase({ name: testDbName });
+          if (!openRes.ok) return false;
+          const key = await importRawKey(new Uint8Array(rawKeyBytes));
+          const unlRes = await unlockOwner(openRes.value, ownerId, keyId, key);
+          closeDatabase(openRes.value);
+          return unlRes.ok;
+        },
+        { testDbName, ownerId, keyId, rawKeyBytes }
+      );
 
-      expect(rawKeyBytes).not.toBeNull();
-      if (!rawKeyBytes) return;
+      expect(unlockRes).toBe(true);
 
       // Concurrent execution: 3 operations in Tab 1, 3 operations in Tab 2
       const tab1Promise = page1.evaluate(
         async ({ testDbName, ownerId, keyId, deviceId, calId, rawKeyBytes }) => {
-          const { createLocalStorageGateway, advanceHlc } = window.__dayforge_storage_atomicity;
-          const subtle = crypto.subtle;
-          const key = await subtle.importKey("raw", new Uint8Array(rawKeyBytes), { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+          const { createLocalStorageGateway, advanceHlc, importRawKey } =
+            window.__dayforge_storage_atomicity;
+          const key = await importRawKey(new Uint8Array(rawKeyBytes));
           const ctx: OwnerAccessContext = { ownerId, keyId, lockEpoch: 1, key };
 
           const gateway = createLocalStorageGateway({ name: testDbName });
@@ -515,6 +516,8 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             });
             if (res.ok) {
               results.push({ opId: res.value.operationId, seq: res.value.deviceSequence });
+            } else {
+              results.push({ opId, seq: `ERR:${res.error.code}:${res.error.message}` });
             }
           }
           gateway.close();
@@ -525,9 +528,9 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
 
       const tab2Promise = page2.evaluate(
         async ({ testDbName, ownerId, keyId, deviceId, calId, rawKeyBytes }) => {
-          const { createLocalStorageGateway, advanceHlc } = window.__dayforge_storage_atomicity;
-          const subtle = crypto.subtle;
-          const key = await subtle.importKey("raw", new Uint8Array(rawKeyBytes), { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+          const { createLocalStorageGateway, advanceHlc, importRawKey } =
+            window.__dayforge_storage_atomicity;
+          const key = await importRawKey(new Uint8Array(rawKeyBytes));
           const ctx: OwnerAccessContext = { ownerId, keyId, lockEpoch: 1, key };
 
           const gateway = createLocalStorageGateway({ name: testDbName });
@@ -547,6 +550,8 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             });
             if (res.ok) {
               results.push({ opId: res.value.operationId, seq: res.value.deviceSequence });
+            } else {
+              results.push({ opId, seq: `ERR:${res.error.code}:${res.error.message}` });
             }
           }
           gateway.close();
@@ -573,8 +578,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
         "6",
       ]);
 
-      await context1.close();
-      await context2.close();
+      await context.close();
     });
 
     test("ST-06: Duplicate operation_id rejected without overwriting existing outbox", async ({
@@ -653,7 +657,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
       );
 
       expect(result.ok).toBe(true);
-      if (!result.ok) return;
+      if (!result.ok) throw new Error("ST-03 failed: " + JSON.stringify(result));
 
       expect(result.firstOk).toBe(true);
       expect(result.dupOk).toBe(false);
@@ -672,13 +676,15 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
       const opId = "77777777-7777-4777-8777-777777777777";
       const calId = "88888888-8888-4888-8888-888888888888";
 
+      const rawKey = Array.from({ length: 32 }, (_, i) => (i * 11 + 5) % 256);
+
       // 1. Write before reload
       const beforeResult = await page.evaluate(
-        async ({ testDbName, ownerId, keyId, deviceId, opId, calId }) => {
+        async ({ testDbName, ownerId, keyId, deviceId, opId, calId, rawKey }) => {
           const {
             openDatabase,
             closeDatabase,
-            generateTestKey,
+            importRawKey,
             unlockOwner,
             createLocalStorageGateway,
             advanceHlc,
@@ -686,7 +692,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
 
           const openRes = await openDatabase({ name: testDbName });
           if (!openRes.ok) return null;
-          const key = await generateTestKey();
+          const key = await importRawKey(new Uint8Array(rawKey));
           const unlockRes = await unlockOwner(openRes.value, ownerId, keyId, key);
           closeDatabase(openRes.value);
           if (!unlockRes.ok) return null;
@@ -709,13 +715,11 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           const pending = await gateway.listPending(ctx);
           gateway.close();
 
-          const raw = await crypto.subtle.exportKey("raw", key);
           return {
-            rawKey: Array.from(new Uint8Array(raw)),
             pendingEnvelope: pending.ok ? pending.value[0] : null,
           };
         },
-        { testDbName, ownerId, keyId, deviceId, opId, calId }
+        { testDbName, ownerId, keyId, deviceId, opId, calId, rawKey }
       );
 
       expect(beforeResult).not.toBeNull();
@@ -727,14 +731,8 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
       // 3. Verify after reload
       const afterResult = await page.evaluate(
         async ({ testDbName, ownerId, keyId, rawKey }) => {
-          const { createLocalStorageGateway } = window.__dayforge_storage_atomicity;
-          const key = await crypto.subtle.importKey(
-            "raw",
-            new Uint8Array(rawKey),
-            { name: "AES-GCM" },
-            false,
-            ["encrypt", "decrypt"]
-          );
+          const { createLocalStorageGateway, importRawKey } = window.__dayforge_storage_atomicity;
+          const key = await importRawKey(new Uint8Array(rawKey));
           const ctx: OwnerAccessContext = { ownerId, keyId, lockEpoch: 1, key };
 
           const gateway = createLocalStorageGateway({ name: testDbName });
@@ -749,7 +747,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             planData: planRecord.ok ? planRecord.value : null,
           };
         },
-        { testDbName, ownerId, keyId, rawKey: beforeResult.rawKey }
+        { testDbName, ownerId, keyId, rawKey }
       );
 
       expect(afterResult.pendingEnvelope).toEqual(beforeResult.pendingEnvelope);
@@ -929,7 +927,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
       );
 
       expect(result.ok).toBe(true);
-      if (!result.ok) return;
+      if (!result.ok) throw new Error("ST-03 failed: " + JSON.stringify(result));
 
       expect(result.untrustedPersistOk).toBe(true);
       expect(result.untrustedStatus).toBe("time_invalid");
