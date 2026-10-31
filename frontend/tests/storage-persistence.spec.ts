@@ -11,9 +11,30 @@ import {
   DB_NAME,
   CURRENT_SCHEMA_VERSION,
   STORAGE_STORES,
+  STORE_DEFINITIONS,
+  upgradeDatabase,
   checkVersionCompatibility,
   isVersionSupported,
 } from "../lib/storage";
+
+declare global {
+  interface Window {
+    __dayforge_storage: {
+      StorageError: typeof StorageError;
+      storageOk: typeof storageOk;
+      storageErr: typeof storageErr;
+      DB_NAME: typeof DB_NAME;
+      CURRENT_SCHEMA_VERSION: typeof CURRENT_SCHEMA_VERSION;
+      STORAGE_STORES: typeof STORAGE_STORES;
+      STORE_DEFINITIONS: typeof STORE_DEFINITIONS;
+      upgradeDatabase: typeof upgradeDatabase;
+      isVersionSupported: typeof isVersionSupported;
+      checkVersionCompatibility: typeof checkVersionCompatibility;
+      openDatabase: typeof openDatabase;
+      closeDatabase: typeof closeDatabase;
+    };
+  }
+}
 
 function buildStorageScript(): string {
   const libDir = path.resolve(__dirname, "../lib/storage");
@@ -22,33 +43,23 @@ function buildStorageScript(): string {
   const migrationCode = fs.readFileSync(path.join(libDir, "migration.ts"), "utf-8");
   const dbCode = fs.readFileSync(path.join(libDir, "db.ts"), "utf-8");
 
-  const combined = `
-    ${errorsCode.replace(/import\s+.*?;/g, "")}
-    ${schemaCode.replace(/import\s+.*?;/g, "")}
-    ${migrationCode.replace(/import\s+.*?;/g, "")}
-    ${dbCode.replace(/import\s+.*?;/g, "")}
-    window.__dayforge_storage = {
-      StorageError,
-      storageOk,
-      storageErr,
-      DB_NAME,
-      CURRENT_SCHEMA_VERSION,
-      STORAGE_STORES,
-      STORE_DEFINITIONS,
-      upgradeDatabase,
-      isVersionSupported,
-      checkVersionCompatibility,
-      openDatabase,
-      closeDatabase
-    };
-  `;
+  const combined = [errorsCode, schemaCode, migrationCode, dbCode]
+    .join("\n")
+    .replace(/import\s+.*?;/g, "");
 
-  return ts.transpileModule(combined, {
+  const transpiled = ts.transpileModule(combined, {
     compilerOptions: {
       target: ts.ScriptTarget.ES2022,
-      module: ts.ModuleKind.None,
+      module: ts.ModuleKind.CommonJS,
     },
   }).outputText;
+
+  return `(() => {
+    const exports = {};
+    const module = { exports };
+    ${transpiled}
+    window.__dayforge_storage = exports;
+  })();`;
 }
 
 test.describe("Storage Foundation Specifications", () => {
@@ -170,10 +181,10 @@ test.describe("Storage Foundation Specifications", () => {
       const writeResult = await page.evaluate(async () => {
         const { openDatabase, closeDatabase, STORAGE_STORES } = window.__dayforge_storage;
         const res = await openDatabase();
-        if (!res.ok) return { ok: false, error: res.error.code };
+        if (!res.ok) return { ok: false as const, error: res.error.code };
         const db = res.value;
 
-        return new Promise<{ ok: boolean; error?: string }>((resolve) => {
+        return new Promise<{ ok: true } | { ok: false; error?: string }>((resolve) => {
           const tx = db.transaction([STORAGE_STORES.records, STORAGE_STORES.owner_meta], "readwrite");
           const recordsStore = tx.objectStore(STORAGE_STORES.records);
           const ownerStore = tx.objectStore(STORAGE_STORES.owner_meta);
@@ -208,10 +219,10 @@ test.describe("Storage Foundation Specifications", () => {
       const readBeforeReload = await page.evaluate(async () => {
         const { openDatabase, closeDatabase, STORAGE_STORES } = window.__dayforge_storage;
         const res = await openDatabase();
-        if (!res.ok) return { ok: false, error: res.error.code };
+        if (!res.ok) return { ok: false as const, error: res.error.code };
         const db = res.value;
 
-        return new Promise<{ ok: boolean; record?: unknown }>((resolve) => {
+        return new Promise<{ ok: true; record: unknown } | { ok: false; error?: string }>((resolve) => {
           const tx = db.transaction(STORAGE_STORES.records, "readonly");
           const req = tx.objectStore(STORAGE_STORES.records).get(["owner_alpha", "event", "evt_123"]);
           req.onsuccess = () => {
@@ -220,12 +231,13 @@ test.describe("Storage Foundation Specifications", () => {
           };
           req.onerror = () => {
             closeDatabase(db);
-            resolve({ ok: false });
+            resolve({ ok: false, error: req.error?.name });
           };
         });
       });
 
       expect(readBeforeReload.ok).toBe(true);
+      if (!readBeforeReload.ok) return;
       expect(readBeforeReload.record).toEqual({
         owner_id: "owner_alpha",
         kind: "event",
@@ -239,10 +251,12 @@ test.describe("Storage Foundation Specifications", () => {
       const readAfterReload = await page.evaluate(async () => {
         const { openDatabase, closeDatabase, STORAGE_STORES } = window.__dayforge_storage;
         const res = await openDatabase();
-        if (!res.ok) return { ok: false, error: res.error.code };
+        if (!res.ok) return { ok: false as const, error: res.error.code };
         const db = res.value;
 
-        return new Promise<{ ok: boolean; record?: unknown; owner?: unknown }>((resolve) => {
+        return new Promise<
+          { ok: true; record: unknown; owner: unknown } | { ok: false; error?: string }
+        >((resolve) => {
           const tx = db.transaction([STORAGE_STORES.records, STORAGE_STORES.owner_meta], "readonly");
           const recReq = tx.objectStore(STORAGE_STORES.records).get(["owner_alpha", "event", "evt_123"]);
           const ownerReq = tx.objectStore(STORAGE_STORES.owner_meta).get("owner_alpha");
@@ -253,12 +267,13 @@ test.describe("Storage Foundation Specifications", () => {
           };
           tx.onerror = () => {
             closeDatabase(db);
-            resolve({ ok: false });
+            resolve({ ok: false, error: tx.error?.name });
           };
         });
       });
 
       expect(readAfterReload.ok).toBe(true);
+      if (!readAfterReload.ok) return;
       expect(readAfterReload.record).toEqual({
         owner_id: "owner_alpha",
         kind: "event",
@@ -282,10 +297,10 @@ test.describe("Storage Foundation Specifications", () => {
             versionChangeCalled = true;
           },
         });
-        if (!conn1Res.ok) return { ok: false, error: "conn1 failed" };
+        if (!conn1Res.ok) return { ok: false as const, error: "conn1 failed" };
 
         // Open connection 2 with version 2 to trigger upgrade and versionchange
-        return new Promise<{ ok: boolean; versionChangeCalled: boolean }>((resolve) => {
+        return new Promise<{ ok: true; versionChangeCalled: boolean } | { ok: false; error: string }>((resolve) => {
           const upgradeReq = indexedDB.open(DB_NAME, 2);
           upgradeReq.onupgradeneeded = () => {
             // upgrade succeeded because conn1 closed
@@ -296,15 +311,16 @@ test.describe("Storage Foundation Specifications", () => {
             resolve({ ok: true, versionChangeCalled });
           };
           upgradeReq.onerror = () => {
-            resolve({ ok: false, versionChangeCalled });
+            resolve({ ok: false, error: upgradeReq.error?.message ?? "upgrade error" });
           };
           upgradeReq.onblocked = () => {
-            resolve({ ok: false, versionChangeCalled });
+            resolve({ ok: false, error: "upgrade blocked" });
           };
         });
       });
 
       expect(result.ok).toBe(true);
+      if (!result.ok) return;
       expect(result.versionChangeCalled).toBe(true);
     });
 
@@ -344,7 +360,7 @@ test.describe("Storage Foundation Specifications", () => {
 
     test("returns unsupported_version when database on disk has higher version than requested", async ({ page }) => {
       const result = await page.evaluate(async () => {
-        const { openDatabase, closeDatabase, DB_NAME } = window.__dayforge_storage;
+        const { openDatabase, DB_NAME } = window.__dayforge_storage;
 
         // Upgrade DB to version 5
         const v5Req = indexedDB.open(DB_NAME, 5);
