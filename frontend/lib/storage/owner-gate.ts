@@ -399,6 +399,63 @@ interface LegacyExtraction {
   error?: string;
 }
 
+
+/**
+ * Parse an owner-scoped encrypted row using its IndexedDB storage key, never
+ * trusting row-supplied AAD metadata as the source of the record identity.
+ * Shared between the legacy snapshot and its commit-time CAS validation.
+ */
+function extractLegacyRow(
+  storeName: string,
+  raw: unknown,
+  ownerId: string,
+  incomingKeyId: string
+): { skip?: boolean; sample?: LegacyEncryptedSample; error?: string } {
+  const row = asRecord(raw);
+  if (!row) {
+    return { error: storeName + " store contains a non-object legacy row" };
+  }
+
+  let recordId: string | null = null;
+  let parts = row;
+  if (storeName === STORAGE_STORES.records) {
+    if (typeof row.kind === "string" && row.kind.length > 0 &&
+        typeof row.id === "string" && row.id.length > 0) {
+      recordId = row.kind + ":" + row.id;
+    }
+  } else if (storeName === STORAGE_STORES.operations) {
+    if (typeof row.operation_id === "string" && row.operation_id.length > 0) {
+      recordId = row.operation_id;
+      const envelope = asRecord(row.encrypted_envelope);
+      if (!envelope ||
+          envelope.owner_id !== ownerId ||
+          envelope.store !== storeName ||
+          envelope.record_id !== recordId) {
+        return { error: "operations/" + recordId + " encrypted envelope context mismatch" };
+      }
+      parts = envelope;
+    }
+  } else if (storeName === STORAGE_STORES.view_preferences) {
+    if (typeof row.calendar === "string" && row.calendar.length > 0) {
+      recordId = row.calendar;
+    }
+  } else if (storeName === STORAGE_STORES.drafts) {
+    if (typeof row.draft_id === "string" && row.draft_id.length > 0) {
+      recordId = row.draft_id;
+    }
+  } else if (storeName === STORAGE_STORES.sync_meta) {
+    if (row.key === OWNER_KEY_SENTINEL_RECORD_ID) return { skip: true };
+    if (typeof row.key === "string" && row.key.length > 0) {
+      recordId = row.key;
+    }
+  }
+
+  if (!recordId) {
+    return { error: storeName + " store contains an encrypted row without a valid record ID" };
+  }
+  return collectLegacySample(ownerId, incomingKeyId, storeName, recordId, parts);
+}
+
 async function readUnlockSnapshot(
   db: IDBDatabase,
   ownerId: string,
@@ -454,47 +511,35 @@ async function readUnlockSnapshot(
         }
       };
 
-      const scanStore = (
-        store: IDBObjectStore,
-        storeName: string,
-        extract: (row: Record<string, unknown>) => LegacyExtraction
-      ) => {
+
+      // Cursor iteration avoids materializing a second getAll() array per store.
+      // The authenticated inventory itself is retained for the CAS comparison.
+      const scanStore = (store: IDBObjectStore, storeName: string) => {
         const range = IDBKeyRange.bound([ownerId, ""], [ownerId, "\uffff"]);
-        const req = store.getAll(range);
+        const req = store.openCursor(range);
         req.onsuccess = () => {
-          const rows = (req.result as unknown[]) ?? [];
-          for (const raw of rows) {
-            const row = asRecord(raw);
-            if (!row) {
-              hasExistingData = true;
-              legacyInventoryErrors.push(
-                `${storeName} store contains a non-object legacy row`
-              );
-              continue;
-            }
-            const extracted = extract(row);
-            if (extracted.skip) {
-              continue;
-            }
+          const cursor = req.result;
+          if (!cursor) return;
+          const extracted = extractLegacyRow(
+            storeName, cursor.value, ownerId, incomingKeyId
+          );
+          if (!extracted.skip) {
             hasExistingData = true;
-            if (extracted.error) {
-              legacyInventoryErrors.push(extracted.error);
-              continue;
-            }
-            if (!extracted.recordId || !extracted.parts) {
+            if (extracted.sample) {
+              legacySamples.push(extracted.sample);
+            } else {
               legacyInventoryErrors.push(
-                `${storeName} store contains a legacy row without a usable record ID`
+                extracted.error ?? (storeName + " contains an invalid encrypted row")
               );
-              continue;
             }
-            addSample(storeName, extracted.recordId, extracted.parts);
           }
+          cursor.continue();
         };
         req.onerror = () => {
           if (!customError) {
             customError = new StorageError(
               "unavailable",
-              req.error?.message ?? `Failed to scan ${storeName} for legacy data`,
+              req.error?.message ?? ("Failed to scan " + storeName + " for legacy data"),
               req.error
             );
           }
@@ -503,80 +548,11 @@ async function readUnlockSnapshot(
       };
 
       const scanLegacyInventory = () => {
-        scanStore(recStore, STORAGE_STORES.records, (row) => {
-          if (
-            typeof row.kind !== "string" ||
-            row.kind.length === 0 ||
-            typeof row.id !== "string" ||
-            row.id.length === 0
-          ) {
-            return {
-              error: "records store contains an encrypted row with missing kind/id",
-            };
-          }
-          return { recordId: `${row.kind}:${row.id}`, parts: row };
-        });
-
-        scanStore(opStore, STORAGE_STORES.operations, (row) => {
-          if (
-            typeof row.operation_id !== "string" ||
-            row.operation_id.length === 0
-          ) {
-            return {
-              error:
-                "operations store contains an encrypted row with a missing operation_id",
-            };
-          }
-          const envelope = asRecord(row.encrypted_envelope);
-          if (!envelope) {
-            return {
-              error: `operations/${row.operation_id} is missing its encrypted envelope`,
-            };
-          }
-          if (
-            envelope.owner_id !== ownerId ||
-            envelope.store !== STORAGE_STORES.operations ||
-            envelope.record_id !== row.operation_id
-          ) {
-            return {
-              error: `operations/${row.operation_id} encrypted envelope context does not match its outbox row`,
-            };
-          }
-          return { recordId: row.operation_id, parts: envelope };
-        });
-
-        scanStore(prefStore, STORAGE_STORES.view_preferences, (row) => {
-          if (typeof row.calendar !== "string" || row.calendar.length === 0) {
-            return {
-              error:
-                "view_preferences store contains an encrypted row with a missing calendar",
-            };
-          }
-          return { recordId: row.calendar, parts: row };
-        });
-
-        scanStore(draftStore, STORAGE_STORES.drafts, (row) => {
-          if (typeof row.draft_id !== "string" || row.draft_id.length === 0) {
-            return {
-              error:
-                "drafts store contains an encrypted row with a missing draft_id",
-            };
-          }
-          return { recordId: row.draft_id, parts: row };
-        });
-
-        scanStore(syncStore, STORAGE_STORES.sync_meta, (row) => {
-          if (row.key === OWNER_KEY_SENTINEL_RECORD_ID) {
-            return { skip: true };
-          }
-          if (typeof row.key !== "string" || row.key.length === 0) {
-            return {
-              error:
-                "sync_meta store contains an encrypted row with a missing key",
-            };
-          }
-          return { recordId: row.key, parts: row };
-        });
+        scanStore(recStore, STORAGE_STORES.records);
+        scanStore(opStore, STORAGE_STORES.operations);
+        scanStore(prefStore, STORAGE_STORES.view_preferences);
+        scanStore(draftStore, STORAGE_STORES.drafts);
+        scanStore(syncStore, STORAGE_STORES.sync_meta);
       };
 
       metaReq.onsuccess = () => {
@@ -915,11 +891,21 @@ export async function unlockOwner(
 
       try {
         const tx = db.transaction(
-          [
-            STORAGE_STORES.owner_meta,
-            STORAGE_STORES.crypto_keys,
-            STORAGE_STORES.sync_meta,
-          ],
+          newSentinelRecord
+            ? [
+                STORAGE_STORES.owner_meta,
+                STORAGE_STORES.crypto_keys,
+                STORAGE_STORES.sync_meta,
+                STORAGE_STORES.records,
+                STORAGE_STORES.operations,
+                STORAGE_STORES.view_preferences,
+                STORAGE_STORES.drafts,
+              ]
+            : [
+                STORAGE_STORES.owner_meta,
+                STORAGE_STORES.crypto_keys,
+                STORAGE_STORES.sync_meta,
+              ],
           "readwrite"
         );
         const metaStore = tx.objectStore(STORAGE_STORES.owner_meta);
@@ -931,10 +917,20 @@ export async function unlockOwner(
 
         let metaDone = false;
         let syncDone = false;
+        // A new sentinel must be committed only if *all* ciphertext verified
+        // in Phase 1 is still exactly the ciphertext present at commit time.
+        let inventoryDone = newSentinelRecord === null;
+        let inventoryMatches = true;
         let currentMeta: OwnerMetadata | null = null;
         let currentSentinel: SentinelSyncMetaRow | null = null;
 
         const checkAndCommit = () => {
+          if (!metaDone || !syncDone || !inventoryDone) return;
+          if (!inventoryMatches) {
+            isConflict = true;
+            tx.abort();
+            return;
+          }
           // Detect concurrent lockOwner
           if (
             currentMeta?.locked &&
@@ -996,6 +992,85 @@ export async function unlockOwner(
             key,
           };
         };
+
+
+        if (newSentinelRecord) {
+          // All five owner ciphertext stores are included in this readwrite
+          // transaction. Existing writers finish before our scan; new writers
+          // are blocked until the epoch bump/sentinel has committed.
+          const expected = new Map<string, LegacyEncryptedSample>();
+          for (const sample of snap.legacySamples) {
+            expected.set(sample.store + "\u0000" + sample.recordId, sample);
+          }
+          const seen = new Set<string>();
+          const stores = [
+            STORAGE_STORES.records,
+            STORAGE_STORES.operations,
+            STORAGE_STORES.view_preferences,
+            STORAGE_STORES.drafts,
+            STORAGE_STORES.sync_meta,
+          ] as const;
+          let remaining = stores.length;
+          const markConflict = () => {
+            inventoryMatches = false;
+            isConflict = true;
+            tx.abort();
+          };
+
+          for (const storeName of stores) {
+            const range = IDBKeyRange.bound([ownerId, ""], [ownerId, "\uffff"]);
+            const req = tx.objectStore(storeName).openCursor(range);
+            req.onsuccess = () => {
+              const cursor = req.result;
+              if (!cursor) {
+                remaining--;
+                if (remaining === 0) {
+                  inventoryDone = seen.size === expected.size;
+                  if (!inventoryDone) {
+                    markConflict();
+                    return;
+                  }
+                  checkAndCommit();
+                }
+                return;
+              }
+              const extracted = extractLegacyRow(
+                storeName, cursor.value, ownerId, keyId
+              );
+              if (!extracted.skip) {
+                const actual = extracted.sample;
+                const itemKey = actual
+                  ? actual.store + "\u0000" + actual.recordId
+                  : "";
+                const original = expected.get(itemKey);
+                if (
+                  extracted.error || !actual || !original ||
+                  seen.has(itemKey) ||
+                  actual.encRecord.owner_id !== original.encRecord.owner_id ||
+                  actual.encRecord.key_id !== original.encRecord.key_id ||
+                  !sameBinaryOrString(actual.encRecord.iv, original.encRecord.iv) ||
+                  !sameBinaryOrString(
+                    actual.encRecord.ciphertext,
+                    original.encRecord.ciphertext
+                  )
+                ) {
+                  markConflict();
+                  return;
+                }
+                seen.add(itemKey);
+              }
+              cursor.continue();
+            };
+            req.onerror = () => {
+              customError = new StorageError(
+                "transaction_aborted",
+                req.error?.message ?? ("Failed to recheck " + storeName + " during unlock"),
+                req.error
+              );
+              tx.abort();
+            };
+          }
+        }
 
         metaReq.onsuccess = () => {
           currentMeta = (metaReq.result as OwnerMetadata) ?? null;
