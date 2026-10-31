@@ -34,6 +34,10 @@ export interface LocalStorageGateway {
     ctx: OwnerAccessContext,
     operationId: string
   ): Promise<StorageResult<void>>;
+  /**
+   * @deprecated Does not persist the corresponding pull event or cursor.
+   * T11 must use confirmPulledOperationInTx() in its shadow/cursor transaction.
+   */
   markOperationSynced(
     ctx: OwnerAccessContext,
     operationId: string,
@@ -719,6 +723,14 @@ export function confirmPulledOperationInTx(
   };
 }
 
+/**
+ * @deprecated Standalone outbox deletion cannot establish pull-to-shadow
+ * atomicity. Retained only for backwards-compatible storage tests/consumers.
+ *
+ * T11 MUST call confirmPulledOperationInTx() from a single readwrite
+ * transaction that also writes the verified pulled shadow event, projection
+ * changes and sync cursor. Do not call this wrapper from the sync engine.
+ */
 export async function markOperationSynced(
   db: IDBDatabase,
   ctx: OwnerAccessContext,
