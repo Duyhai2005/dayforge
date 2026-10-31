@@ -92,7 +92,7 @@ class Settings(BaseModel):
         try:
             super().__init__(**values)
         except ValidationError as error:
-            fields = {entry["loc"][0] for entry in error.errors()}
+            fields = {str(entry["loc"][0]) for entry in error.errors()}
             raise SettingsError(
                 ", ".join(ENV_FIELDS.get(field, field) for field in sorted(fields))
             ) from None

@@ -189,10 +189,12 @@ def _validation_pointer(request: Request, location: tuple) -> str:
     source, *parts = location
     route = request.scope.get("route")
     prefix = []
-    if source == "body" and getattr(route, "body_field", None) is not None:
-        root = TypeAdapter(route.body_field.field_info.annotation).json_schema()
-    elif source in ("query", "path") and getattr(route, "dependant", None) is not None:
-        root = _parameter_schema(route.dependant, source)
+    body_field = getattr(route, "body_field", None)
+    dependant = getattr(route, "dependant", None)
+    if source == "body" and body_field is not None:
+        root = TypeAdapter(body_field.field_info.annotation).json_schema()
+    elif source in ("query", "path") and dependant is not None:
+        root = _parameter_schema(dependant, source)
         prefix = [source]
     else:
         return ""

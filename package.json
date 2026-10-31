@@ -7,6 +7,13 @@
   },
   "packageManager": "pnpm@12.16.1",
   "scripts": {
+    "lint:web": "pnpm --filter @dayforge/frontend lint",
+    "lint:api": "uv run --directory backend --locked ruff check app tests migrations ../scripts",
+    "format:check:api": "uv run --directory backend --locked black --check app tests migrations ../scripts",
+    "lint": "pnpm lint:web && pnpm lint:api && pnpm format:check:api",
+    "typecheck:web": "pnpm --filter @dayforge/frontend typecheck",
+    "typecheck:api": "uv run --directory backend --locked mypy app",
+    "typecheck": "pnpm typecheck:web && pnpm typecheck:api",
     "test:api": "uv run --directory backend --locked python ../scripts/test_backend.py",
     "test:api:mysql": "uv run --directory backend --locked python ../scripts/test_backend.py --mysql",
     "preinstall": "node scripts/check-node-version.cjs",
