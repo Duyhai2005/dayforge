@@ -176,6 +176,28 @@ def mysql_test_settings():
     return load_settings()
 
 
-@pytest.fixture
-def t05_mysql_settings(mysql_test_settings):
-    return mysql_test_settings
+_mysql_skipped_tests: set[str] = set()
+
+
+def pytest_runtest_logreport(report):
+    if not os.environ.get("DAYFORGE_TEST_RUN_ID"):
+        return
+    if report.skipped and not hasattr(report, "wasxfail"):
+        _mysql_skipped_tests.add(report.nodeid)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    if not os.environ.get("DAYFORGE_TEST_RUN_ID"):
+        return
+    if _mysql_skipped_tests and session.exitstatus == 0:
+        session.exitstatus = 1
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    if os.environ.get("DAYFORGE_TEST_RUN_ID") and _mysql_skipped_tests:
+        terminalreporter.write_sep(
+            "=",
+            f"MySQL acceptance failed because {len(_mysql_skipped_tests)} selected test(s) were skipped: {', '.join(sorted(_mysql_skipped_tests))}",
+            red=True,
+            bold=True,
+        )

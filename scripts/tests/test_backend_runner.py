@@ -241,6 +241,37 @@ class BackendRunnerTests(unittest.TestCase):
             self.assertIn("-k", called_cmd)
             self.assertIn("foo", called_cmd)
 
+    def test_case_k_mysql_runner_passes_run_id_for_skip_guard(self) -> None:
+        pytest_env = {}
+
+        def fake_docker(args, env):
+            if "config" in args and "--images" in args:
+                return CANONICAL_IMAGE
+            if "up" in args:
+                return ""
+            if "port" in args:
+                port = env["DAYFORGE_TEST_MYSQL_PORT"]
+                return f"127.0.0.1:{port}"
+            if "ps" in args:
+                return "112233445566"
+            if "down" in args:
+                return ""
+            return ""
+
+        def fake_run(cmd, cwd=None, env=None):
+            nonlocal pytest_env
+            pytest_env = env or {}
+            return MagicMock(returncode=0)
+
+        with (
+            patch("scripts.test_backend._docker", side_effect=fake_docker),
+            patch("subprocess.run", side_effect=fake_run),
+        ):
+            code = main(["--mysql"])
+            self.assertEqual(code, 0)
+            self.assertIn("DAYFORGE_TEST_RUN_ID", pytest_env)
+            self.assertEqual(len(pytest_env["DAYFORGE_TEST_RUN_ID"]), 32)
+
 
 if __name__ == "__main__":
     unittest.main()
