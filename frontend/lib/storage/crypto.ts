@@ -48,18 +48,13 @@ function getRandomValues(array: Uint8Array): Uint8Array {
   return c.getRandomValues(array);
 }
 
-function escapeAadPart(part: string): string {
-  return part.replace(/\\/g, "\\\\").replace(/:/g, "\\:");
-}
-
 export function createAad(
   ownerId: string,
   keyId: string,
   store: string,
   recordId: string
 ): Uint8Array {
-  const canonical = `${escapeAadPart(ownerId)}:${escapeAadPart(keyId)}:${escapeAadPart(store)}:${escapeAadPart(recordId)}`;
-  return textEncoder.encode(canonical);
+  return textEncoder.encode(`${ownerId}:${keyId}:${store}:${recordId}`);
 }
 
 export async function generateTestKey(): Promise<CryptoKey> {

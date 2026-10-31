@@ -74,10 +74,16 @@ export {
 // Outbox, Commands & Canonicalization
 export {
   UUID_PATTERN,
-  type OutboxStatus,
-  type StorageCommand,
+  HASH_PATTERN,
+  DATE_PATTERN,
+  SUPPORTED_ACTIONS,
+  type SupportedAction,
   type SupportedRootKind,
+  type StorageBucketPrecondition,
+  type StoragePrecondition,
+  type StorageCommand,
   type OperationEnvelope,
+  type OutboxStatus,
   type OutboxEntry,
   canonicalizeJson,
   sha256Hex,

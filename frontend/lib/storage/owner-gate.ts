@@ -244,17 +244,19 @@ export async function unlockOwner(
   keyId: string,
   key: CryptoKey
 ): Promise<StorageResult<OwnerAccessContext>> {
+  const algo = key?.algorithm as AesKeyAlgorithm | undefined;
   if (
     !key ||
     key.type !== "secret" ||
-    (key.algorithm as { name?: string })?.name !== "AES-GCM" ||
+    algo?.name !== "AES-GCM" ||
+    algo?.length !== 256 ||
     key.extractable !== false ||
     !key.usages?.includes("encrypt") ||
     !key.usages?.includes("decrypt")
   ) {
     return storageErr(
       "invalid_data",
-      "CryptoKey must be non-extractable AES-GCM with encrypt and decrypt usages"
+      "CryptoKey must be non-extractable 256-bit AES-GCM with encrypt and decrypt usages"
     );
   }
 

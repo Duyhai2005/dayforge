@@ -947,5 +947,217 @@ test.describe("Storage Security Specifications", () => {
       expect(result.getResOk).toBe(false);
       expect(result.errorCode).toBe("locked");
     });
+
+    test("AES-128-GCM key is rejected by unlockOwner (enforcing A256GCM)", async ({
+      page,
+    }) => {
+      const script = buildStorageScript();
+      await page.addInitScript(script);
+      await page.goto("/work");
+
+      const result = await page.evaluate(async () => {
+        const {
+          openDatabase,
+          closeDatabase,
+          unlockOwner,
+        } = window.__dayforge_security_storage;
+
+        const dbRes = await openDatabase({ name: "test-aes128-rejected" });
+        if (!dbRes.ok) return { ok: false, error: "open failed" };
+        const db = dbRes.value;
+
+        // Generate a 128-bit key
+        const key128 = await window.crypto.subtle.generateKey(
+          { name: "AES-GCM", length: 128 },
+          false,
+          ["encrypt", "decrypt"]
+        );
+
+        const unlockRes = await unlockOwner(db, "owner-aes128", "key-128", key128);
+        closeDatabase(db);
+
+        return {
+          ok: true,
+          unlockOk: unlockRes.ok,
+          errorCode: !unlockRes.ok ? unlockRes.error.code : null,
+          errorMessage: !unlockRes.ok ? unlockRes.error.message : null,
+        };
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.unlockOk).toBe(false);
+      expect(result.errorCode).toBe("invalid_data");
+      expect(result.errorMessage).toContain("256-bit");
+    });
+
+    test("old-AAD ciphertext remains readable across upgrades", async ({
+      page,
+    }) => {
+      const script = buildStorageScript();
+      await page.addInitScript(script);
+      await page.goto("/work");
+
+      const result = await page.evaluate(async () => {
+        const {
+          openDatabase,
+          closeDatabase,
+          unlockOwner,
+          generateTestKey,
+          getRecord,
+          STORAGE_STORES,
+        } = window.__dayforge_security_storage;
+
+        const dbRes = await openDatabase({ name: "test-old-aad-compat" });
+        if (!dbRes.ok) return { ok: false, error: "open failed" };
+        const db = dbRes.value;
+
+        const ownerId = "11111111-1111-4111-8111-111111111111";
+        const keyId = "key-compat-1";
+        const recordId = "22222222-2222-4222-8222-222222222222";
+        const key = await generateTestKey();
+
+        const unlockRes = await unlockOwner(db, ownerId, keyId, key);
+        if (!unlockRes.ok) {
+          closeDatabase(db);
+          return { ok: false, error: "unlock failed" };
+        }
+        const ctx = unlockRes.value;
+
+        // Encrypt with legacy/standard AAD format: `${ownerId}:${keyId}:${store}:${recordId}`
+        const iv = window.crypto.getRandomValues(new Uint8Array(12));
+        const aad = new TextEncoder().encode(`${ownerId}:${keyId}:${STORAGE_STORES.records}:plan:${recordId}`);
+        const plaintext = new TextEncoder().encode(JSON.stringify({ name: "Legacy AAD Plan", upgraded: true }));
+
+        const ciphertextBuffer = await window.crypto.subtle.encrypt(
+          { name: "AES-GCM", iv, additionalData: aad, tagLength: 128 },
+          key,
+          plaintext
+        );
+
+        // Store directly in records store
+        await new Promise<void>((resolve, reject) => {
+          const tx = db.transaction(STORAGE_STORES.records, "readwrite");
+          tx.objectStore(STORAGE_STORES.records).put({
+            owner_id: ownerId,
+            kind: "plan",
+            id: recordId,
+            key_id: keyId,
+            iv,
+            ciphertext: new Uint8Array(ciphertextBuffer),
+            created_at: new Date().toISOString(),
+          });
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+
+        // Read through getRecord - must successfully authenticate and decrypt
+        const getRes = await getRecord<{ name: string; upgraded: boolean }>(db, ctx, "plan", recordId);
+        closeDatabase(db);
+
+        return {
+          ok: true,
+          getOk: getRes.ok,
+          data: getRes.ok ? getRes.value : null,
+        };
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.getOk).toBe(true);
+      expect(result.data?.name).toBe("Legacy AAD Plan");
+      expect(result.data?.upgraded).toBe(true);
+    });
+
+    test("lock commits after ciphertext read but before plaintext returns: fails closed with locked", async ({
+      page,
+    }) => {
+      const script = buildStorageScript();
+      await page.addInitScript(script);
+      await page.goto("/work");
+
+      const result = await page.evaluate(async () => {
+        const {
+          openDatabase,
+          closeDatabase,
+          unlockOwner,
+          lockOwner,
+          generateTestKey,
+          getRecord,
+          encryptPayload,
+          STORAGE_STORES,
+        } = window.__dayforge_security_storage;
+
+        const dbRes = await openDatabase({ name: "test-lock-race-decryption" });
+        if (!dbRes.ok) return { ok: false, error: "open failed" };
+        const db = dbRes.value;
+
+        const ownerId = "11111111-1111-4111-8111-111111111111";
+        const keyId = "key-race-1";
+        const planId = "33333333-3333-4333-8333-333333333333";
+        const key = await generateTestKey();
+
+        const unlockRes = await unlockOwner(db, ownerId, keyId, key);
+        if (!unlockRes.ok) {
+          closeDatabase(db);
+          return { ok: false, error: "unlock failed" };
+        }
+        const ctx = unlockRes.value;
+
+        // Persist legitimate record
+        const enc = await encryptPayload(
+          key,
+          ownerId,
+          keyId,
+          STORAGE_STORES.records,
+          `plan:${planId}`,
+          { secret: "sensitive data" }
+        );
+        if (!enc.ok) return { ok: false, error: "encrypt failed" };
+
+        await new Promise<void>((resolve, reject) => {
+          const tx = db.transaction(STORAGE_STORES.records, "readwrite");
+          tx.objectStore(STORAGE_STORES.records).put({
+            owner_id: ownerId,
+            kind: "plan",
+            id: planId,
+            key_id: keyId,
+            iv: enc.value.iv,
+            ciphertext: enc.value.ciphertext,
+          });
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+
+        // Hook decrypt to commit lock concurrently before plaintext return
+        const originalDecrypt = window.crypto.subtle.decrypt;
+        let lockCommittedDuringDecrypt = false;
+
+        window.crypto.subtle.decrypt = async function (...args) {
+          await lockOwner(db, ownerId);
+          lockCommittedDuringDecrypt = true;
+          return originalDecrypt.apply(window.crypto.subtle, args);
+        };
+
+        let getRes;
+        try {
+          getRes = await getRecord(db, ctx, "plan", planId);
+        } finally {
+          window.crypto.subtle.decrypt = originalDecrypt;
+        }
+
+        closeDatabase(db);
+
+        return {
+          ok: true,
+          lockCommittedDuringDecrypt,
+          getOk: getRes.ok,
+          errorCode: !getRes.ok ? getRes.error.code : null,
+        };
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.lockCommittedDuringDecrypt).toBe(true);
+      expect(result.getOk).toBe(false);
+      expect(result.errorCode).toBe("locked");
+    });
   });
 });

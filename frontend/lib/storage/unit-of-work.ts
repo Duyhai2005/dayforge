@@ -24,7 +24,9 @@ export interface RecordOverlayInput {
 }
 
 export interface ClockInputParams {
-  wallMs: number;
+  estimatedUtcMs?: number;
+  wallMs?: number;
+  rawWallMs?: number;
   calibrationId: string;
   quality?: "calibrated" | "offline_estimate" | "untrusted";
 }
@@ -222,14 +224,39 @@ export async function persistOperationAtomic(
               allocatedSequence = "1";
             }
 
+            // Validate persisted last_hlc
+            if (devMeta?.last_hlc !== undefined && devMeta?.last_hlc !== null) {
+              if (!validateHlc(devMeta.last_hlc)) {
+                customError = new StorageError(
+                  "invalid_data",
+                  "Corrupted persisted last_hlc in device metadata"
+                );
+                tx.abort();
+                return;
+              }
+            }
+
             // Derive or validate HLC
             try {
               if (input.clockInput) {
+                const estimatedUtc =
+                  input.clockInput.estimatedUtcMs ?? input.clockInput.wallMs;
+                if (estimatedUtc === undefined) {
+                  customError = new StorageError(
+                    "invalid_data",
+                    "clockInput must provide estimatedUtcMs or wallMs"
+                  );
+                  tx.abort();
+                  return;
+                }
+                const rawWall = input.clockInput.rawWallMs ?? estimatedUtc;
+                const quality = input.clockInput.quality ?? "calibrated";
                 allocatedHlc = advanceHlc(
                   devMeta?.last_hlc ?? null,
-                  input.clockInput.wallMs,
+                  estimatedUtc,
                   input.clockInput.calibrationId,
-                  input.clockInput.quality ?? "calibrated"
+                  quality,
+                  rawWall
                 );
               } else if (input.editTime) {
                 if (devMeta?.last_hlc) {
@@ -249,7 +276,8 @@ export async function persistOperationAtomic(
                       devMeta.last_hlc,
                       input.editTime.physical_ms,
                       input.editTime.calibration_id,
-                      input.editTime.quality
+                      input.editTime.quality,
+                      input.editTime.raw_wall_ms
                     );
                   } else {
                     allocatedHlc = input.editTime;
@@ -258,12 +286,12 @@ export async function persistOperationAtomic(
                   allocatedHlc = input.editTime;
                 }
               } else {
-                allocatedHlc = advanceHlc(
-                  devMeta?.last_hlc ?? null,
-                  Date.now(),
-                  "00000000-0000-0000-0000-000000000000",
-                  "calibrated"
+                customError = new StorageError(
+                  "invalid_data",
+                  "Missing clock evidence: either clockInput or editTime must be provided"
                 );
+                tx.abort();
+                return;
               }
             } catch (hlcErr) {
               customError =
@@ -317,7 +345,7 @@ export async function persistOperationAtomic(
               const status: OutboxStatus =
                 allocatedHlc.quality === "untrusted"
                   ? "time_invalid"
-                  : "pending";
+                  : "queued";
 
               const outboxEntry: OutboxEntry = {
                 owner_id: input.context.ownerId,

@@ -181,6 +181,22 @@ export async function readOwnerViewPreference(
     calendar
   );
 
+  if (!decRes.ok) {
+    return decRes;
+  }
+
+  // Anti-TOCTOU: re-verify owner meta after decryption before returning plaintext
+  const recheckTx = db.transaction(STORAGE_STORES.owner_meta, "readonly");
+  const recheckMeta = await new Promise<OwnerMetadata | null>((resolve) => {
+    const req = recheckTx.objectStore(STORAGE_STORES.owner_meta).get(ctx.ownerId);
+    req.onsuccess = () => resolve((req.result as OwnerMetadata) ?? null);
+    req.onerror = () => resolve(null);
+  });
+  const recheckErr = checkOwnerMetaRecord(recheckMeta ?? undefined, ctx);
+  if (recheckErr) {
+    return { ok: false, error: recheckErr };
+  }
+
   return decRes;
 }
 

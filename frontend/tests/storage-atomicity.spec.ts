@@ -245,19 +245,21 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           await gateway.open();
 
           const editTime = advanceHlc(null, 1793140000000, calId, "calibrated");
+          const planId = "aaaaaaaa-1111-4111-8111-111111111111";
+          const taskId = "bbbbbbbb-2222-4222-8222-222222222222";
           const planPayload = { name: "Atomic Plan", color_id: "green" };
-          const taskPayload = { title: "Atomic Task", plan_id: "plan-1" };
+          const taskPayload = { title: "Atomic Task", plan_id: planId };
 
           const persistRes = await gateway.persistOperation({
             context: ctx,
             deviceId,
             operationId: opId,
-            commands: [{ root: { kind: "plan", id: "plan-1" }, action: "plan.create", payload: planPayload }],
+            commands: [{ root: { kind: "plan", id: planId }, action: "plan.create", payload: planPayload }],
             dependencies: [],
             editTime,
             recordOverlays: [
-              { kind: "plan", id: "plan-1", payload: planPayload },
-              { kind: "task", id: "task-1", payload: taskPayload },
+              { kind: "plan", id: planId, payload: planPayload },
+              { kind: "work_item", id: taskId, payload: taskPayload },
             ],
           });
 
@@ -288,8 +290,8 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
               "readonly"
             );
             const opReq = tx.objectStore(STORAGE_STORES.operations).get([ownerId, opId]);
-            const planReq = tx.objectStore(STORAGE_STORES.records).get([ownerId, "plan", "plan-1"]);
-            const taskReq = tx.objectStore(STORAGE_STORES.records).get([ownerId, "task", "task-1"]);
+            const planReq = tx.objectStore(STORAGE_STORES.records).get([ownerId, "plan", planId]);
+            const taskReq = tx.objectStore(STORAGE_STORES.records).get([ownerId, "work_item", taskId]);
             const devReq = tx.objectStore(STORAGE_STORES.device_meta).get([ownerId, deviceId]);
 
             tx.oncomplete = () => {
@@ -305,8 +307,8 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
 
           // Verify through gateway APIs
           const pendingRes = await gateway.listPending(ctx);
-          const getPlanRes = await gateway.getRecord<{ name: string; color_id: string }>(ctx, "plan", "plan-1");
-          const getTaskRes = await gateway.getRecord<{ title: string; plan_id: string }>(ctx, "task", "task-1");
+          const getPlanRes = await gateway.getRecord<{ name: string; color_id: string }>(ctx, "plan", planId);
+          const getTaskRes = await gateway.getRecord<{ title: string; plan_id: string }>(ctx, "work_item", taskId);
 
           gateway.close();
           closeDatabase(db);
@@ -337,7 +339,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
       expect(rawOutbox.owner_id).toBe(ownerId);
       expect(rawOutbox.operation_id).toBe(opId);
       expect(rawOutbox.device_sequence).toBe("1");
-      expect(rawOutbox.status).toBe("pending");
+      expect(rawOutbox.status).toBe("queued");
       expect(rawOutbox.request_hash).toHaveLength(64);
       expect(rawOutbox.encrypted_envelope.ciphertext).toBeDefined();
 
@@ -350,7 +352,10 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
       expect(result.pendingEnvelope?.operation_id).toBe(opId);
       expect(result.pendingEnvelope?.device_sequence).toBe("1");
       expect(result.planData).toEqual({ name: "Atomic Plan", color_id: "green" });
-      expect(result.taskData).toEqual({ title: "Atomic Task", plan_id: "plan-1" });
+      expect(result.taskData).toEqual({
+        title: "Atomic Task",
+        plan_id: "aaaaaaaa-1111-4111-8111-111111111111",
+      });
     });
 
     test("ST-04: Aborted transaction leaves zero partial changes (rollback verification)", async ({
@@ -393,15 +398,18 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
 
           const editTime = advanceHlc(null, 1793140000000, calId, "calibrated");
 
+          const p1Id = "11111111-1111-4111-8111-111111111111";
+          const p2Id = "22222222-2222-4222-8222-222222222222";
+
           // 1. Commit initial operation to advance sequence to "1"
           const op1Res = await gateway.persistOperation({
             context: ctx,
             deviceId,
             operationId: op1,
-            commands: [{ root: { kind: "plan", id: "p1" }, action: "plan.create", payload: {} }],
+            commands: [{ root: { kind: "plan", id: p1Id }, action: "plan.create", payload: {} }],
             dependencies: [],
             editTime,
-            recordOverlays: [{ kind: "plan", id: "p1", payload: { name: "Original Plan" } }],
+            recordOverlays: [{ kind: "plan", id: p1Id, payload: { name: "Original Plan" } }],
           });
           if (!op1Res.ok) {
             gateway.close();
@@ -414,10 +422,10 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             context: ctx,
             deviceId,
             operationId: op2,
-            commands: [{ root: { kind: "plan", id: "p2" }, action: "plan.create", payload: {} }],
+            commands: [{ root: { kind: "plan", id: p2Id }, action: "plan.create", payload: {} }],
             dependencies: [],
             editTime,
-            recordOverlays: [{ kind: "plan", id: "p2", payload: { name: "Aborted Plan" } }],
+            recordOverlays: [{ kind: "plan", id: p2Id, payload: { name: "Aborted Plan" } }],
             _abortForTest: true,
           } as unknown as PersistOperationInput);
 
@@ -436,7 +444,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
               "readonly"
             );
             const op2Req = tx.objectStore(STORAGE_STORES.operations).get([ownerId, op2]);
-            const p2Req = tx.objectStore(STORAGE_STORES.records).get([ownerId, "plan", "p2"]);
+            const p2Req = tx.objectStore(STORAGE_STORES.records).get([ownerId, "plan", p2Id]);
             const devReq = tx.objectStore(STORAGE_STORES.device_meta).get([ownerId, deviceId]);
 
             tx.oncomplete = () => {
@@ -533,7 +541,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
               context: ctx,
               deviceId,
               operationId: opId,
-              commands: [{ root: { kind: "task", id: `t1-${i}` }, action: "task.create", payload: {} }],
+              commands: [{ root: { kind: "work_item", id: `33333333-0000-0000-0000-00000000000${i}` }, action: "work_item.create_single", payload: {} }],
               dependencies: [],
               clockInput: { wallMs: 1793140000000 + i * 10, calibrationId: calId },
             });
@@ -566,7 +574,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
               context: ctx,
               deviceId,
               operationId: opId,
-              commands: [{ root: { kind: "task", id: `t2-${i}` }, action: "task.create", payload: {} }],
+              commands: [{ root: { kind: "work_item", id: `44444444-0000-0000-0000-00000000000${i}` }, action: "work_item.create_single", payload: {} }],
               dependencies: [],
               clockInput: { wallMs: 1793140000000 + i * 10 + 5, calibrationId: calId },
             });
@@ -639,15 +647,17 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
 
           const editTime = advanceHlc(null, 1793140000000, calId);
 
+          const planId = "aaaaaaaa-1111-4111-8111-111111111111";
+
           // 1. Initial write
           const firstRes = await gateway.persistOperation({
             context: ctx,
             deviceId,
             operationId: dupOpId,
-            commands: [{ root: { kind: "plan", id: "p1" }, action: "plan.create", payload: { name: "First Write" } }],
+            commands: [{ root: { kind: "plan", id: planId }, action: "plan.create", payload: { name: "First Write" } }],
             dependencies: [],
             editTime,
-            recordOverlays: [{ kind: "plan", id: "p1", payload: { name: "First Write" } }],
+            recordOverlays: [{ kind: "plan", id: planId, payload: { name: "First Write" } }],
           });
 
           // 2. Duplicate operation ID with different data
@@ -655,14 +665,14 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             context: ctx,
             deviceId,
             operationId: dupOpId,
-            commands: [{ root: { kind: "plan", id: "p1" }, action: "plan.create", payload: { name: "Overwriting Attempt" } }],
+            commands: [{ root: { kind: "plan", id: planId }, action: "plan.create", payload: { name: "Overwriting Attempt" } }],
             dependencies: [],
             editTime,
-            recordOverlays: [{ kind: "plan", id: "p1", payload: { name: "Overwriting Attempt" } }],
+            recordOverlays: [{ kind: "plan", id: planId, payload: { name: "Overwriting Attempt" } }],
           });
 
           // 3. Verify original plan record is still "First Write"
-          const planRecord = await gateway.getRecord<{ name: string }>(ctx, "plan", "p1");
+          const planRecord = await gateway.getRecord<{ name: string }>(ctx, "plan", planId);
 
           gateway.close();
 
@@ -723,15 +733,16 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           const gateway = createLocalStorageGateway({ name: testDbName });
           await gateway.open();
 
+          const planId = "aaaaaaaa-1111-4111-8111-111111111111";
           const editTime = advanceHlc(null, 1793140000000, calId);
           await gateway.persistOperation({
             context: ctx,
             deviceId,
             operationId: opId,
-            commands: [{ root: { kind: "plan", id: "p1" }, action: "plan.create", payload: { name: "Persistent Plan" } }],
+            commands: [{ root: { kind: "plan", id: planId }, action: "plan.create", payload: { name: "Persistent Plan" } }],
             dependencies: [],
             editTime,
-            recordOverlays: [{ kind: "plan", id: "p1", payload: { name: "Persistent Plan" } }],
+            recordOverlays: [{ kind: "plan", id: planId, payload: { name: "Persistent Plan" } }],
           });
 
           const pending = await gateway.listPending(ctx);
@@ -761,7 +772,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           await gateway.open();
 
           const pending = await gateway.listPending(ctx);
-          const planRecord = await gateway.getRecord<{ name: string }>(ctx, "plan", "p1");
+          const planRecord = await gateway.getRecord<{ name: string }>(ctx, "plan", "aaaaaaaa-1111-4111-8111-111111111111");
           gateway.close();
 
           return {
@@ -829,7 +840,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             context: ctx,
             deviceId,
             operationId: opId,
-            commands: [],
+            commands: [{ root: { kind: "plan", id: "00000000-0000-4000-8000-000000000001" }, action: "plan.create", payload: {} }],
             dependencies: [],
             editTime,
           });
@@ -896,7 +907,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             context: ctx,
             deviceId,
             operationId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-            commands: [],
+            commands: [{ root: { kind: "plan", id: "00000000-0000-4000-8000-000000000001" }, action: "plan.create", payload: {} }],
             dependencies: [],
             editTime: untrustedHlc,
           });
@@ -914,7 +925,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             context: ctx,
             deviceId,
             operationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-            commands: [],
+            commands: [{ root: { kind: "plan", id: "00000000-0000-4000-8000-000000000001" }, action: "plan.create", payload: {} }],
             dependencies: [],
             editTime: malformedHlc,
           });
@@ -1001,7 +1012,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             commands: [
               {
                 root: { kind: "plan", id: "11111111-1111-4111-8111-111111111111" },
-                action: "create",
+                action: "plan.create",
                 payload: { name: "Test 1" },
                 precondition: null,
               },
@@ -1022,7 +1033,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             commands: [
               {
                 root: { kind: "plan", id: "11111111-1111-4111-8111-111111111111" },
-                action: "update",
+                action: "plan.replace",
                 payload: { name: "Test 2" },
                 precondition: null,
               },
@@ -1131,7 +1142,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             commands: [
               {
                 root: { kind: "plan", id: "11111111-1111-4111-8111-111111111111" },
-                action: "create",
+                action: "plan.create",
                 payload: {},
                 precondition: null,
               },
@@ -1237,7 +1248,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             commands: [
               {
                 root: { kind: "plan", id: "11111111-1111-4111-8111-111111111111" },
-                action: "create",
+                action: "plan.create",
                 payload: {},
                 precondition: null,
               },
@@ -1264,7 +1275,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             commands: [
               {
                 root: { kind: "plan", id: "11111111-1111-4111-8111-111111111111" },
-                action: "create",
+                action: "plan.create",
                 payload: {},
                 precondition: null,
               },
@@ -1342,7 +1353,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             commands: [
               {
                 root: { kind: "plan", id: "11111111-1111-4111-8111-111111111111" },
-                action: "create",
+                action: "plan.create",
                 payload: { test: true },
                 precondition: null,
               },
@@ -1410,6 +1421,450 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
       expect(result.pending2Count).toBe(0);
       expect(result.syncOk).toBe(true);
       expect(result.rowAfterSyncIsNull).toBe(true);
+    });
+
+    test("calibrated offset preserves estimatedUtcMs and rawWallMs separately, and missing clock evidence fails closed", async ({
+      page,
+    }) => {
+      const script = buildStorageScript();
+      await page.addInitScript(script);
+      await page.goto("/work");
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId, deviceId, calId }) => {
+          const {
+            createLocalStorageGateway,
+            openDatabase,
+            closeDatabase,
+            unlockOwner,
+            generateTestKey,
+          } = window.__dayforge_storage_atomicity;
+
+          const key = await generateTestKey();
+          const dbRes = await openDatabase({ name: testDbName });
+          if (!dbRes.ok) return { ok: false, error: "open failed" };
+          const db = dbRes.value;
+
+          const unlockRes = await unlockOwner(db, ownerId, keyId, key);
+          if (!unlockRes.ok) {
+            closeDatabase(db);
+            return { ok: false, error: "unlock failed" };
+          }
+          const ctx = unlockRes.value;
+          const gateway = createLocalStorageGateway({ name: testDbName });
+
+          // 1. Calibrated clock input with distinct estimatedUtcMs and rawWallMs
+          const op1Id = "11111111-1111-4111-8111-111111111111";
+          const res1 = await gateway.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId: op1Id,
+            commands: [
+              {
+                root: { kind: "plan", id: "22222222-2222-4222-8222-222222222222" },
+                action: "plan.create",
+                payload: { name: "Offset Plan" },
+              },
+            ],
+            dependencies: [],
+            clockInput: {
+              estimatedUtcMs: 1793150005000,
+              rawWallMs: 1793150000000,
+              calibrationId: calId,
+              quality: "calibrated",
+            },
+          });
+
+          // 2. Persist with missing clock evidence (neither clockInput nor editTime) -> MUST fail closed
+          const op2Id = "33333333-3333-4333-8333-333333333333";
+          const res2 = await gateway.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId: op2Id,
+            commands: [
+              {
+                root: { kind: "plan", id: "22222222-2222-4222-8222-222222222222" },
+                action: "plan.replace",
+                payload: { name: "No Evidence Plan" },
+              },
+            ],
+            dependencies: [],
+          });
+
+          gateway.close();
+          closeDatabase(db);
+
+          return {
+            ok: true,
+            res1Ok: res1.ok,
+            res1Physical: res1.ok ? res1.value.allocatedHlc.physical_ms : null,
+            res1RawWall: res1.ok ? res1.value.allocatedHlc.raw_wall_ms : null,
+            res2Ok: res2.ok,
+            res2ErrorCode: !res2.ok ? res2.error.code : null,
+          };
+        },
+        {
+          testDbName: `test-clock-evidence-${Date.now()}`,
+          ownerId: "11111111-1111-4111-8111-111111111111",
+          keyId: "key-1",
+          deviceId: "22222222-2222-4222-8222-222222222222",
+          calId: "33333333-3333-4333-8333-333333333333",
+        }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.res1Ok).toBe(true);
+      expect(result.res1Physical).toBe(1793150005000);
+      expect(result.res1RawWall).toBe(1793150000000);
+      expect(result.res2Ok).toBe(false);
+      expect(result.res2ErrorCode).toBe("invalid_data");
+    });
+
+    test("corrupted persisted last_hlc in device_meta fails closed with invalid_data", async ({
+      page,
+    }) => {
+      const script = buildStorageScript();
+      await page.addInitScript(script);
+      await page.goto("/work");
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId, deviceId, calId }) => {
+          const {
+            createLocalStorageGateway,
+            openDatabase,
+            closeDatabase,
+            unlockOwner,
+            generateTestKey,
+            STORAGE_STORES,
+          } = window.__dayforge_storage_atomicity;
+
+          const key = await generateTestKey();
+          const dbRes = await openDatabase({ name: testDbName });
+          if (!dbRes.ok) return { ok: false, error: "open failed" };
+          const db = dbRes.value;
+
+          // Seed device_meta with corrupted last_hlc
+          await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(STORAGE_STORES.device_meta, "readwrite");
+            tx.objectStore(STORAGE_STORES.device_meta).put({
+              owner_id: ownerId,
+              device_id: deviceId,
+              last_sequence: "1",
+              last_hlc: {
+                physical_ms: -999, // corrupted negative physical_ms
+                logical: 0,
+                calibration_id: "not-a-uuid",
+                raw_wall_ms: 0,
+                quality: "calibrated",
+              },
+            });
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+
+          const unlockRes = await unlockOwner(db, ownerId, keyId, key);
+          if (!unlockRes.ok) {
+            closeDatabase(db);
+            return { ok: false, error: "unlock failed" };
+          }
+          const ctx = unlockRes.value;
+          const gateway = createLocalStorageGateway({ name: testDbName });
+
+          const opId = "11111111-1111-4111-8111-111111111111";
+          const res = await gateway.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId: opId,
+            commands: [
+              {
+                root: { kind: "plan", id: "22222222-2222-4222-8222-222222222222" },
+                action: "plan.create",
+                payload: { name: "Test Plan" },
+              },
+            ],
+            dependencies: [],
+            clockInput: {
+              estimatedUtcMs: 1793150000000,
+              calibrationId: calId,
+              quality: "calibrated",
+            },
+          });
+
+          gateway.close();
+          closeDatabase(db);
+
+          return {
+            ok: true,
+            persistOk: res.ok,
+            errorCode: !res.ok ? res.error.code : null,
+          };
+        },
+        {
+          testDbName: `test-corrupt-hlc-${Date.now()}`,
+          ownerId: "11111111-1111-4111-8111-111111111111",
+          keyId: "key-1",
+          deviceId: "22222222-2222-4222-8222-222222222222",
+          calId: "33333333-3333-4333-8333-333333333333",
+        }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.persistOk).toBe(false);
+      expect(result.errorCode).toBe("invalid_data");
+    });
+
+    test("T03 command contract: rejects zero commands, invalid UUIDs, unsupported root kind/action, and unknown precondition keys", async ({
+      page,
+    }) => {
+      const script = buildStorageScript();
+      await page.addInitScript(script);
+      await page.goto("/work");
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId, deviceId, calId }) => {
+          const {
+            createLocalStorageGateway,
+            openDatabase,
+            closeDatabase,
+            unlockOwner,
+            generateTestKey,
+          } = window.__dayforge_storage_atomicity;
+
+          const key = await generateTestKey();
+          const dbRes = await openDatabase({ name: testDbName });
+          if (!dbRes.ok) return { ok: false, error: "open failed" };
+          const db = dbRes.value;
+
+          const unlockRes = await unlockOwner(db, ownerId, keyId, key);
+          if (!unlockRes.ok) {
+            closeDatabase(db);
+            return { ok: false, error: "unlock failed" };
+          }
+          const ctx = unlockRes.value;
+          const gateway = createLocalStorageGateway({ name: testDbName });
+
+          const baseClock = {
+            estimatedUtcMs: 1793150000000,
+            calibrationId: calId,
+            quality: "calibrated" as const,
+          };
+          const validPlanId = "22222222-2222-4222-8222-222222222222";
+
+          // 1. Zero commands -> rejected
+          const zeroRes = await gateway.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId: "11111111-1111-4111-8111-111111111111",
+            commands: [],
+            dependencies: [],
+            clockInput: baseClock,
+          });
+
+          // 2. Invalid operationId UUID -> rejected
+          const badOpIdRes = await gateway.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId: "not-a-valid-uuid",
+            commands: [
+              { root: { kind: "plan", id: validPlanId }, action: "plan.create", payload: {} },
+            ],
+            dependencies: [],
+            clockInput: baseClock,
+          });
+
+          // 3. Unsupported root kind ("task" or arbitrary string) -> rejected
+          const badKindRes = await gateway.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId: "33333333-3333-4333-8333-333333333333",
+            commands: [
+              { root: { kind: "unsupported_kind" as any, id: validPlanId }, action: "plan.create", payload: {} },
+            ],
+            dependencies: [],
+            clockInput: baseClock,
+          });
+
+          // 4. Unsupported action -> rejected
+          const badActionRes = await gateway.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId: "44444444-4444-4444-8444-444444444444",
+            commands: [
+              { root: { kind: "plan", id: validPlanId }, action: "invalid.action.custom", payload: {} },
+            ],
+            dependencies: [],
+            clockInput: baseClock,
+          });
+
+          // 5. Unknown precondition keys -> rejected
+          const badPrecondRes = await gateway.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId: "55555555-5555-4555-8555-555555555555",
+            commands: [
+              {
+                root: { kind: "plan", id: validPlanId },
+                action: "plan.create",
+                payload: {},
+                precondition: { unknown_property_forbidden: "value" } as any,
+              },
+            ],
+            dependencies: [],
+            clockInput: baseClock,
+          });
+
+          gateway.close();
+          closeDatabase(db);
+
+          return {
+            ok: true,
+            zeroOk: zeroRes.ok,
+            zeroCode: !zeroRes.ok ? zeroRes.error.code : null,
+            badOpIdOk: badOpIdRes.ok,
+            badOpIdCode: !badOpIdRes.ok ? badOpIdRes.error.code : null,
+            badKindOk: badKindRes.ok,
+            badKindCode: !badKindRes.ok ? badKindRes.error.code : null,
+            badActionOk: badActionRes.ok,
+            badActionCode: !badActionRes.ok ? badActionRes.error.code : null,
+            badPrecondOk: badPrecondRes.ok,
+            badPrecondCode: !badPrecondRes.ok ? badPrecondRes.error.code : null,
+          };
+        },
+        {
+          testDbName: `test-t03-command-contract-${Date.now()}`,
+          ownerId: "11111111-1111-4111-8111-111111111111",
+          keyId: "key-1",
+          deviceId: "22222222-2222-4222-8222-222222222222",
+          calId: "33333333-3333-4333-8333-333333333333",
+        }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.zeroOk).toBe(false);
+      expect(result.zeroCode).toBe("invalid_data");
+      expect(result.badOpIdOk).toBe(false);
+      expect(result.badOpIdCode).toBe("invalid_data");
+      expect(result.badKindOk).toBe(false);
+      expect(result.badKindCode).toBe("invalid_data");
+      expect(result.badActionOk).toBe(false);
+      expect(result.badActionCode).toBe("invalid_data");
+      expect(result.badPrecondOk).toBe(false);
+      expect(result.badPrecondCode).toBe("invalid_data");
+    });
+
+    test("outbox transitions: markOperationSynced before ACK is rejected, and wrong request_hash cannot delete row", async ({
+      page,
+    }) => {
+      const script = buildStorageScript();
+      await page.addInitScript(script);
+      await page.goto("/work");
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId, deviceId, calId }) => {
+          const {
+            createLocalStorageGateway,
+            openDatabase,
+            closeDatabase,
+            unlockOwner,
+            generateTestKey,
+            STORAGE_STORES,
+          } = window.__dayforge_storage_atomicity;
+
+          const key = await generateTestKey();
+          const dbRes = await openDatabase({ name: testDbName });
+          if (!dbRes.ok) return { ok: false, error: "open failed" };
+          const db = dbRes.value;
+
+          const unlockRes = await unlockOwner(db, ownerId, keyId, key);
+          if (!unlockRes.ok) {
+            closeDatabase(db);
+            return { ok: false, error: "unlock failed" };
+          }
+          const ctx = unlockRes.value;
+          const gateway = createLocalStorageGateway({ name: testDbName });
+
+          const opId = "66666666-6666-4666-8666-666666666666";
+
+          // 1. Persist operation -> starts in 'queued'
+          const persistRes = await gateway.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId: opId,
+            commands: [
+              {
+                root: { kind: "plan", id: "11111111-1111-4111-8111-111111111111" },
+                action: "plan.create",
+                payload: { test: true },
+              },
+            ],
+            dependencies: [],
+            clockInput: { estimatedUtcMs: Date.now(), calibrationId: calId },
+          });
+
+          // 2. Attempt markOperationSynced before ACK -> MUST fail closed
+          const prematureSyncRes = await gateway.markOperationSynced(ctx, opId);
+
+          // 3. Mark ACK -> transitions to ack_waiting_pull
+          const ackRes = await gateway.markOperationAcked(ctx, opId);
+
+          // 4. Attempt markOperationSynced with WRONG request_hash -> MUST fail closed with integrity_failed
+          const wrongHash = "0000000000000000000000000000000000000000000000000000000000000000";
+          const wrongHashSyncRes = await gateway.markOperationSynced(ctx, opId, wrongHash);
+
+          // Verify row STILL exists in outbox
+          const rowStillThere = await new Promise<any>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.operations, "readonly");
+            const req = tx.objectStore(STORAGE_STORES.operations).get([ownerId, opId]);
+            req.onsuccess = () => resolve(req.result ?? null);
+            req.onerror = () => resolve(null);
+          });
+
+          // 5. Successful sync with correct request_hash (or omitted hash)
+          const correctSyncRes = await gateway.markOperationSynced(ctx, opId, rowStillThere.request_hash);
+
+          // Verify row is now deleted
+          const rowAfterSync = await new Promise<any>((resolve) => {
+            const tx = db.transaction(STORAGE_STORES.operations, "readonly");
+            const req = tx.objectStore(STORAGE_STORES.operations).get([ownerId, opId]);
+            req.onsuccess = () => resolve(req.result ?? null);
+            req.onerror = () => resolve(null);
+          });
+
+          gateway.close();
+          closeDatabase(db);
+
+          return {
+            ok: true,
+            persistOk: persistRes.ok,
+            prematureSyncOk: prematureSyncRes.ok,
+            prematureSyncCode: !prematureSyncRes.ok ? prematureSyncRes.error.code : null,
+            ackOk: ackRes.ok,
+            wrongHashSyncOk: wrongHashSyncRes.ok,
+            wrongHashSyncCode: !wrongHashSyncRes.ok ? wrongHashSyncRes.error.code : null,
+            rowStillExistsAfterWrongHash: rowStillThere !== null,
+            correctSyncOk: correctSyncRes.ok,
+            rowDeletedAfterCorrectSync: rowAfterSync === null,
+          };
+        },
+        {
+          testDbName: `test-transitions-guards-${Date.now()}`,
+          ownerId: "11111111-1111-4111-8111-111111111111",
+          keyId: "key-1",
+          deviceId: "22222222-2222-4222-8222-222222222222",
+          calId: "33333333-3333-4333-8333-333333333333",
+        }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.persistOk).toBe(true);
+      expect(result.prematureSyncOk).toBe(false);
+      expect(result.prematureSyncCode).toBe("invalid_data");
+      expect(result.ackOk).toBe(true);
+      expect(result.wrongHashSyncOk).toBe(false);
+      expect(result.wrongHashSyncCode).toBe("integrity_failed");
+      expect(result.rowStillExistsAfterWrongHash).toBe(true);
+      expect(result.correctSyncOk).toBe(true);
+      expect(result.rowDeletedAfterCorrectSync).toBe(true);
     });
   });
 });

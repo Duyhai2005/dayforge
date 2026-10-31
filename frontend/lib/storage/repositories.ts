@@ -36,7 +36,8 @@ export interface LocalStorageGateway {
   ): Promise<StorageResult<void>>;
   markOperationSynced(
     ctx: OwnerAccessContext,
-    operationId: string
+    operationId: string,
+    expectedRequestHash?: string
   ): Promise<StorageResult<void>>;
   close(): void;
 }
@@ -118,13 +119,19 @@ export function createLocalStorageGateway(
 
     async markOperationSynced(
       ctx: OwnerAccessContext,
-      operationId: string
+      operationId: string,
+      expectedRequestHash?: string
     ): Promise<StorageResult<void>> {
       const openRes = await ensureOpen();
       if (!openRes.ok) {
         return openRes;
       }
-      return await markOperationSynced(openRes.value, ctx, operationId);
+      return await markOperationSynced(
+        openRes.value,
+        ctx,
+        operationId,
+        expectedRequestHash
+      );
     },
 
     close(): void {
@@ -249,7 +256,12 @@ export async function listPendingOperations(
     return entries;
   }
 
-  const pendingRows = entries.value.filter((row) => row.status === "pending");
+  const pendingRows = entries.value.filter(
+    (row) =>
+      row.status === "queued" ||
+      row.status === "sending" ||
+      row.status === "pending"
+  );
 
   const envelopes: OperationEnvelope[] = [];
   for (const row of pendingRows) {
@@ -264,6 +276,18 @@ export async function listPendingOperations(
       return decRes;
     }
     envelopes.push(decRes.value);
+  }
+
+  // Anti-TOCTOU: re-verify owner meta after decryption before returning plaintext
+  const recheckTx = db.transaction(STORAGE_STORES.owner_meta, "readonly");
+  const recheckMeta = await new Promise<OwnerMetadata | null>((resolve) => {
+    const req = recheckTx.objectStore(STORAGE_STORES.owner_meta).get(ctx.ownerId);
+    req.onsuccess = () => resolve((req.result as OwnerMetadata) ?? null);
+    req.onerror = () => resolve(null);
+  });
+  const recheckErr = checkOwnerMetaRecord(recheckMeta ?? undefined, ctx);
+  if (recheckErr) {
+    return { ok: false, error: recheckErr };
   }
 
   envelopes.sort((a, b) => {
@@ -422,6 +446,22 @@ export async function getRecord<T>(
     `${kind}:${id}`
   );
 
+  if (!decRes.ok) {
+    return decRes;
+  }
+
+  // Anti-TOCTOU: re-verify owner meta after decryption before returning plaintext
+  const recheckTx = db.transaction(STORAGE_STORES.owner_meta, "readonly");
+  const recheckMeta = await new Promise<OwnerMetadata | null>((resolve) => {
+    const req = recheckTx.objectStore(STORAGE_STORES.owner_meta).get(ctx.ownerId);
+    req.onsuccess = () => resolve((req.result as OwnerMetadata) ?? null);
+    req.onerror = () => resolve(null);
+  });
+  const recheckErr = checkOwnerMetaRecord(recheckMeta ?? undefined, ctx);
+  if (recheckErr) {
+    return { ok: false, error: recheckErr };
+  }
+
   return decRes;
 }
 
@@ -457,6 +497,18 @@ export async function markOperationAcked(
             customError = new StorageError(
               "invalid_data",
               `Operation '${operationId}' not found in outbox`
+            );
+            tx.abort();
+            return;
+          }
+          if (
+            entry.status !== "queued" &&
+            entry.status !== "sending" &&
+            entry.status !== "pending"
+          ) {
+            customError = new StorageError(
+              "invalid_data",
+              `Invalid state transition for operation '${operationId}': cannot ACK from status '${entry.status}'`
             );
             tx.abort();
             return;
@@ -530,7 +582,8 @@ export async function markOperationAcked(
 export async function markOperationSynced(
   db: IDBDatabase,
   ctx: OwnerAccessContext,
-  operationId: string
+  operationId: string,
+  expectedRequestHash?: string
 ): Promise<StorageResult<void>> {
   return new Promise((resolve) => {
     let customError: StorageError | null = null;
@@ -559,6 +612,25 @@ export async function markOperationSynced(
             customError = new StorageError(
               "invalid_data",
               `Operation '${operationId}' not found in outbox`
+            );
+            tx.abort();
+            return;
+          }
+          if (entry.status !== "ack_waiting_pull") {
+            customError = new StorageError(
+              "invalid_data",
+              `Invalid state transition for operation '${operationId}': cannot mark synced before ACK (current status: '${entry.status}')`
+            );
+            tx.abort();
+            return;
+          }
+          if (
+            expectedRequestHash !== undefined &&
+            entry.request_hash !== expectedRequestHash
+          ) {
+            customError = new StorageError(
+              "integrity_failed",
+              `Pull confirmation request_hash mismatch for operation '${operationId}': expected '${expectedRequestHash}', got '${entry.request_hash}'`
             );
             tx.abort();
             return;

@@ -137,14 +137,15 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
           const gateway = createLocalStorageGateway({ name: testDbName });
           const editTime = advanceHlc(null, 1793150000000, calId, "calibrated");
 
+          const planId = "aaaaaaaa-1111-4111-8111-111111111111";
           const operationInput = {
             context: ctx,
             deviceId,
             operationId: opId,
-            commands: [{ root: { kind: "plan", id: "p1" }, action: "plan.create", payload: { name: "Pending Plan" } }],
+            commands: [{ root: { kind: "plan", id: planId }, action: "plan.create", payload: { name: "Pending Plan" } }],
             dependencies: [],
             editTime,
-            recordOverlays: [{ kind: "plan", id: "p1", payload: { name: "Pending Plan" } }],
+            recordOverlays: [{ kind: "plan", id: planId, payload: { name: "Pending Plan" } }],
           };
 
           // 1. First attempt with simulated quota exceeded
@@ -254,10 +255,10 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
               context: ctx,
               deviceId,
               operationId: opId,
-              commands: [{ root: { kind: "plan", id: "p2" }, action: "plan.create", payload: { name: "Quota Plan" } }],
+              commands: [{ root: { kind: "plan", id: "bbbbbbbb-2222-4222-8222-222222222222" }, action: "plan.create", payload: { name: "Quota Plan" } }],
               dependencies: [],
               editTime,
-              recordOverlays: [{ kind: "plan", id: "p2", payload: { name: "Quota Plan" } }],
+              recordOverlays: [{ kind: "plan", id: "bbbbbbbb-2222-4222-8222-222222222222", payload: { name: "Quota Plan" } }],
             });
           } finally {
             IDBObjectStore.prototype.put = originalPut;
@@ -374,7 +375,7 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
               context: mockCtx,
               deviceId,
               operationId: opId,
-              commands: [{ root: { kind: "plan", id: "p1" }, action: "plan.create", payload: {} }],
+              commands: [{ root: { kind: "plan", id: "aaaaaaaa-1111-4111-8111-111111111111" }, action: "plan.create", payload: {} }],
               dependencies: [],
               editTime,
             });
@@ -438,10 +439,10 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
             context: ctx,
             deviceId,
             operationId: opId,
-            commands: [{ root: { kind: "plan", id: "p1" }, action: "plan.create", payload: {} }],
+            commands: [{ root: { kind: "plan", id: "aaaaaaaa-1111-4111-8111-111111111111" }, action: "plan.create", payload: {} }],
             dependencies: [],
             editTime,
-            recordOverlays: [{ kind: "plan", id: "p1", payload: { name: "Aborted Plan" } }],
+            recordOverlays: [{ kind: "plan", id: "aaaaaaaa-1111-4111-8111-111111111111", payload: { name: "Aborted Plan" } }],
             _abortForTest: true,
           });
 
@@ -519,15 +520,17 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
           const gateway = createLocalStorageGateway({ name: testDbName });
           const editTime = advanceHlc(null, 1793150000000, calId, "calibrated");
 
+          const planId = "aaaaaaaa-1111-4111-8111-111111111111";
+
           // Persist a valid operation and overlay
           const persistRes = await gateway.persistOperation({
             context: ctx,
             deviceId,
             operationId: opId,
-            commands: [{ root: { kind: "plan", id: "p1" }, action: "plan.create", payload: { secret: "abc" } }],
+            commands: [{ root: { kind: "plan", id: planId }, action: "plan.create", payload: { secret: "abc" } }],
             dependencies: [],
             editTime,
-            recordOverlays: [{ kind: "plan", id: "p1", payload: { secret: "abc" } }],
+            recordOverlays: [{ kind: "plan", id: planId, payload: { secret: "abc" } }],
           });
           if (!persistRes.ok) {
             closeDatabase(db);
@@ -536,7 +539,7 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
           }
 
           // Read back normally to verify initial integrity
-          const initialRead = await gateway.getRecord(ctx, "plan", "p1");
+          const initialRead = await gateway.getRecord(ctx, "plan", planId);
           const initialList = await gateway.listPending(ctx);
 
           // 1. Corrupt record overlay ciphertext in storage directly
@@ -544,7 +547,7 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
           const recStore = txCorrupt.objectStore(STORAGE_STORES.records);
           const opStore = txCorrupt.objectStore(STORAGE_STORES.operations);
 
-          const getRecReq = recStore.get([ownerId, "plan", "p1"]);
+          const getRecReq = recStore.get([ownerId, "plan", planId]);
           const getOpReq = opStore.get([ownerId, opId]);
 
           await new Promise<void>((resolve) => {
@@ -564,7 +567,7 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
           });
 
           // 2. Read corrupted record overlay
-          const tamperedRecRes = await gateway.getRecord(ctx, "plan", "p1");
+          const tamperedRecRes = await gateway.getRecord(ctx, "plan", planId);
 
           // 3. Read corrupted outbox entry
           const tamperedListRes = await gateway.listPending(ctx);
@@ -640,7 +643,7 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
       const ownerId = "11111111-1111-4111-8111-111111111111";
       const keyId = "key-scale-1";
       const deviceId = "22222222-2222-4222-8222-222222222222";
-      const opId = "scale-op-1000-commands-uuid";
+      const opId = "55555555-5555-4555-8555-555555551000";
       const calId = "44444444-4444-4444-8444-444444444444";
 
       const result = await page.evaluate(
@@ -676,12 +679,15 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
           const commands = [];
           for (let i = 0; i < 1000; i++) {
             commands.push({
-              root: { kind: "task", id: `task-item-${i}` },
-              action: "task.create",
+              root: {
+                kind: "work_item",
+                id: `00000000-0000-4000-8000-${i.toString(16).padStart(12, "0")}`,
+              },
+              action: "work_item.create_single",
               payload: {
                 title: `Scale Command Task ${i}`,
                 index: i,
-                plan_id: "plan-scale-root",
+                plan_id: "11111111-1111-4111-8111-111111111111",
               },
             });
           }
@@ -753,9 +759,9 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
 
       expect(result.persistOk).toBe(true);
       expect(result.commandCount).toBe(1000);
-      expect(result.firstCmdId).toBe("task-item-0");
-      expect(result.midCmdId).toBe("task-item-500");
-      expect(result.lastCmdId).toBe("task-item-999");
+      expect(result.firstCmdId).toBe("00000000-0000-4000-8000-000000000000");
+      expect(result.midCmdId).toBe("00000000-0000-4000-8000-0000000001f4");
+      expect(result.lastCmdId).toBe("00000000-0000-4000-8000-0000000003e7");
       expect(result.hashesMatch).toBe(true);
       expect(result.computedHash?.length).toBe(64);
     });
@@ -769,7 +775,8 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
       const ownerId = "11111111-1111-4111-8111-111111111111";
       const keyId = "key-unicode-1";
       const deviceId = "22222222-2222-4222-8222-222222222222";
-      const opId = "unicode-note-op-uuid";
+      const opId = "55555555-5555-4555-8555-555555555555";
+      const noteId = "66666666-6666-4666-8666-666666666666";
       const calId = "44444444-4444-4444-8444-444444444444";
 
       // Build 4.000 Unicode codepoints multiline text
@@ -797,7 +804,7 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
       expect([...note].length).toBe(4000);
 
       const result = await page.evaluate(
-        async ({ testDbName, ownerId, keyId, deviceId, opId, calId, note }) => {
+        async ({ testDbName, ownerId, keyId, deviceId, opId, calId, note, noteId }) => {
           const {
             openDatabase,
             closeDatabase,
@@ -827,10 +834,10 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
             context: ctx,
             deviceId,
             operationId: opId,
-            commands: [{ root: { kind: "note", id: "note-1" }, action: "note.update", payload: { body: note } }],
+            commands: [{ root: { kind: "work_item", id: noteId }, action: "work_item.create_single", payload: { body: note } }],
             dependencies: [],
             editTime,
-            recordOverlays: [{ kind: "note", id: "note-1", payload: { body: note } }],
+            recordOverlays: [{ kind: "work_item", id: noteId, payload: { body: note } }],
           });
 
           if (!persistRes.ok) {
@@ -840,7 +847,7 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
           }
 
           // Read back overlay
-          const recRes = await gateway.getRecord<{ body: string }>(ctx, "note", "note-1");
+          const recRes = await gateway.getRecord<{ body: string }>(ctx, "work_item", noteId);
           // Read back outbox envelope
           const listRes = await gateway.listPending(ctx);
 
@@ -862,7 +869,7 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
             cmdMatchesOriginal: recoveredCmdBody === note,
           };
         },
-        { testDbName, ownerId, keyId, deviceId, opId, calId, note }
+        { testDbName, ownerId, keyId, deviceId, opId, calId, note, noteId }
       );
 
       expect(result.persistOk).toBe(true);
@@ -883,7 +890,8 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
       const ownerId = "11111111-1111-4111-8111-111111111111";
       const keyId = "key-st18-secret-1";
       const deviceId = "22222222-2222-4222-8222-222222222222";
-      const opId = "st18-op-secret-uuid";
+      const opId = "77777777-7777-4777-8777-777777777777";
+      const authId = "88888888-8888-4888-8888-888888888888";
       const calId = "44444444-4444-4444-8444-444444444444";
 
       const rawSessionToken = "SESSION_TOKEN_TOP_SECRET_DAYFORGE_XYZ_987654321";
@@ -896,7 +904,7 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
       });
 
       const result = await page.evaluate(
-        async ({ testDbName, ownerId, keyId, deviceId, opId, calId, rawSessionToken, rawUserPassword }) => {
+        async ({ testDbName, ownerId, keyId, deviceId, opId, calId, rawSessionToken, rawUserPassword, authId }) => {
           const {
             openDatabase,
             closeDatabase,
@@ -929,8 +937,8 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
             operationId: opId,
             commands: [
               {
-                root: { kind: "auth", id: "session-1" },
-                action: "auth.bind",
+                root: { kind: "work_item", id: authId },
+                action: "work_item.create_single",
                 payload: { token: rawSessionToken, secret: rawUserPassword },
               },
             ],
@@ -938,8 +946,8 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
             editTime,
             recordOverlays: [
               {
-                kind: "auth",
-                id: "session-1",
+                kind: "work_item",
+                id: authId,
                 payload: { token: rawSessionToken, secret: rawUserPassword },
               },
             ],
@@ -1017,7 +1025,7 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
             leakedSecretsFound,
           };
         },
-        { testDbName, ownerId, keyId, deviceId, opId, calId, rawSessionToken, rawUserPassword }
+        { testDbName, ownerId, keyId, deviceId, opId, calId, rawSessionToken, rawUserPassword, authId }
       );
 
       expect(result.persistOk).toBe(true);
@@ -1078,23 +1086,25 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
           // Sequentially persist 100 distinct encrypted operations with record overlays
           for (let i = 1; i <= operationCount; i++) {
             currentHlc = advanceHlc(currentHlc, 1793160000000 + i * 10, calId, "calibrated");
-            const opId = `perf-op-${i.toString().padStart(4, "0")}`;
+            const opId = `10000000-0000-4000-8000-${i.toString(16).padStart(12, "0")}`;
+            const planId = `20000000-0000-4000-8000-${i.toString(16).padStart(12, "0")}`;
+            const taskId = `30000000-0000-4000-8000-${i.toString(16).padStart(12, "0")}`;
             const planPayload = { title: `Performance Plan ${i}`, index: i };
-            const taskPayload = { title: `Performance Task ${i}`, plan_id: `plan-${i}` };
+            const taskPayload = { title: `Performance Task ${i}`, plan_id: planId };
 
             const pRes = await gateway.persistOperation({
               context: ctx,
               deviceId,
               operationId: opId,
               commands: [
-                { root: { kind: "plan", id: `plan-${i}` }, action: "plan.create", payload: planPayload },
-                { root: { kind: "task", id: `task-${i}` }, action: "task.create", payload: taskPayload },
+                { root: { kind: "plan", id: planId }, action: "plan.create", payload: planPayload },
+                { root: { kind: "work_item", id: taskId }, action: "work_item.create_single", payload: taskPayload },
               ],
-              dependencies: i > 1 ? [`perf-op-${(i - 1).toString().padStart(4, "0")}`] : [],
+              dependencies: i > 1 ? [`10000000-0000-4000-8000-${(i - 1).toString(16).padStart(12, "0")}`] : [],
               editTime: currentHlc,
               recordOverlays: [
-                { kind: "plan", id: `plan-${i}`, payload: planPayload },
-                { kind: "task", id: `task-${i}`, payload: taskPayload },
+                { kind: "plan", id: planId, payload: planPayload },
+                { kind: "work_item", id: taskId, payload: taskPayload },
               ],
             });
 

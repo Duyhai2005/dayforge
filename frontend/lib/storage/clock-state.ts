@@ -59,14 +59,29 @@ export function validateHlc(hlc: unknown): hlc is HlcEditTime {
 
 export function advanceHlc(
   currentHlc: HlcEditTime | null,
-  wallMs: number,
+  estimatedUtcMs: number,
   calibrationId: string,
-  quality: "calibrated" | "offline_estimate" | "untrusted" = "calibrated"
+  quality: "calibrated" | "offline_estimate" | "untrusted" = "calibrated",
+  rawWallMs: number = estimatedUtcMs
 ): HlcEditTime {
-  if (!Number.isFinite(wallMs) || wallMs < 0) {
+  if (
+    !Number.isFinite(estimatedUtcMs) ||
+    estimatedUtcMs < 0 ||
+    estimatedUtcMs > Number.MAX_SAFE_INTEGER
+  ) {
     throw new StorageError(
       "invalid_data",
-      `Invalid wall clock milliseconds: ${wallMs}`
+      `Invalid estimated UTC milliseconds: ${estimatedUtcMs}`
+    );
+  }
+  if (
+    !Number.isFinite(rawWallMs) ||
+    rawWallMs < 0 ||
+    rawWallMs > Number.MAX_SAFE_INTEGER
+  ) {
+    throw new StorageError(
+      "invalid_data",
+      `Invalid raw wall milliseconds: ${rawWallMs}`
     );
   }
   if (!UUID_REGEX.test(calibrationId)) {
@@ -76,13 +91,14 @@ export function advanceHlc(
     );
   }
 
-  const roundedWall = Math.floor(wallMs);
+  const roundedUtc = Math.floor(estimatedUtcMs);
+  const roundedRawWall = Math.floor(rawWallMs);
   if (!currentHlc) {
     return {
-      physical_ms: roundedWall,
+      physical_ms: roundedUtc,
       logical: 0,
       calibration_id: calibrationId,
-      raw_wall_ms: roundedWall,
+      raw_wall_ms: roundedRawWall,
       quality,
     };
   }
@@ -91,8 +107,8 @@ export function advanceHlc(
   let physical_ms: number;
   let logical: number;
 
-  if (roundedWall > currentPhysical) {
-    physical_ms = roundedWall;
+  if (roundedUtc > currentPhysical) {
+    physical_ms = roundedUtc;
     logical = 0;
   } else {
     physical_ms = currentPhysical;
@@ -109,7 +125,7 @@ export function advanceHlc(
     physical_ms,
     logical,
     calibration_id: calibrationId,
-    raw_wall_ms: roundedWall,
+    raw_wall_ms: roundedRawWall,
     quality,
   };
 }

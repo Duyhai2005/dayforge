@@ -197,7 +197,41 @@ Dưới đây là chi tiết kỹ thuật 8 hạng mục được review bởi m
    - Cung cấp `listPendingOperations` song song với alias `listPending`.
 
 8. **Cleanup & Refinements:**
-   - Cắt tỉa `frontend/lib/storage/index.ts` thành curated explicit exports, ẩn các test helper nội bộ.
-   - Triển khai `escapeAadPart` (`\\` và `\:`) trong `createAad` loại trừ nguy cơ delimiter injection.
+   - Cắt tỉa `frontend/lib/storage/index.ts` thành curated explicit exports, chỉ định rõ ràng các symbols công khai và helper phục vụ tích hợp.
    - Bổ sung kiểm tra `hasLoneSurrogates` trong `canonicalizeJson` từ chối lone surrogates theo chuẩn RFC 8785 section 3.2.2.2.
    - Thêm đầy đủ các regression tests Playwright cho từng hạng mục kiểm chứng.
+
+---
+
+## 9. Giải Quyết Nhận Xét Đánh Giá Bổ Sung PR #8 (Follow-up Review Resolution)
+
+Maintainer `Duyhai2005` đã tiến hành rà soát chuyên sâu bổ sung sau commit `32248cdf`. Toàn bộ 7 hạng mục còn lại đã được xử lý triệt để:
+
+1. **HLC/Clock Evidence & Fail-Closed Calibration (Item 1):**
+   - Nâng cấp `ClockInputParams` và `advanceHlc()` hỗ trợ độc lập `estimatedUtcMs` và `rawWallMs`, cho phép biểu diễn chính xác calibrated clock offset theo hợp đồng T03.
+   - Loại bỏ hoàn toàn fallback synthetic calibration ID và fake "calibrated" quality: nếu caller không cung cấp `clockInput` hoặc `editTime`, fail-closed ngay lập tức với `StorageError("invalid_data")`.
+   - Bổ sung xác thực `validateHlc(devMeta.last_hlc)` đối với `device_meta` đã lưu: nếu dữ liệu HLC bị hỏng, fail-closed với `StorageError("invalid_data")`.
+
+2. **Đóng Hoàn Toàn Cửa Sổ TOCTOU Khi Đọc Dữ Liệu (Item 2):**
+   - Trong `getRecord()`, `listPendingOperations()`, và `readOwnerViewPreference()`: sau khi giải mã ciphertext, thực hiện re-check `owner_meta` ngay trước khi trả dữ liệu plaintext ra ngoài. Nếu owner bị lock trong lúc đang giải mã, plaintext bị hủy và fail-closed với `StorageError("locked")`.
+
+3. **Chuẩn Hóa Validator Durable Outbox Khớp 100% T03 Wire Contract (Item 3):**
+   - `SupportedRootKind`: Giới hạn nghiêm ngặt ở `"plan" | "milestone" | "work_item"` theo T03.
+   - Số lượng commands: Bắt buộc từ 1 đến 1000 lệnh (`1 <= commands.length <= 1000`), từ chối danh sách rỗng 0 commands.
+   - Định dạng UUID: Kiểm tra regex UUID chuẩn cho `operation_id`, `owner_id`, `device_id`, `root.id`, và danh sách `dependencies` (loại trừ UUID trùng lặp).
+   - Action: Ràng buộc vào đúng 18 actions hợp lệ được định nghĩa trong schema T03.
+   - Precondition: Chặn toàn bộ thuộc tính lạ (`additionalProperties: false`), chỉ chấp nhận `expected_root_hash` (chuỗi hex 64 ký tự thường) và `expected_bucket` (`date`, `period`, `order_hash`).
+
+4. **Kiểm Soát Chặt Chẽ Máy Trạng Thái Outbox (Item 4):**
+   - Hàng outbox mới lưu chuyển sang trạng thái khởi tạo chuẩn là `"queued"` (hoặc `"time_invalid"` nếu clock quality không tin cậy).
+   - `markOperationAcked()` chỉ cho phép chuyển từ `"queued"` / `"sending"` (hoặc `"pending"`) sang `"ack_waiting_pull"`.
+   - `markOperationSynced()` từ chối xóa hàng nếu chưa chuyển qua `"ack_waiting_pull"`. Hỗ trợ tham số xác thực `expectedRequestHash`: từ chối xóa với `StorageError("integrity_failed")` nếu request hash không khớp với bản tin pull nhận được.
+
+5. **Bảo Toàn Tương Thích Dữ Liệu Mã Hóa Cũ (AAD Compatibility) (Item 5):**
+   - Khôi phục định dạng mã hóa AAD gốc `${ownerId}:${keyId}:${store}:${recordId}` không escape ký tự dấu hai chấm, đảm bảo 100% dữ liệu đã lưu ở các bản build trước tiếp tục giải mã thành công mà không gây hồi quy.
+
+6. **Ép Buộc Tiêu Chuẩn Khóa AES-256 (Item 6):**
+   - `unlockOwner()` kiểm tra chặt chẽ `(key.algorithm as AesKeyAlgorithm).length === 256`, từ chối các khóa AES-128-GCM với `StorageError("invalid_data")`.
+
+7. **Minh Bạch Bề Mặt API & Dọn Dẹp (Item 7):**
+   - `frontend/lib/storage/index.ts` xuất khẩu tường minh các hợp đồng kiểu, gateway facade, và các primitives cần thiết cho harness kiểm thử và các task tích hợp tiếp theo.
