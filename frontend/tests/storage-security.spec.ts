@@ -28,7 +28,7 @@ import {
 
 declare global {
   interface Window {
-    __dayforge_storage: {
+    __dayforge_security_storage: {
       StorageError: typeof StorageError;
       DB_NAME: typeof DB_NAME;
       STORAGE_STORES: typeof STORAGE_STORES;
@@ -78,7 +78,7 @@ function buildStorageScript(): string {
     const exports = {};
     const module = { exports };
     ${transpiled}
-    window.__dayforge_storage = exports;
+    window.__dayforge_security_storage = exports;
   })();`;
 }
 
@@ -380,7 +380,7 @@ test.describe("Storage Security Specifications", () => {
       // 1. Generate key in browser, store via storeCryptoKey, verify unexportable
       const initialStep = await page.evaluate(async () => {
         const { openDatabase, closeDatabase, generateTestKey, storeCryptoKey, getCryptoKey } =
-          window.__dayforge_storage;
+          window.__dayforge_security_storage;
 
         const dbRes = await openDatabase();
         if (!dbRes.ok) return { ok: false as const, error: dbRes.error.code };
@@ -425,7 +425,7 @@ test.describe("Storage Security Specifications", () => {
       // 2. Encrypt record with stored key, reload page, reopen DB, retrieve key, and decrypt successfully
       const encryptBeforeReload = await page.evaluate(async () => {
         const { openDatabase, closeDatabase, getCryptoKey, encryptPayload } =
-          window.__dayforge_storage;
+          window.__dayforge_security_storage;
 
         const dbRes = await openDatabase();
         if (!dbRes.ok) return { ok: false as const, error: dbRes.error.code };
@@ -469,9 +469,16 @@ test.describe("Storage Security Specifications", () => {
       await page.reload();
 
       const decryptAfterReload = await page.evaluate(
-        async (recData) => {
+        async (recData: {
+          owner_id: string;
+          store: string;
+          record_id: string;
+          key_id: string;
+          iv: number[];
+          ciphertext: number[];
+        }) => {
           const { openDatabase, closeDatabase, getCryptoKey, decryptPayload } =
-            window.__dayforge_storage;
+            window.__dayforge_security_storage;
 
           const dbRes = await openDatabase();
           if (!dbRes.ok) return { ok: false as const, error: dbRes.error.code };
@@ -517,7 +524,7 @@ test.describe("Storage Security Specifications", () => {
       // 3. removeCryptoKey deletes the key cleanly
       const removeStep = await page.evaluate(async () => {
         const { openDatabase, closeDatabase, removeCryptoKey, getCryptoKey } =
-          window.__dayforge_storage;
+          window.__dayforge_security_storage;
 
         const dbRes = await openDatabase();
         if (!dbRes.ok) return { ok: false as const, error: dbRes.error.code };
@@ -558,7 +565,7 @@ test.describe("Storage Security Specifications", () => {
           validateOwnerAccess,
           getCryptoKey,
           getOwnerMeta,
-        } = window.__dayforge_storage;
+        } = window.__dayforge_security_storage;
 
         const dbRes = await openDatabase();
         if (!dbRes.ok) return { step: "open", ok: false as const, error: dbRes.error.code };
