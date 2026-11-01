@@ -30,7 +30,7 @@ export interface ClockInputParams {
   wallMs?: number;
   rawWallMs?: number;
   calibrationId: string;
-  quality?: "calibrated" | "offline_estimate" | "untrusted";
+  quality: "calibrated" | "offline_estimate" | "untrusted";
 }
 
 export interface PersistOperationInput {
@@ -269,15 +269,11 @@ export async function persistOperationAtomic(
                     return;
                   }
                   const rawWall = input.clockInput.rawWallMs ?? estimatedUtc;
-                  const quality =
-                    input.clockInput.quality === undefined
-                      ? "calibrated"
-                      : input.clockInput.quality;
                   allocatedHlc = advanceHlc(
                     devMeta?.last_hlc ?? null,
                     estimatedUtc,
                     input.clockInput.calibrationId,
-                    quality,
+                    input.clockInput.quality,
                     rawWall
                   );
                 } else if (input.editTime) {

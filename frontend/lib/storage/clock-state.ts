@@ -73,7 +73,7 @@ export function advanceHlc(
   currentHlc: HlcEditTime | null,
   estimatedUtcMs: number,
   calibrationId: string,
-  quality: "calibrated" | "offline_estimate" | "untrusted" = "calibrated",
+  quality: "calibrated" | "offline_estimate" | "untrusted",
   rawWallMs: number = estimatedUtcMs
 ): HlcEditTime {
   if (

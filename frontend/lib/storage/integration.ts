@@ -54,6 +54,7 @@ export {
   type StoragePrecondition,
   type StorageCommand,
   type OperationEnvelope,
+  type OutboxReplayItem,
   type OutboxStatus,
   type OutboxEntry,
   canonicalizeJson,

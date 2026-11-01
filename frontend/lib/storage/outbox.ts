@@ -114,6 +114,12 @@ export interface OperationEnvelope {
   commands: readonly StorageCommand[];
 }
 
+export interface OutboxReplayItem {
+  envelope: OperationEnvelope;
+  status: OutboxStatus;
+  requestHash: string;
+}
+
 export type OutboxStatus =
   | "queued"
   | "sending"

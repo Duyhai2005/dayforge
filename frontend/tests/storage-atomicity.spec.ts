@@ -17,7 +17,8 @@ import {
   sha256Hex,
   computeCanonicalHash,
   decryptPayload,
-  listOptimisticOperations,
+  encryptPayload,
+  listOutboxForReplay,
   type OperationEnvelope,
   type OutboxEntry,
   type OutboxStatus,
@@ -49,7 +50,8 @@ declare global {
       sha256Hex: typeof sha256Hex;
       computeCanonicalHash: typeof computeCanonicalHash;
       decryptPayload: typeof decryptPayload;
-      listOptimisticOperations: typeof listOptimisticOperations;
+      encryptPayload: typeof encryptPayload;
+      listOutboxForReplay: typeof listOutboxForReplay;
       persistOperationAtomic: typeof persistOperationAtomic;
       createLocalStorageGateway: typeof createLocalStorageGateway;
       isCanonicalLocalDate: typeof isCanonicalLocalDate;
@@ -161,17 +163,17 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
       expect(hlc1.calibration_id).toBe(calId);
 
       // Backward wall clock: physical remains at max, logical increments
-      const hlc2 = advanceHlc(hlc1, 950, calId);
+      const hlc2 = advanceHlc(hlc1, 950, calId, "calibrated");
       expect(hlc2.physical_ms).toBe(1000);
       expect(hlc2.logical).toBe(1);
 
       // Same wall clock: physical remains, logical increments
-      const hlc3 = advanceHlc(hlc2, 1000, calId);
+      const hlc3 = advanceHlc(hlc2, 1000, calId, "calibrated");
       expect(hlc3.physical_ms).toBe(1000);
       expect(hlc3.logical).toBe(2);
 
       // Forward wall clock: physical advances, logical resets to 0
-      const hlc4 = advanceHlc(hlc3, 1500, calId);
+      const hlc4 = advanceHlc(hlc3, 1500, calId, "calibrated");
       expect(hlc4.physical_ms).toBe(1500);
       expect(hlc4.logical).toBe(0);
     });
@@ -523,7 +525,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
               operationId: opId,
               commands: [{ root: { kind: "plan", id: `33333333-0000-4000-8000-00000000000${i}` }, action: "plan.create", payload: { data: { name: `Tab1 Plan ${i}`, color_id: "green" } }, precondition: null }],
               dependencies: [],
-              clockInput: { estimatedUtcMs: 1793140000000 + i * 10, rawWallMs: 1793140000000 + i * 10, calibrationId: calId },
+              clockInput: { estimatedUtcMs: 1793140000000 + i * 10, rawWallMs: 1793140000000 + i * 10, calibrationId: calId, quality: "calibrated" },
             });
             if (res.ok) {
               results.push({ opId: res.value.operationId, seq: res.value.deviceSequence });
@@ -556,7 +558,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
               operationId: opId,
               commands: [{ root: { kind: "plan", id: `44444444-0000-4000-8000-00000000000${i}` }, action: "plan.create", payload: { data: { name: `Tab2 Plan ${i}`, color_id: "blue" } }, precondition: null }],
               dependencies: [],
-              clockInput: { estimatedUtcMs: 1793140000000 + i * 10 + 5, rawWallMs: 1793140000000 + i * 10 + 5, calibrationId: calId },
+              clockInput: { estimatedUtcMs: 1793140000000 + i * 10 + 5, rawWallMs: 1793140000000 + i * 10 + 5, calibrationId: calId, quality: "calibrated" },
             });
             if (res.ok) {
               results.push({ opId: res.value.operationId, seq: res.value.deviceSequence });
@@ -627,7 +629,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           const gateway = createLocalStorageGateway({ name: testDbName });
           await gateway.open();
 
-          const editTime = advanceHlc(null, 1793140000000, calId);
+          const editTime = advanceHlc(null, 1793140000000, calId, "calibrated");
 
           const planId = "aaaaaaaa-1111-4111-8111-111111111111";
 
@@ -718,7 +720,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           await gateway.open();
 
           const planId = "aaaaaaaa-1111-4111-8111-111111111111";
-          const editTime = advanceHlc(null, 1793140000000, calId);
+          const editTime = advanceHlc(null, 1793140000000, calId, "calibrated");
           await gateway.persistOperation({
             context: ctx,
             deviceId,
@@ -821,7 +823,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           const gateway = createLocalStorageGateway({ name: testDbName });
           await gateway.open();
 
-          const editTime = advanceHlc(null, 1793140000000, calId);
+          const editTime = advanceHlc(null, 1793140000000, calId, "calibrated");
           const persistRes = await gateway.persistOperation({
             context: ctx,
             deviceId,
@@ -1242,7 +1244,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
               },
             ],
             dependencies: [],
-            clockInput: { wallMs: Date.now(), calibrationId: calId },
+            clockInput: { wallMs: Date.now(), calibrationId: calId, quality: "calibrated" },
           });
 
           // 3. Uint64 overflow test
@@ -1269,7 +1271,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
               },
             ],
             dependencies: [],
-            clockInput: { wallMs: Date.now(), calibrationId: calId },
+            clockInput: { wallMs: Date.now(), calibrationId: calId, quality: "calibrated" },
           });
 
           closeDatabase(db);
@@ -1349,7 +1351,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
               },
             ],
             dependencies: [],
-            clockInput: { wallMs: Date.now(), calibrationId: calId },
+            clockInput: { wallMs: Date.now(), calibrationId: calId, quality: "calibrated" },
           });
 
           // 2. listPending returns it
@@ -1804,7 +1806,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
               },
             ],
             dependencies: [],
-            clockInput: { estimatedUtcMs: Date.now(), calibrationId: calId },
+            clockInput: { estimatedUtcMs: Date.now(), calibrationId: calId, quality: "calibrated" },
           });
 
           // 2. Attempt markOperationSynced before ACK -> MUST fail closed
@@ -3001,12 +3003,12 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
         if (!saved.ok) return { setup: false };
         const ack = await gateway1.markOperationAcked(ctx, operationId);
         const sendableBefore = await gateway1.listSendableOperations(ctx);
-        const optimisticBefore = await gateway1.listOptimisticOperations(ctx);
+        const optimisticBefore = await gateway1.listOutboxForReplay(ctx);
         gateway1.close();
 
         const gateway2 = createLocalStorageGateway({ name: dbName });
         const sendableReload = await gateway2.listSendableOperations(ctx);
-        const optimisticReload = await gateway2.listOptimisticOperations(ctx);
+        const optimisticReload = await gateway2.listOutboxForReplay(ctx);
         const row = await new Promise<any>((resolve) => {
           const tx = db.transaction(STORAGE_STORES.operations, "readonly");
           const req = tx.objectStore(STORAGE_STORES.operations).get([ownerId, operationId]);
@@ -3016,7 +3018,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
         const confirmed = row
           ? await gateway2.markOperationSynced(ctx, operationId, row.request_hash)
           : null;
-        const optimisticAfter = await gateway2.listOptimisticOperations(ctx);
+        const optimisticAfter = await gateway2.listOutboxForReplay(ctx);
         gateway2.close();
         closeDatabase(db);
         return {
@@ -3227,6 +3229,309 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
       expect(result.nullQualityCode).toBe("invalid_data");
     });
 
+    test("N07: replay preserves persisted status and request hash after gateway reload", async ({ page }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+      const result = await page.evaluate(async () => {
+        const s = window.__dayforge_storage_atomicity;
+        const ownerId = "11111111-9010-4000-8000-000000000001";
+        const deviceId = "33333333-9010-4000-8000-000000000001";
+        const calibrationId = "55555555-9010-4000-8000-000000000001";
+        const open = await s.openDatabase({ name: `n07-${crypto.randomUUID()}` });
+        if (!open.ok) return { setup: false, replayOk: false, replayItems: [], sendableIds: [], sendableCode: null };
+        const db = open.value;
+        const key = await s.generateTestKey();
+        const unlocked = await s.unlockOwner(db, ownerId, "n07-key", key);
+        if (!unlocked.ok) return { setup: false, replayOk: false, replayItems: [], sendableIds: [], sendableCode: null };
+        const ctx = unlocked.value;
+        const gateway1 = s.createLocalStorageGateway({ name: db.name });
+        const operationIds = [1, 2, 3, 4].map((index) =>
+          `22222222-9010-4000-8000-${index.toString().padStart(12, "0")}`
+        );
+        for (let index = 0; index < operationIds.length; index += 1) {
+          const saved = await gateway1.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId: operationIds[index],
+            commands: [{
+              root: { kind: "plan", id: `44444444-9010-4000-8000-${(index + 1).toString().padStart(12, "0")}` },
+              action: "plan.create",
+              payload: { data: { name: `Replay ${index}`, color_id: "green" } },
+              precondition: null,
+            }],
+            dependencies: [],
+            clockInput: {
+              estimatedUtcMs: 1793480100000 + index,
+              rawWallMs: 1793480100000 + index,
+              calibrationId,
+              quality: "calibrated",
+            },
+          });
+          if (!saved.ok) return { setup: false, replayOk: false, replayItems: [], sendableIds: [], sendableCode: null };
+        }
+        const ack = await gateway1.markOperationAcked(ctx, operationIds[0]);
+        if (!ack.ok) return { setup: false, replayOk: false, replayItems: [], sendableIds: [], sendableCode: null };
+        await new Promise<void>((resolve, reject) => {
+          const tx = db.transaction(s.STORAGE_STORES.operations, "readwrite");
+          const store = tx.objectStore(s.STORAGE_STORES.operations);
+          for (const [operationId, status] of [[operationIds[1], "blocked"], [operationIds[2], "time_invalid"]] as const) {
+            const req = store.get([ownerId, operationId]);
+            req.onsuccess = () => { const row = req.result; row.status = status; store.put(row); };
+            req.onerror = () => reject(req.error);
+          }
+          tx.oncomplete = () => resolve();
+          tx.onabort = () => reject(tx.error);
+        });
+        const rows = await new Promise<any[]>((resolve, reject) => {
+          const tx = db.transaction(s.STORAGE_STORES.operations, "readonly");
+          const req = tx.objectStore(s.STORAGE_STORES.operations).getAll();
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+        gateway1.close();
+
+        const gateway2 = s.createLocalStorageGateway({ name: db.name });
+        const replayMethod = (gateway2 as any).listOutboxForReplay;
+        const replay = typeof replayMethod === "function" ? await replayMethod.call(gateway2, ctx) : null;
+        const sendable = await gateway2.listSendableOperations(ctx);
+        const result = {
+          setup: true,
+          replayOk: replay?.ok ?? false,
+          replayItems: replay?.ok ? replay.value.map((item: any) => ({
+            operationId: item.envelope.operation_id,
+            status: item.status,
+            requestHashMatches: rows.some((row) => row.operation_id === item.envelope.operation_id && row.request_hash === item.requestHash),
+          })) : [],
+          sendableIds: sendable.ok ? sendable.value.map((envelope: any) => envelope.operation_id) : [],
+          sendableCode: sendable.ok ? null : sendable.error.code,
+        };
+        gateway2.close();
+        s.closeDatabase(db);
+        return result;
+      });
+
+      expect(result.setup).toBe(true);
+      expect(result.replayOk).toBe(true);
+      expect(result.replayItems.map((item: any) => item.status).sort()).toEqual([
+        "ack_waiting_pull", "blocked", "queued", "time_invalid",
+      ]);
+      expect(result.replayItems.every((item: any) => item.requestHashMatches)).toBe(true);
+      expect(result.sendableCode).toBe(null);
+      expect(result.sendableIds).toEqual(["22222222-9010-4000-8000-000000000004"]);
+    });
+
+    test("N10: every owner-scoped outbox row is validated before status filtering", async ({ page }) => {
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+      const result = await page.evaluate(async () => {
+        const s = window.__dayforge_storage_atomicity;
+        const ownerId = "11111111-9011-4000-8000-000000000001";
+        const deviceId = "33333333-9011-4000-8000-000000000001";
+        const calibrationId = "55555555-9011-4000-8000-000000000001";
+        const open = await s.openDatabase({ name: `n10-${crypto.randomUUID()}` });
+        if (!open.ok) return { setup: false, codes: [] };
+        const db = open.value;
+        const key = await s.generateTestKey();
+        const unlocked = await s.unlockOwner(db, ownerId, "n10-key", key);
+        if (!unlocked.ok) return { setup: false, codes: [] };
+        const ctx = unlocked.value;
+        const gateway = s.createLocalStorageGateway({ name: db.name });
+        const cases: Array<{ name: string; apply: (row: any, operationId: string) => Promise<void> | void }> = [
+          { name: "unknown-status", apply: (row) => { row.status = "garbage"; } },
+          { name: "operation-uuid", apply: (row) => { row.operation_id = "not-a-uuid"; } },
+          { name: "sequence-type", apply: (row) => { row.device_sequence = 1; } },
+          { name: "sequence-overflow", apply: (row) => { row.device_sequence = "18446744073709551616"; } },
+          { name: "request-hash-shape", apply: (row) => { row.request_hash = "A".repeat(64); } },
+          { name: "request-hash-mismatch", apply: (row) => { row.request_hash = `${row.request_hash.slice(0, -1)}${row.request_hash.endsWith("0") ? "1" : "0"}`; } },
+          { name: "encrypted-owner", apply: (row) => { row.encrypted_envelope.owner_id = "99999999-9011-4000-8000-000000000001"; } },
+          { name: "encrypted-store", apply: (row) => { row.encrypted_envelope.store = "records"; } },
+          { name: "encrypted-record-id", apply: (row) => { row.encrypted_envelope.record_id = "99999999-9011-4000-8000-000000000002"; } },
+          { name: "encrypted-key-id", apply: (row) => { row.encrypted_envelope.key_id = "wrong-key"; } },
+          { name: "iv-type", apply: (row) => { row.encrypted_envelope.iv = Array.from(row.encrypted_envelope.iv); } },
+          { name: "iv-length", apply: (row) => { row.encrypted_envelope.iv = row.encrypted_envelope.iv.slice(1); } },
+          { name: "ciphertext-type", apply: (row) => { row.encrypted_envelope.ciphertext = Array.from(row.encrypted_envelope.ciphertext); } },
+          { name: "ciphertext-short", apply: (row) => { row.encrypted_envelope.ciphertext = new Uint8Array(15); } },
+          { name: "excluded-row-hash", apply: (row) => { row.status = "superseded_by"; row.superseded_by = "44444444-9011-4000-8000-000000000099"; row.request_hash = "bad"; } },
+          { name: "envelope-id-mismatch", apply: async (row, operationId) => {
+            const decrypted = await s.decryptPayload(ctx.key, row.encrypted_envelope, ownerId, s.STORAGE_STORES.operations, operationId);
+            if (!decrypted.ok) throw new Error("test setup could not decrypt the envelope");
+            const envelope = decrypted.value as any;
+            envelope.operation_id = "44444444-9011-4000-8000-000000000099";
+            const encrypted = await s.encryptPayload(ctx.key, ownerId, ctx.keyId, s.STORAGE_STORES.operations, operationId, envelope);
+            const hash = await s.computeCanonicalHash(envelope);
+            if (!encrypted.ok || !hash) throw new Error("test setup could not prepare corrupted envelope");
+            row.encrypted_envelope = encrypted.value;
+            row.request_hash = hash.hash;
+          } },
+        ];
+        const codes: Array<{ name: string; sendableCode: string | null; replayCode: string | null; rowRetained: boolean }> = [];
+        for (let index = 0; index < cases.length; index += 1) {
+          const operationId = `22222222-9011-4000-8000-${(index + 1).toString().padStart(12, "0")}`;
+          const saved = await gateway.persistOperation({
+            context: ctx,
+            deviceId,
+            operationId,
+            commands: [{
+              root: { kind: "plan", id: `44444444-9011-4000-8000-${(index + 1).toString().padStart(12, "0")}` },
+              action: "plan.create",
+              payload: { data: { name: `Integrity ${index}`, color_id: "green" } },
+              precondition: null,
+            }],
+            dependencies: [],
+            clockInput: {
+              estimatedUtcMs: 1793480200000 + index,
+              rawWallMs: 1793480200000 + index,
+              calibrationId,
+              quality: "calibrated",
+            },
+          });
+          if (!saved.ok) return { setup: false, codes };
+          const row = await new Promise<any>((resolve, reject) => {
+            const tx = db.transaction(s.STORAGE_STORES.operations, "readonly");
+            const req = tx.objectStore(s.STORAGE_STORES.operations).get([ownerId, operationId]);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+          });
+          await cases[index].apply(row, operationId);
+          await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(s.STORAGE_STORES.operations, "readwrite");
+            const store = tx.objectStore(s.STORAGE_STORES.operations);
+            if (row.operation_id !== operationId) store.delete([ownerId, operationId]);
+            store.put(row);
+            tx.oncomplete = () => resolve();
+            tx.onabort = () => reject(tx.error);
+          });
+          const beforeCount = await new Promise<number>((resolve, reject) => {
+            const tx = db.transaction(s.STORAGE_STORES.operations, "readonly");
+            const req = tx.objectStore(s.STORAGE_STORES.operations).count();
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+          });
+          const sendable = await gateway.listSendableOperations(ctx);
+          const replayMethod = (gateway as any).listOutboxForReplay;
+          const replay = typeof replayMethod === "function" ? await replayMethod.call(gateway, ctx) : null;
+          const afterCount = await new Promise<number>((resolve, reject) => {
+            const tx = db.transaction(s.STORAGE_STORES.operations, "readonly");
+            const req = tx.objectStore(s.STORAGE_STORES.operations).count();
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+          });
+          codes.push({
+            name: cases[index].name,
+            sendableCode: sendable.ok ? null : sendable.error.code,
+            replayCode: replay?.ok ? null : replay?.error.code ?? "missing_api",
+            rowRetained: beforeCount === afterCount,
+          });
+        }
+        gateway.close();
+        s.closeDatabase(db);
+        return { setup: true, codes };
+      });
+
+      expect(result.setup).toBe(true);
+      expect(result.codes.map((entry: any) => entry.sendableCode)).toEqual(Array(result.codes.length).fill("integrity_failed"));
+      expect(result.codes.map((entry: any) => entry.replayCode)).toEqual(Array(result.codes.length).fill("integrity_failed"));
+      expect(result.codes.every((entry: any) => entry.rowRetained)).toBe(true);
+      expect(pageErrors).toEqual([]);
+    });
+
+    test("N09: clock quality must be explicit and rejected inputs leave outbox and sequence untouched", async ({ page }) => {
+      const rawAdvanceHlc = advanceHlc as unknown as (...args: any[]) => HlcEditTime;
+      const directErrorCode = (run: () => unknown): string | null => {
+        try {
+          run();
+          return null;
+        } catch (error) {
+          return error instanceof StorageError ? error.code : "unexpected_error";
+        }
+      };
+      const calibrationId = "55555555-9012-4000-8000-000000000001";
+      const directCodes = [
+        directErrorCode(() => rawAdvanceHlc(null, 1793480300000, calibrationId)),
+        directErrorCode(() => rawAdvanceHlc(null, 1793480300000, calibrationId, undefined)),
+        directErrorCode(() => rawAdvanceHlc(null, 1793480300000, calibrationId, null)),
+      ];
+
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+      const result = await page.evaluate(async () => {
+        const s = window.__dayforge_storage_atomicity;
+        const ownerId = "11111111-9012-4000-8000-000000000001";
+        const deviceId = "33333333-9012-4000-8000-000000000001";
+        const calibrationId = "55555555-9012-4000-8000-000000000001";
+        const open = await s.openDatabase({ name: `n09-${crypto.randomUUID()}` });
+        if (!open.ok) return { setup: false, rejected: [], directCodes: [], countAfterRejected: -1, metadataAfterRejected: true, untrustedOk: false, untrustedStatus: null };
+        const db = open.value;
+        const key = await s.generateTestKey();
+        const unlocked = await s.unlockOwner(db, ownerId, "n09-key", key);
+        if (!unlocked.ok) return { setup: false, rejected: [], directCodes: [], countAfterRejected: -1, metadataAfterRejected: true, untrustedOk: false, untrustedStatus: null };
+        const gateway = s.createLocalStorageGateway({ name: db.name });
+        const makeInput = (index: number, clockInput: any, editTime?: any) => ({
+          context: unlocked.value,
+          deviceId,
+          operationId: `22222222-9012-4000-8000-${index.toString().padStart(12, "0")}`,
+          commands: [{
+            root: { kind: "plan", id: `44444444-9012-4000-8000-${index.toString().padStart(12, "0")}` },
+            action: "plan.create",
+            payload: { data: { name: `Clock ${index}`, color_id: "green" } },
+            precondition: null,
+          }],
+          dependencies: [],
+          clockInput,
+          editTime,
+        });
+        const clockBase = { estimatedUtcMs: 1793480300000, rawWallMs: 1793480300000, calibrationId };
+        const editTimeBase = { physical_ms: 1793480300000, logical: 0, calibration_id: calibrationId, raw_wall_ms: 1793480300000 };
+        const invalidInputs = [
+          makeInput(1, clockBase),
+          makeInput(2, { ...clockBase, quality: undefined }),
+          makeInput(3, { ...clockBase, quality: null }),
+          makeInput(4, { ...clockBase, quality: "bogus" }),
+          makeInput(5, { ...clockBase }, { ...editTimeBase, quality: "calibrated" }),
+          makeInput(6, undefined, editTimeBase),
+        ];
+        const rejected = [];
+        for (const input of invalidInputs) {
+          const saved = await (gateway.persistOperation as any)(input);
+          rejected.push({ ok: saved.ok, code: saved.ok ? null : saved.error.code });
+        }
+        const stateAfterRejected = await new Promise<{ count: number; deviceMeta: unknown }>((resolve, reject) => {
+          const tx = db.transaction([s.STORAGE_STORES.operations, s.STORAGE_STORES.device_meta], "readonly");
+          const countReq = tx.objectStore(s.STORAGE_STORES.operations).count(IDBKeyRange.bound([ownerId, ""], [ownerId, "\uffff"]));
+          const metaReq = tx.objectStore(s.STORAGE_STORES.device_meta).get([ownerId, deviceId]);
+          tx.oncomplete = () => resolve({ count: countReq.result, deviceMeta: metaReq.result ?? null });
+          tx.onerror = () => reject(tx.error);
+        });
+        const untrusted = await (gateway.persistOperation as any)(makeInput(99, { ...clockBase, quality: "untrusted" }));
+        const row = await new Promise<any>((resolve, reject) => {
+          const tx = db.transaction(s.STORAGE_STORES.operations, "readonly");
+          const req = tx.objectStore(s.STORAGE_STORES.operations).get([ownerId, "22222222-9012-4000-8000-000000000099"]);
+          req.onsuccess = () => resolve(req.result ?? null);
+          req.onerror = () => reject(req.error);
+        });
+        gateway.close();
+        s.closeDatabase(db);
+        return {
+          setup: true,
+          rejected,
+          countAfterRejected: stateAfterRejected.count,
+          metadataAfterRejected: stateAfterRejected.deviceMeta !== null,
+          untrustedOk: untrusted.ok,
+          untrustedStatus: row?.status ?? null,
+        };
+      });
+
+      expect(directCodes).toEqual(["invalid_data", "invalid_data", "invalid_data"]);
+      expect(result.setup).toBe(true);
+      expect(result.rejected.map((entry: any) => entry.code)).toEqual(Array(6).fill("invalid_data"));
+      expect(result.countAfterRejected).toBe(0);
+      expect(result.metadataAfterRejected).toBe(false);
+      expect(result.untrustedOk).toBe(true);
+      expect(result.untrustedStatus).toBe("time_invalid");
+    });
+
     test("R04: connection closing during outbox decryption returns a typed storage error", async ({ page }) => {
       await page.goto("/work");
       await page.addScriptTag({ content: buildStorageScript() });
@@ -3252,7 +3557,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
         const originalDecrypt = crypto.subtle.decrypt.bind(crypto.subtle);
         crypto.subtle.decrypt = async (...args) => { const plaintext = await originalDecrypt(...args); db.close(); return plaintext; };
         try {
-          const read = await s.listOptimisticOperations(db, unlocked.value);
+          const read = await s.listOutboxForReplay(db, unlocked.value);
           return { setup: true, returnedResult: true, ok: read.ok, errorCode: read.ok ? null : read.error.code };
         } catch (error) {
           return { setup: true, returnedResult: false, errorName: error instanceof Error ? error.name : "unknown" };

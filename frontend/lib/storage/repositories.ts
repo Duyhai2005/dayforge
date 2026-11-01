@@ -8,7 +8,17 @@ import {
   type OwnerMetadata,
   checkOwnerMetaRecord,
 } from "./owner-gate";
-import { type OperationEnvelope, type OutboxEntry, HASH_PATTERN } from "./outbox";
+import {
+  type OperationEnvelope,
+  type OutboxEntry,
+  type OutboxReplayItem,
+  type OutboxStatus,
+  HASH_PATTERN,
+  UUID_PATTERN,
+  computeCanonicalHash,
+  validateOperationDraft,
+} from "./outbox";
+import { validateHlc } from "./clock-state";
 import {
   type PersistOperationInput,
   type PersistOperationResult,
@@ -20,9 +30,9 @@ export interface LocalStorageGateway {
   listSendableOperations(
     ctx: OwnerAccessContext
   ): Promise<StorageResult<readonly OperationEnvelope[]>>;
-  listOptimisticOperations(
+  listOutboxForReplay(
     ctx: OwnerAccessContext
-  ): Promise<StorageResult<readonly OperationEnvelope[]>>;
+  ): Promise<StorageResult<readonly OutboxReplayItem[]>>;
   persistOperation(
     input: PersistOperationInput
   ): Promise<StorageResult<PersistOperationResult>>;
@@ -94,14 +104,14 @@ export function createLocalStorageGateway(
       return await listSendableOperations(openRes.value, ctx);
     },
 
-    async listOptimisticOperations(
+    async listOutboxForReplay(
       ctx: OwnerAccessContext
-    ): Promise<StorageResult<readonly OperationEnvelope[]>> {
+    ): Promise<StorageResult<readonly OutboxReplayItem[]>> {
       const openRes = await ensureOpen();
       if (!openRes.ok) {
         return openRes;
       }
-      return await listOptimisticOperations(openRes.value, ctx);
+      return await listOutboxForReplay(openRes.value, ctx);
     },
 
     async getRecord<T>(
@@ -136,12 +146,155 @@ export function createLocalStorageGateway(
   };
 }
 
+const OUTBOX_STATUSES: ReadonlySet<OutboxStatus> = new Set([
+  "queued",
+  "sending",
+  "ack_waiting_pull",
+  "blocked",
+  "time_invalid",
+  "superseded_by",
+  "pending",
+]);
+const UINT64_MAX = BigInt("18446744073709551615");
+const ENCRYPTED_RECORD_FIELDS = new Set([
+  "owner_id",
+  "store",
+  "record_id",
+  "key_id",
+  "iv",
+  "ciphertext",
+]);
+const ENVELOPE_FIELDS = new Set([
+  "protocol_version",
+  "reducer_version",
+  "operation_id",
+  "owner_id",
+  "device_id",
+  "device_sequence",
+  "edit_time",
+  "dependencies",
+  "commands",
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isCanonicalUint64Sequence(value: unknown): value is string {
+  if (
+    typeof value !== "string" ||
+    value.length > 20 ||
+    !/^[1-9][0-9]*$/.test(value)
+  ) {
+    return false;
+  }
+  try {
+    return BigInt(value) <= UINT64_MAX;
+  } catch {
+    return false;
+  }
+}
+
+function hasExactFields(
+  value: Record<string, unknown>,
+  expectedFields: ReadonlySet<string>
+): boolean {
+  const fields = Object.keys(value);
+  return (
+    fields.length === expectedFields.size &&
+    fields.every((field) => expectedFields.has(field))
+  );
+}
+
+function isValidOutboxEntry(
+  value: unknown,
+  ctx: OwnerAccessContext
+): value is OutboxEntry {
+  if (!isRecord(value)) return false;
+  if (
+    value.owner_id !== ctx.ownerId ||
+    typeof value.operation_id !== "string" ||
+    !UUID_PATTERN.test(value.operation_id) ||
+    !isCanonicalUint64Sequence(value.device_sequence) ||
+    typeof value.status !== "string" ||
+    !OUTBOX_STATUSES.has(value.status as OutboxStatus) ||
+    typeof value.request_hash !== "string" ||
+    !HASH_PATTERN.test(value.request_hash)
+  ) {
+    return false;
+  }
+  if (
+    value.superseded_by !== undefined &&
+    (typeof value.superseded_by !== "string" ||
+      !UUID_PATTERN.test(value.superseded_by))
+  ) {
+    return false;
+  }
+
+  const encrypted = value.encrypted_envelope;
+  if (
+    !isRecord(encrypted) ||
+    !hasExactFields(encrypted, ENCRYPTED_RECORD_FIELDS) ||
+    encrypted.owner_id !== ctx.ownerId ||
+    encrypted.store !== STORAGE_STORES.operations ||
+    encrypted.record_id !== value.operation_id ||
+    encrypted.key_id !== ctx.keyId ||
+    !(encrypted.iv instanceof Uint8Array) ||
+    encrypted.iv.byteLength !== 12 ||
+    !(encrypted.ciphertext instanceof Uint8Array) ||
+    encrypted.ciphertext.byteLength < 16
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function isValidPersistedEnvelope(
+  value: unknown,
+  row: OutboxEntry,
+  ctx: OwnerAccessContext
+): value is OperationEnvelope {
+  if (
+    !isRecord(value) ||
+    !hasExactFields(value, ENVELOPE_FIELDS) ||
+    value.protocol_version !== 1 ||
+    value.reducer_version !== 1 ||
+    value.operation_id !== row.operation_id ||
+    value.owner_id !== ctx.ownerId ||
+    value.device_sequence !== row.device_sequence ||
+    typeof value.device_id !== "string" ||
+    !UUID_PATTERN.test(value.device_id) ||
+    !validateHlc(value.edit_time) ||
+    !Array.isArray(value.dependencies) ||
+    !Array.isArray(value.commands)
+  ) {
+    return false;
+  }
+  try {
+    validateOperationDraft({
+      operationId: value.operation_id,
+      ownerId: value.owner_id,
+      deviceId: value.device_id as string,
+      commands: value.commands,
+      dependencies: value.dependencies,
+      editTime: value.edit_time,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function integrityError(): StorageResult<never> {
+  return storageErr("integrity_failed", "Outbox entry failed integrity validation");
+}
+
 async function listOutboxOperations(
   db: IDBDatabase,
   ctx: OwnerAccessContext,
-  includeStatus: (status: OutboxEntry["status"]) => boolean
-): Promise<StorageResult<readonly OperationEnvelope[]>> {
-  const entries = await new Promise<StorageResult<OutboxEntry[]>>((resolve) => {
+  includeStatus: (status: OutboxStatus) => boolean
+): Promise<StorageResult<readonly OutboxReplayItem[]>> {
+  const entries = await new Promise<StorageResult<unknown[]>>((resolve) => {
     let customError: StorageError | null = null;
     try {
       const tx = db.transaction(
@@ -159,7 +312,7 @@ async function listOutboxOperations(
       const opReq = opStore.getAll(range);
 
       let metaChecked = false;
-      let rows: OutboxEntry[] = [];
+      let rows: unknown[] = [];
       let opsRead = false;
 
       const finishIfReady = () => {
@@ -190,7 +343,7 @@ async function listOutboxOperations(
       };
 
       opReq.onsuccess = () => {
-        rows = (opReq.result as OutboxEntry[]) ?? [];
+        rows = Array.isArray(opReq.result) ? opReq.result : [];
         opsRead = true;
         finishIfReady();
       };
@@ -250,9 +403,20 @@ async function listOutboxOperations(
     return entries;
   }
 
-  const visibleRows = entries.value.filter((row) => includeStatus(row.status));
+  if (!Array.isArray(entries.value)) {
+    return integrityError();
+  }
+  const validatedRows: OutboxEntry[] = [];
+  for (const row of entries.value) {
+    if (!isValidOutboxEntry(row, ctx)) {
+      return integrityError();
+    }
+    validatedRows.push(row);
+  }
 
-  const envelopes: OperationEnvelope[] = [];
+  const visibleRows = validatedRows.filter((row) => includeStatus(row.status));
+
+  const replayItems: OutboxReplayItem[] = [];
   for (const row of visibleRows) {
     const decRes = await decryptPayload<OperationEnvelope>(
       ctx.key,
@@ -264,7 +428,23 @@ async function listOutboxOperations(
     if (!decRes.ok) {
       return decRes;
     }
-    envelopes.push(decRes.value);
+    if (!isValidPersistedEnvelope(decRes.value, row, ctx)) {
+      return integrityError();
+    }
+    let computedHash: string;
+    try {
+      computedHash = (await computeCanonicalHash(decRes.value)).hash;
+    } catch {
+      return integrityError();
+    }
+    if (computedHash !== row.request_hash) {
+      return integrityError();
+    }
+    replayItems.push({
+      envelope: decRes.value,
+      status: row.status,
+      requestHash: row.request_hash,
+    });
   }
 
   // Revalidate after decryption; a concurrent close or upgrade stays typed.
@@ -273,23 +453,20 @@ async function listOutboxOperations(
     return accessRes;
   }
 
-  envelopes.sort((a, b) => {
-    try {
-      const diff = BigInt(a.device_sequence) - BigInt(b.device_sequence);
-      return diff < BigInt(0) ? -1 : diff > BigInt(0) ? 1 : 0;
-    } catch {
-      return a.device_sequence.localeCompare(b.device_sequence);
-    }
+  replayItems.sort((a, b) => {
+    const left = BigInt(a.envelope.device_sequence);
+    const right = BigInt(b.envelope.device_sequence);
+    return left < right ? -1 : left > right ? 1 : 0;
   });
 
-  return storageOk(envelopes);
+  return storageOk(replayItems);
 }
 
 export async function listSendableOperations(
   db: IDBDatabase,
   ctx: OwnerAccessContext
 ): Promise<StorageResult<readonly OperationEnvelope[]>> {
-  return listOutboxOperations(
+  const result = await listOutboxOperations(
     db,
     ctx,
     (status) =>
@@ -297,12 +474,14 @@ export async function listSendableOperations(
       status === "sending" ||
       status === "pending"
   );
+  if (!result.ok) return result;
+  return storageOk(result.value.map((item) => item.envelope));
 }
 
-export async function listOptimisticOperations(
+export async function listOutboxForReplay(
   db: IDBDatabase,
   ctx: OwnerAccessContext
-): Promise<StorageResult<readonly OperationEnvelope[]>> {
+): Promise<StorageResult<readonly OutboxReplayItem[]>> {
   return listOutboxOperations(
     db,
     ctx,

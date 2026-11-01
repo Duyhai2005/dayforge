@@ -3,7 +3,7 @@ import type { StorageResult } from "../lib/storage/errors";
 import { STORAGE_STORES } from "../lib/storage/schema";
 import { openDatabase, closeDatabase, type OpenDatabaseOptions } from "../lib/storage/db";
 import { createLocalStorageGateway as createProductionGateway, type LocalStorageGateway } from "../lib/storage/repositories";
-import { confirmPulledOperationInTx, getRecord, listOptimisticOperations, listSendableOperations, markOperationAcked } from "../lib/storage/repositories";
+import { confirmPulledOperationInTx, getRecord, listOutboxForReplay, listSendableOperations, markOperationAcked } from "../lib/storage/repositories";
 import { persistOperationAtomic, type PersistOperationInput, type PersistOperationResult } from "../lib/storage/unit-of-work";
 import type { OwnerAccessContext } from "../lib/storage/owner-gate";
 
@@ -17,7 +17,7 @@ export * from "../lib/storage/outbox";
 export * from "../lib/storage/view-preferences";
 export { type EncryptedRecord, createAad, encryptPayload, decryptPayload, importRawKey, storeCryptoKey, getCryptoKey, removeCryptoKey } from "../lib/storage/crypto";
 export { type ClockInputParams, type PersistOperationInput, type PersistOperationResult, type RecordOverlayInput, type DeviceMetadata } from "../lib/storage/unit-of-work";
-export { confirmPulledOperationInTx, getRecord, listOptimisticOperations, listSendableOperations, markOperationAcked, persistOperationAtomic };
+export { confirmPulledOperationInTx, getRecord, listOutboxForReplay, listSendableOperations, markOperationAcked, persistOperationAtomic };
 export type { LocalStorageGateway };
 
 export async function generateTestKey(): Promise<CryptoKey> {
