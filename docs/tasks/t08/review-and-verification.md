@@ -3,7 +3,7 @@
 **Cập nhật:** 01/11/2026
 **PR:** [#8 Implement persistent local storage engine with encrypted outbox](https://github.com/Duyhai2005/dayforge/pull/8) → `develop`
 **Nhánh:** `feature/local-persistent-storage` (worktree `codex/t08-integrity-api`)
-**CI trên head mới nhất:** [`49cddd4`](https://github.com/Duyhai2005/dayforge/commit/49cddd47edf34d750f4fb0c40e7ea630418288de), [run 41282435255](https://github.com/Duyhai2005/dayforge/actions/runs/41282435255) — `quality`, `frontend`, `backend-mysql` đang chạy.
+**CI đã xác minh trên revision:** [`9bcdd61`](https://github.com/Duyhai2005/dayforge/commit/9bcdd6117e6e343e88f589d9cd9d67af143c989f), [run 41282541331](https://github.com/Duyhai2005/dayforge/actions/runs/41282541331) — `quality`, `frontend`, `backend-mysql` đều xanh. Mã ứng dụng được triển khai ở `49cddd4`; revision `9bcdd61` đồng bộ handoff và tên regression test.
 **Mốc CI xanh gần nhất:** [`bc63108`](https://github.com/Duyhai2005/dayforge/commit/bc6310890f0c91dda3feef705e0f08bc2be3f6e7), [run 41277992819](https://github.com/Duyhai2005/dayforge/actions/runs/41277992819) — cả ba job xanh trên commit nền này.
 
 Phần bên dưới là trạng thái hiện tại của API và kiểm chứng. Các mục review cũ được giữ làm lịch sử; không dùng các API trong chúng làm hướng dẫn tích hợp.
@@ -20,7 +20,7 @@ Phần bên dưới là trạng thái hiện tại của API và kiểm chứng.
 
 ## 2. Quality gates đã quan sát
 
-Các kết quả frontend dưới đây thuộc mã sau N07–N10 và final review follow-up trên head `49cddd4`. CI link đầu trang áp dụng đúng head mới nhất.
+Các kết quả frontend dưới đây thuộc mã sau N07–N10 và final review follow-up trên revision `9bcdd61`. CI link đầu trang xác nhận revision này.
 
 | Gate | Lệnh | Kết quả |
 |---|---|---|
@@ -29,7 +29,7 @@ Các kết quả frontend dưới đây thuộc mã sau N07–N10 và final revi
 | Dev browser suite | `pnpm --filter @dayforge/frontend exec playwright test --workers=4` | PASS, 141/141 |
 | Production build | `pnpm build:web` | PASS, optimized Next.js build |
 | Production browser suite | `pnpm test:web:prod` | PASS, 141/141 |
-| Backend local gates | `pnpm verify:fast` | Chưa chạy: thiếu `uv`; CI trên head mới nhất đang chạy |
+| Backend local gates | `pnpm verify:fast` | Chưa chạy: thiếu `uv`; CI trên revision `9bcdd61` đều xanh |
 
 `pnpm test:web` và `pnpm test:web:prod` trong các mục lịch sử phía dưới là số liệu tại thời điểm cũ, không phải số hiện tại.
 
@@ -428,7 +428,7 @@ Bản ghi cũ nhắc tới `markOperationSynced()` như API tạm thời. API pr
 ## 15. PR #8 follow-up hiện tại — R01–R05, N07–N10 và M07
 
 **Cập nhật:** 01/11/2026
-**Head đã push:** `49cddd4`, dựa trên `bc63108`. Run 41282435255 đang xác minh head này.
+**Head đã xác minh:** `9bcdd61`, dựa trên `bc63108`. Run 41282541331 xanh cả ba job. Code implementation nằm ở commit `49cddd4`.
 
 - **R01–R04:** input persist được snapshot trước validate/hash/encrypt; sequence metadata lỗi fail-closed; HLC validation strict và quality không còn mặc định; close trong lúc read trả lỗi typed.
 - **N07:** `listOutboxForReplay(ctx)` trả `{ envelope, status, requestHash }`; ACK-waiting tiếp tục replay-visible nhưng không sendable.
@@ -447,5 +447,5 @@ Bản ghi cũ nhắc tới `markOperationSynced()` như API tạm thời. API pr
 | Dev Playwright suite (`--workers=4`) | PASS, 141/141 |
 | `pnpm build:web` | PASS, optimized Next.js build |
 | Production Playwright suite (`pnpm test:web:prod`) | PASS, 141/141 |
-| Backend `pnpm verify:fast` | Chưa chạy tại local vì thiếu `uv`; CI trên head `49cddd4` đang chạy |
+| Backend `pnpm verify:fast` | Chưa chạy tại local vì thiếu `uv`; CI trên revision `9bcdd61` xanh |
 
