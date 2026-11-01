@@ -70,9 +70,7 @@ def test_upgrade_from_empty_and_repeat_upgrade(migrated):
         "operation_receipts",
         "change_log",
     }
-    assert asyncio.run(query(migrated, "SELECT version_num FROM alembic_version")) == [
-        ("0004_sync",)
-    ]
+    assert asyncio.run(query(migrated, "SELECT version_num FROM alembic_version")) == [("0004_sync",)]
     assert "0004_sync" in alembic("current")
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM users")) == [(0,)]
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM workspace_settings")) == [(0,)]

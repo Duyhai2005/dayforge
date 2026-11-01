@@ -45,9 +45,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["owner_id"], ["users.id"], name="fk_recorded_operations_owner_id_users", ondelete="RESTRICT"
         ),
-        sa.UniqueConstraint(
-            "owner_id", "epoch", "commit_cursor", name="uq_recorded_operations_epoch_cursor"
-        ),
+        sa.UniqueConstraint("owner_id", "epoch", "commit_cursor", name="uq_recorded_operations_epoch_cursor"),
         sa.UniqueConstraint(
             "owner_id",
             "operation_id",
@@ -55,12 +53,8 @@ def upgrade() -> None:
             "commit_cursor",
             name="uq_recorded_operations_receipt_target",
         ),
-        sa.CheckConstraint(
-            "protocol_version > 0", name=op.f("ck_recorded_operations_protocol_version_positive")
-        ),
-        sa.CheckConstraint(
-            "reducer_version > 0", name=op.f("ck_recorded_operations_reducer_version_positive")
-        ),
+        sa.CheckConstraint("protocol_version > 0", name=op.f("ck_recorded_operations_protocol_version_positive")),
+        sa.CheckConstraint("reducer_version > 0", name=op.f("ck_recorded_operations_reducer_version_positive")),
         sa.CheckConstraint("commit_cursor > 0", name=op.f("ck_recorded_operations_commit_cursor_positive")),
         sa.CheckConstraint("physical_ms >= 0", name=op.f("ck_recorded_operations_physical_ms_nonnegative")),
         sa.CheckConstraint("logical_clock >= 0", name=op.f("ck_recorded_operations_logical_clock_nonnegative")),
