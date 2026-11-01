@@ -11,9 +11,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 from pydantic import Field
 
 with warnings.catch_warnings():
-    warnings.filterwarnings(
-        "ignore", message="Using `httpx` with `starlette.testclient` is deprecated.*"
-    )
+    warnings.filterwarnings("ignore", message="Using `httpx` with `starlette.testclient` is deprecated.*")
     from fastapi.testclient import TestClient
 
 from app.core.errors import ProblemHTTPException
@@ -65,9 +63,7 @@ def error_app(settings_factory):
 
     @application.get("/api/v1/_test/rate")
     async def rate():
-        raise ProblemHTTPException(
-            status_code=429, code="rate_limited", retry_after_seconds=7
-        )
+        raise ProblemHTTPException(status_code=429, code="rate_limited", retry_after_seconds=7)
 
     @application.get("/api/v1/_test/http-rate")
     async def http_rate(delay: str = "7"):
@@ -111,9 +107,7 @@ def error_client(error_app):
 
 def _validate_problem(response):
     schema = json.loads(
-        (
-            Path(__file__).resolve().parents[3] / "docs/tasks/t03/contract.schema.json"
-        ).read_text(encoding="utf-8")
+        (Path(__file__).resolve().parents[3] / "docs/tasks/t03/contract.schema.json").read_text(encoding="utf-8")
     )
     Draft202012Validator(
         {"$ref": "#/$defs/Problem", "$defs": schema["$defs"]},
@@ -132,20 +126,14 @@ def _validate_problem(response):
 
 
 def _events(capsys):
-    return [
-        json.loads(line)
-        for line in capsys.readouterr().out.splitlines()
-        if line.strip()
-    ]
+    return [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
 
 
 def test_validation_problem_matches_t03_schema(error_client):
     response = error_client.post(
         "/api/v1/_test/validation",
         json={
-            "items": [
-                {"known/~field": "test-only-invalid-value", "test-only-nested-key": 1}
-            ],
+            "items": [{"known/~field": "test-only-invalid-value", "test-only-nested-key": 1}],
             "password": "test-only-password",
             "note": "test-only-note",
             "test-only-private-key": 1,
@@ -175,9 +163,7 @@ def test_validation_problem_matches_t03_schema(error_client):
 
 
 def test_query_and_path_validation_pointers(error_client):
-    response = error_client.get(
-        "/api/v1/_test/items/test-only-id?limit=test-only-limit"
-    )
+    response = error_client.get("/api/v1/_test/items/test-only-id?limit=test-only-limit")
     body = _validate_problem(response)
     assert {entry["path"] for entry in body["field_errors"]} == {
         "/path/item_id",
@@ -236,9 +222,7 @@ def test_http_rate_limit_preserves_validated_retry_delay(error_client):
         pytest.param("9" * 5000, id="oversized"),
     ],
 )
-def test_http_rate_limit_rejects_invalid_retry_delay(
-    error_client, caplog, capsys, delay
-):
+def test_http_rate_limit_rejects_invalid_retry_delay(error_client, caplog, capsys, delay):
     response = error_client.get("/api/v1/_test/http-rate", params={"delay": delay})
     body = _validate_problem(response)
     assert response.status_code == 429
@@ -257,9 +241,7 @@ def test_flattened_query_model_preserves_declared_field_pointer(error_client):
     assert body["field_errors"] == [{"path": "/query/limit", "code": "invalid_type"}]
 
 
-def test_union_validation_skips_only_declared_branch_labels(
-    error_client, caplog, capsys
-):
+def test_union_validation_skips_only_declared_branch_labels(error_client, caplog, capsys):
     response = error_client.post(
         "/api/v1/_test/union",
         json={
@@ -282,12 +264,8 @@ def test_union_validation_skips_only_declared_branch_labels(
 
 
 @pytest.mark.parametrize("raise_server_exceptions", [False, True])
-def test_unexpected_error_returns_sanitized_problem(
-    error_app, caplog, capsys, raise_server_exceptions
-):
-    with TestClient(
-        error_app, raise_server_exceptions=raise_server_exceptions
-    ) as client:
+def test_unexpected_error_returns_sanitized_problem(error_app, caplog, capsys, raise_server_exceptions):
+    with TestClient(error_app, raise_server_exceptions=raise_server_exceptions) as client:
         response = client.get("/api/v1/_test/crash?token=test-only-query")
     body = _validate_problem(response)
     assert response.status_code == 500
@@ -298,9 +276,7 @@ def test_unexpected_error_returns_sanitized_problem(
     assert "test-only-query" not in response.text + logs
 
 
-def test_response_validation_error_and_http_detail_are_sanitized(
-    error_client, caplog, capsys
-):
+def test_response_validation_error_and_http_detail_are_sanitized(error_client, caplog, capsys):
     invalid = error_client.get("/api/v1/_test/bad-response")
     assert invalid.status_code == 500
     assert _validate_problem(invalid)["code"] == "internal_error"
@@ -314,9 +290,7 @@ def test_response_validation_error_and_http_detail_are_sanitized(
 
 def test_request_id_cannot_be_injected(error_client):
     supplied = "11111111-1111-4111-8111-111111111111"
-    response = error_client.get(
-        "/api/v1/_test/unavailable", headers={"X-Request-ID": supplied}
-    )
+    response = error_client.get("/api/v1/_test/unavailable", headers={"X-Request-ID": supplied})
     body = _validate_problem(response)
     assert body["request_id"] != supplied
 
@@ -390,9 +364,7 @@ def test_started_response_is_not_replaced_and_context_resets(capsys):
     async def downstream(scope, receive, send):
         assert request_id_context.get() == scope["state"]["request_id"]
         await send({"type": "http.response.start", "status": 200, "headers": []})
-        await send(
-            {"type": "http.response.body", "body": b"partial", "more_body": True}
-        )
+        await send({"type": "http.response.body", "body": b"partial", "more_body": True})
         raise RuntimeError("test-only-stream-secret")
 
     async def check():
@@ -410,16 +382,7 @@ def test_started_response_is_not_replaced_and_context_resets(capsys):
             receive,
             send,
         )
-        assert (
-            len(
-                [
-                    message
-                    for message in sent
-                    if message["type"] == "http.response.start"
-                ]
-            )
-            == 1
-        )
+        assert len([message for message in sent if message["type"] == "http.response.start"]) == 1
         assert sent[0]["status"] == 200
         assert request_id_context.get() is None
 
@@ -431,7 +394,4 @@ def test_started_response_is_not_replaced_and_context_resets(capsys):
 
 
 def test_production_app_has_no_probe_routes(settings_factory):
-    assert not any(
-        "_test" in getattr(route, "path", "")
-        for route in create_app(settings_factory()).routes
-    )
+    assert not any("_test" in getattr(route, "path", "") for route in create_app(settings_factory()).routes)

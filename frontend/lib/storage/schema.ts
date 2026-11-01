@@ -2,7 +2,7 @@ import { StorageError } from "./errors";
 import { executeMigrations } from "./migration";
 
 export const DB_NAME = "dayforge";
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 export const STORAGE_STORES = {
   owner_meta: "owner_meta",
@@ -13,6 +13,8 @@ export const STORAGE_STORES = {
   sync_meta: "sync_meta",
   view_preferences: "view_preferences",
   drafts: "drafts",
+  auth_state: "auth_state",
+
 } as const;
 
 export type StorageStoreName = (typeof STORAGE_STORES)[keyof typeof STORAGE_STORES];

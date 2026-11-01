@@ -1,4 +1,5 @@
 import asyncio
+import base64
 
 import pytest
 from pydantic import ValidationError
@@ -67,13 +68,9 @@ def test_development_origin_must_match_local_https(settings_factory):
         settings_factory(app_env="development", public_origin="https://example.com")
 
 
-@pytest.mark.parametrize(
-    "field", ["db_host", "db_name", "db_user", "db_password", "public_origin"]
-)
+@pytest.mark.parametrize("field", ["db_host", "db_name", "db_user", "db_password", "public_origin"])
 @pytest.mark.parametrize("value", ["", "   ", "__GENERATE_SECRET__"])
-def test_required_values_reject_empty_or_generation_markers(
-    settings_factory, field, value
-):
+def test_required_values_reject_empty_or_generation_markers(settings_factory, field, value):
     with pytest.raises(SettingsError):
         settings_factory(**{field: value})
 
@@ -107,8 +104,62 @@ def test_unrelated_environment_variables_are_ignored():
             "DB_NAME": "dayforge_t05_test",
             "DB_USER": "dayforge_test",
             "DB_PASSWORD": "test-only-password",
+            "OWNER_EMAIL": "owner@example.test",
+            "LOCAL_KEY_KEK_B64": "A" * 43,
+            "LOCAL_KEY_KEK_VERSION": "1",
+            "LOGOUT_TICKET_KEY_B64": "A" * 43,
+            "AUTH_RATE_LIMIT_KEY_B64": "A" * 43,
+            "AUTH_EMAIL_OUTBOX_KEY_B64": "A" * 43,
+            "EMAIL_SMTP_HOST": "127.0.0.1",
+            "EMAIL_SMTP_PORT": "1025",
+            "EMAIL_FROM": "dayforge@example.test",
             "UNKNOWN_OPTION": "unrelated-process-value",
         }
     )
     assert settings.app_env == "test"
     assert not hasattr(settings, "unknown_option")
+
+
+def test_auth_secret_keys_decode_to_32_bytes_and_remain_hidden(settings_factory):
+    settings = settings_factory()
+    for field in (
+        "local_key_kek_b64",
+        "logout_ticket_key_b64",
+        "auth_rate_limit_key_b64",
+        "auth_email_outbox_key_b64",
+    ):
+        assert len(settings.secret_key(field)) == 32
+    assert settings.local_key_kek_b64.get_secret_value() not in repr(settings)
+
+
+def test_logout_ticket_previous_keys_are_optional_and_available_for_verification(
+    settings_factory,
+):
+    def encode(raw):
+        return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+    current = bytes([4]) * 32
+    previous = bytes([5]) * 32
+    settings = settings_factory(
+        logout_ticket_key_b64=encode(current),
+        logout_ticket_previous_keys_b64=f"{encode(previous)}",
+    )
+
+    assert settings.logout_ticket_verification_keys() == [current, previous]
+    assert settings_factory().logout_ticket_previous_keys_b64 is None
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("local_key_kek_b64", "too-short"),
+        ("logout_ticket_key_b64", "!" * 43),
+        ("auth_rate_limit_key_b64", "A" * 42),
+        ("auth_email_outbox_key_b64", "__GENERATE_OUTBOX_KEY__"),
+    ],
+)
+def test_auth_secret_keys_reject_malformed_values_without_echo(settings_factory, field, value):
+    with pytest.raises(SettingsError) as caught:
+        settings_factory(**{field: value})
+    assert field.upper() in str(caught.value)
+    assert value not in str(caught.value)

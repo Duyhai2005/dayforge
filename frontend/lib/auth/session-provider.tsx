@@ -1,0 +1,480 @@
+"use client";
+
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  AuthApiError,
+  AuthRequestCancelled,
+  authErrorText,
+  getLocalKey,
+  getSession,
+  importLocalKey,
+  postAuth,
+  type AcceptedEmailRequest,
+  type SessionView,
+} from "../services/auth";
+import {
+  clearActiveOwnerContext,
+  broadcastOwnerLocked,
+  getActiveOwnerContext,
+  listenForRemoteOwnerLock,
+  notifyOwnerLockLocally,
+  publishOwnerLocked,
+  setActiveOwnerContext,
+  subscribeOwnerLock,
+  type OwnerLockNotice,
+} from "./device-auth-state";
+import {
+  countOwnerChanges,
+  ensureQueuedLogoutOwnersLocked,
+  removePendingLogoutTicket,
+  queueLogoutAndLockOwner,
+  type OwnerChangeSummary,
+  type PendingLogoutRecovery,
+} from "../storage/auth-state";
+import { openDatabase } from "../storage/db";
+import { restoreUnlockedOwnerContext, lockOwner, unlockOwner, type OwnerAccessContext } from "../storage/owner-gate";
+
+export type EmailRequestAction = "register" | "verification/resend" | "password/forgot";
+
+export type AuthSessionContextValue = Readonly<{
+  loading: boolean;
+  session: SessionView | null;
+  ownerUnlocked: boolean;
+  notice: string;
+  error: string;
+  login(email: string, password: string, rememberMe: boolean): Promise<void>;
+  requestEmail(action: EmailRequestAction, email: string): Promise<AcceptedEmailRequest>;
+  refreshSession(): Promise<void>;
+  inspectPendingChanges(): Promise<OwnerChangeSummary>;
+  logout(): Promise<void>;
+  clearMessages(): void;
+}>;
+
+const AuthSessionContext = createContext<AuthSessionContextValue | null>(null);
+
+async function openOrThrow(): Promise<IDBDatabase> {
+  const result = await openDatabase();
+  if (!result.ok) throw result.error;
+  return result.value;
+}
+
+type LogoutRetryResult = { remaining: number; revoked: number; lockedOwnerIds: readonly string[] };
+let logoutRetryInFlight: Promise<LogoutRetryResult> | null = null;
+
+function notifyRecoveredOwnerLocks(recovery: PendingLogoutRecovery): void {
+  for (const ownerId of recovery.lockedOwnerIds) {
+    clearActiveOwnerContext(ownerId);
+    notifyOwnerLockLocally(ownerId, "recovery");
+  }
+  for (const ownerId of recovery.newlyLockedOwnerIds) {
+    broadcastOwnerLocked(ownerId);
+  }
+}
+
+function retryQueuedLogouts(
+  db: IDBDatabase,
+  session: SessionView,
+  knownLockedOwnerIds: readonly string[] = []
+): Promise<LogoutRetryResult> {
+  if (logoutRetryInFlight) return logoutRetryInFlight;
+  const retry = (async (): Promise<LogoutRetryResult> => {
+    const recovery = await ensureQueuedLogoutOwnersLocked(db);
+    if (!recovery.ok) return { remaining: 1, revoked: 0, lockedOwnerIds: [] };
+    notifyRecoveredOwnerLocks(recovery.value);
+    let revoked = 0;
+    let remaining = 0;
+    for (const item of recovery.value.tickets) {
+      try {
+        await postAuth<void>("logout", { logout_ticket: item.ticket }, session.csrf_token);
+        const removed = await removePendingLogoutTicket(db, item.key);
+        if (removed.ok) revoked += 1;
+        else remaining += 1;
+      } catch {
+        remaining += 1;
+      }
+    }
+    return {
+      remaining,
+      revoked,
+      lockedOwnerIds: recovery.value.lockedOwnerIds.filter(ownerId => !knownLockedOwnerIds.includes(ownerId)),
+    };
+  })();
+  logoutRetryInFlight = retry;
+  const clear = () => {
+    if (logoutRetryInFlight === retry) logoutRetryInFlight = null;
+  };
+  void retry.then(clear, clear);
+  return retry;
+}
+
+export function AuthSessionProvider({ children }: Readonly<{ children: ReactNode }>): React.JSX.Element {
+  const [loading, setLoading] = useState(true);
+  const [session, setSession] = useState<SessionView | null>(null);
+  const [ownerAccess, setOwnerAccess] = useState<OwnerAccessContext | null>(null);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const dbRef = useRef<IDBDatabase | null>(null);
+  const sessionRef = useRef<SessionView | null>(null);
+  const ownerAccessRef = useRef<OwnerAccessContext | null>(null);
+  const loginAttemptRef = useRef(0);
+  const recoveringLoginAttemptRef = useRef<number | null>(null);
+
+  const updateSession = useCallback((value: SessionView | null) => {
+    sessionRef.current = value;
+    setSession(value);
+  }, []);
+
+  const updateOwnerAccess = useCallback((value: OwnerAccessContext | null) => {
+    ownerAccessRef.current = value;
+    setOwnerAccess(value);
+    setActiveOwnerContext(value);
+  }, []);
+
+  const applyRecoveredOwnerLocks = useCallback((ownerIds: readonly string[]) => {
+    for (const ownerId of ownerIds) {
+      clearActiveOwnerContext(ownerId);
+    }
+    if (ownerAccessRef.current && ownerIds.includes(ownerAccessRef.current.ownerId)) {
+      updateOwnerAccess(null);
+    }
+  }, [updateOwnerAccess]);
+
+  const ensureDatabase = useCallback(async (): Promise<IDBDatabase> => {
+    if (dbRef.current) return dbRef.current;
+    const db = await openOrThrow();
+    dbRef.current = db;
+    return db;
+  }, []);
+
+  const refreshSession = useCallback(async (): Promise<void> => {
+    const previous = sessionRef.current;
+    try {
+      let next = await getSession();
+      const db = dbRef.current;
+      if (db) {
+        const retried = await retryQueuedLogouts(db, next);
+        applyRecoveredOwnerLocks(retried.lockedOwnerIds);
+        if (retried.revoked > 0) next = await getSession();
+        if (retried.remaining > 0) {
+          setNotice("Có yêu cầu đăng xuất đang chờ kết nối để thu hồi phiên.");
+        } else if (retried.revoked > 0) {
+          setNotice("Phiên đăng xuất đang chờ đã được thu hồi trên máy chủ.");
+        }
+      }
+      updateSession(next);
+      if (previous?.authenticated && !next.authenticated) {
+        setNotice("Phiên đã hết hạn. Dữ liệu cục bộ vẫn mở khóa.");
+      }
+      setError("");
+    } catch (caught) {
+      setError(authErrorText(caught));
+    }
+  }, [applyRecoveredOwnerLocks, updateSession]);
+
+  useEffect(() => {
+    let active = true;
+    const handleLocalLock = (noticeValue: OwnerLockNotice) => {
+      const preparingLogin = noticeValue.source === "recovery" &&
+        recoveringLoginAttemptRef.current === loginAttemptRef.current;
+      if (!preparingLogin) {
+        loginAttemptRef.current += 1;
+      }
+      if (ownerAccessRef.current?.ownerId === noticeValue.ownerId) {
+        updateOwnerAccess(null);
+      }
+    };
+    const handleRemoteLock = (noticeValue: { ownerId: string }) => {
+      loginAttemptRef.current += 1;
+      void (async () => {
+        let db = dbRef.current;
+        if (!db) {
+          try {
+            db = await ensureDatabase();
+          } catch {
+            clearActiveOwnerContext(noticeValue.ownerId);
+            if (ownerAccessRef.current?.ownerId === noticeValue.ownerId) updateOwnerAccess(null);
+            return;
+          }
+        }
+        await lockOwner(db, noticeValue.ownerId);
+        clearActiveOwnerContext(noticeValue.ownerId);
+        if (ownerAccessRef.current?.ownerId === noticeValue.ownerId) updateOwnerAccess(null);
+      })();
+    };
+    const removeLocalLock = subscribeOwnerLock(handleLocalLock);
+    const removeRemoteLock = listenForRemoteOwnerLock(handleRemoteLock);
+    const initialize = async () => {
+      let db: IDBDatabase | null = null;
+      try {
+        db = await ensureDatabase();
+      } catch {
+        // Local storage may be unavailable while the account API still works.
+      }
+      let queuedLogoutCount: number | null = null;
+      let recoverySucceeded = db === null;
+      let recoveredOwnerIds: readonly string[] = [];
+      if (db) {
+        const recovery = await ensureQueuedLogoutOwnersLocked(db);
+        if (recovery.ok) {
+          recoverySucceeded = true;
+          queuedLogoutCount = recovery.value.tickets.length;
+          recoveredOwnerIds = recovery.value.lockedOwnerIds;
+          notifyRecoveredOwnerLocks(recovery.value);
+          applyRecoveredOwnerLocks(recoveredOwnerIds);
+        } else {
+          setNotice("Không thể kiểm tra yêu cầu đăng xuất đang chờ.");
+        }
+      }
+      let initial: SessionView | null = null;
+      try {
+        initial = await getSession();
+        if (db && recoverySucceeded) {
+          const retried = await retryQueuedLogouts(db, initial, recoveredOwnerIds);
+          applyRecoveredOwnerLocks(retried.lockedOwnerIds);
+          if (retried.revoked > 0) initial = await getSession();
+          if (retried.remaining > 0) {
+            setNotice("Có yêu cầu đăng xuất đang chờ kết nối để thu hồi phiên.");
+          }
+        }
+        if (!active) return;
+        updateSession(initial);
+        setError("");
+      } catch (caught) {
+        if (!active) return;
+        setError(authErrorText(caught));
+      }
+      if (!active) return;
+      if (db && recoverySucceeded && queuedLogoutCount === 0) {
+        const restored = await restoreUnlockedOwnerContext(db);
+        if (!active) return;
+        if (
+          restored.ok && restored.value &&
+          (!initial?.authenticated || initial.owner?.id === restored.value.ownerId)
+        ) {
+          updateOwnerAccess(restored.value);
+          if (!initial?.authenticated) setNotice("Dữ liệu cục bộ đã mở khóa.");
+        } else {
+          const rememberedContext = getActiveOwnerContext();
+          if (rememberedContext) clearActiveOwnerContext(rememberedContext.ownerId);
+          updateOwnerAccess(null);
+        }
+      } else {
+        const rememberedContext = getActiveOwnerContext();
+        if (rememberedContext) clearActiveOwnerContext(rememberedContext.ownerId);
+        updateOwnerAccess(null);
+      }
+      if (active) setLoading(false);
+    };
+    void initialize();
+    const onFocus = () => void refreshSession();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void refreshSession();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      active = false;
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      removeLocalLock();
+      removeRemoteLock();
+      if (dbRef.current) {
+        dbRef.current.close();
+        dbRef.current = null;
+      }
+    };
+  }, [applyRecoveredOwnerLocks, ensureDatabase, refreshSession, updateOwnerAccess, updateSession]);
+
+  const clearMessages = useCallback(() => {
+    setNotice("");
+    setError("");
+  }, []);
+
+  const requestEmail = useCallback(async (
+    action: EmailRequestAction,
+    email: string
+  ): Promise<AcceptedEmailRequest> => {
+    const attempt = ++loginAttemptRef.current;
+    const isCurrentAttempt = () => loginAttemptRef.current === attempt;
+    setError("");
+    const current = sessionRef.current;
+    const response = await postAuth<AcceptedEmailRequest>(action, { email }, current?.csrf_token, {
+      isCurrent: isCurrentAttempt,
+      onSessionRefresh: refreshed => {
+        if (isCurrentAttempt()) updateSession(refreshed);
+      },
+    });
+    if (!isCurrentAttempt()) throw new AuthRequestCancelled();
+    setNotice("Nếu email phù hợp, hệ thống sẽ gửi hướng dẫn.");
+    return response;
+  }, [updateSession]);
+
+  const login = useCallback(async (
+    email: string,
+    password: string,
+    rememberMe: boolean
+  ): Promise<void> => {
+    const recoveryAttempt = ++loginAttemptRef.current;
+    recoveringLoginAttemptRef.current = recoveryAttempt;
+    const isCurrentRecovery = () => loginAttemptRef.current === recoveryAttempt;
+    setError("");
+    setNotice("");
+    let current: SessionView;
+    let db: IDBDatabase;
+    let retry: LogoutRetryResult;
+    try {
+      current = sessionRef.current ?? await getSession();
+      if (!isCurrentRecovery()) return;
+      db = await ensureDatabase();
+      if (!isCurrentRecovery()) return;
+      retry = await retryQueuedLogouts(db, current);
+      if (!isCurrentRecovery()) return;
+      applyRecoveredOwnerLocks(retry.lockedOwnerIds);
+    } finally {
+      if (recoveringLoginAttemptRef.current === recoveryAttempt) {
+        recoveringLoginAttemptRef.current = null;
+      }
+    }
+    // The new password attempt starts only after pending logout recovery.
+    const attempt = ++loginAttemptRef.current;
+    const isCurrentAttempt = () => loginAttemptRef.current === attempt;
+    if (retry.remaining > 0) {
+      throw new AuthApiError(503, "service_unavailable");
+    }
+    if (retry.revoked > 0) current = await getSession();
+    if (!isCurrentAttempt()) return;
+    let authenticated: SessionView;
+    try {
+      authenticated = await postAuth<SessionView>(
+        "login",
+        { email, password, remember_me: rememberMe },
+        current.csrf_token,
+        {
+          isCurrent: isCurrentAttempt,
+          onSessionRefresh: refreshed => {
+            if (isCurrentAttempt()) updateSession(refreshed);
+          },
+        }
+      );
+    } catch (caught) {
+      if (caught instanceof AuthRequestCancelled && !isCurrentAttempt()) return;
+      throw caught;
+    }
+    if (!isCurrentAttempt()) return;
+    updateSession(authenticated);
+    if (!authenticated.owner) throw new AuthApiError(503, "service_unavailable");
+    const localKey = await getLocalKey();
+    if (!isCurrentAttempt()) return;
+    if (localKey.owner_id !== authenticated.owner.id) {
+      throw new AuthApiError(503, "service_unavailable");
+    }
+    const imported = await importLocalKey(localKey.key_base64url);
+    if (!isCurrentAttempt()) return;
+    if (!imported.ok) throw imported.error;
+    const unlocked = await unlockOwner(
+      db,
+      localKey.owner_id,
+      localKey.key_id,
+      imported.value
+    );
+    if (!isCurrentAttempt()) {
+      const relocked = await lockOwner(db, localKey.owner_id);
+      if (!relocked.ok) throw relocked.error;
+      clearActiveOwnerContext(localKey.owner_id);
+      return;
+    }
+    if (!unlocked.ok) throw unlocked.error;
+    updateOwnerAccess(unlocked.value);
+    setNotice("Dữ liệu cục bộ đã mở khóa.");
+  }, [applyRecoveredOwnerLocks, ensureDatabase, updateOwnerAccess, updateSession]);
+
+  const inspectPendingChanges = useCallback(async (): Promise<OwnerChangeSummary> => {
+    const current = sessionRef.current;
+    const ownerAccess = ownerAccessRef.current;
+    const ownerId = ownerAccess?.ownerId ?? current?.owner?.id;
+    if (!ownerId) return { pendingOperations: 0, drafts: 0 };
+    const db = await ensureDatabase();
+    const result = await countOwnerChanges(
+      db,
+      ownerAccess?.ownerId === ownerId ? ownerAccess : null,
+      ownerId
+    );
+    if (!result.ok) throw result.error;
+    return result.value;
+  }, [ensureDatabase]);
+
+  const logout = useCallback(async (): Promise<void> => {
+    loginAttemptRef.current += 1;
+    const current = sessionRef.current;
+    const localOwnerId = ownerAccessRef.current?.ownerId;
+    const liveSession = current?.authenticated && current.owner ? current : null;
+    const ownerId = localOwnerId ?? liveSession?.owner?.id;
+    if (!ownerId) return;
+    setError("");
+    const db = await ensureDatabase();
+    const pending = liveSession?.owner?.id === ownerId && liveSession.logout_ticket && liveSession.session
+      ? { sessionId: liveSession.session.id, ticket: liveSession.logout_ticket }
+      : null;
+    const queuedAndLocked = await queueLogoutAndLockOwner(db, ownerId, pending);
+    const ticketStored = queuedAndLocked.ok && pending !== null;
+    if (!queuedAndLocked.ok) {
+      const fallbackLock = await lockOwner(db, ownerId);
+      if (!fallbackLock.ok) throw fallbackLock.error;
+    }
+    clearActiveOwnerContext(ownerId);
+    updateOwnerAccess(null);
+    publishOwnerLocked(ownerId);
+    if (!liveSession) {
+      setNotice("Đã khóa dữ liệu cục bộ.");
+      return;
+    }
+    try {
+      await postAuth<void>(
+        "logout",
+        liveSession.logout_ticket ? { logout_ticket: liveSession.logout_ticket } : {},
+        liveSession.csrf_token
+      );
+      if (ticketStored && liveSession.session) {
+        await removePendingLogoutTicket(db, `logout:${liveSession.session.id}`);
+      }
+      const fresh = await getSession();
+      updateSession(fresh);
+      setNotice("Đã đăng xuất và khóa dữ liệu cục bộ.");
+    } catch {
+      setNotice(ticketStored
+        ? "Dữ liệu cục bộ đã khóa; phiên chưa thu hồi trên máy chủ. Yêu cầu đã được lưu để thử lại."
+        : "Dữ liệu cục bộ đã khóa; không thể thu hồi phiên và không lưu được yêu cầu thử lại.");
+    }
+  }, [ensureDatabase, updateOwnerAccess, updateSession]);
+
+  const value = useMemo<AuthSessionContextValue>(() => ({
+    loading,
+    session,
+    ownerUnlocked: ownerAccess !== null,
+    notice,
+    error,
+    login,
+    requestEmail,
+    refreshSession,
+    inspectPendingChanges,
+    logout,
+    clearMessages,
+  }), [loading, session, ownerAccess, notice, error, login, requestEmail, refreshSession, inspectPendingChanges, logout, clearMessages]);
+
+  return <AuthSessionContext.Provider value={value}>{children}</AuthSessionContext.Provider>;
+}
+
+export function useAuthSession(): AuthSessionContextValue {
+  const value = useContext(AuthSessionContext);
+  if (!value) throw new Error("useAuthSession must be used inside AuthSessionProvider");
+  return value;
+}

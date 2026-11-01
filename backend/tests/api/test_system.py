@@ -6,9 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from app.main import create_app
 
 
-def test_version_matches_contract_without_database(
-    system_client, contract_validator, monkeypatch
-):
+def test_version_matches_contract_without_database(system_client, contract_validator, monkeypatch):
     def unexpected_connection(*args, **kwargs):
         raise AssertionError("version must not contact the database")
 
@@ -65,12 +63,36 @@ def test_health_unavailable_is_problem(system_client, contract_validator, monkey
 def test_development_openapi_contains_valid_system_routes(system_client):
     response = system_client.get("/api/v1/openapi.json")
     assert response.status_code == 200
-    assert set(response.json()["paths"]) == {"/api/v1/health", "/api/v1/version"}
+    assert set(response.json()["paths"]) == {
+        "/api/v1/health",
+        "/api/v1/version",
+        "/api/v1/auth/session",
+        "/api/v1/auth/logout",
+        "/api/v1/auth/register",
+        "/api/v1/auth/verification/resend",
+        "/api/v1/auth/verification/confirm",
+        "/api/v1/auth/login",
+        "/api/v1/auth/password/forgot",
+        "/api/v1/auth/password/reset",
+        "/api/v1/auth/local-key",
+    }
 
 
-def test_production_hides_openapi(settings_factory):
+def test_production_hides_openapi(settings_factory, monkeypatch):
+    import asyncio
     import warnings
 
+    import app.main as main
+
+    async def validate_owner_email_binding(*args, **kwargs):
+        return None
+
+    async def wait_for_shutdown(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(main, "validate_owner_email_binding", validate_owner_email_binding)
+    monkeypatch.setattr(main, "run_delivery_worker", wait_for_shutdown)
+    monkeypatch.setattr(main, "run_auth_maintenance", wait_for_shutdown)
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore",
@@ -96,18 +118,14 @@ def test_required_revision_is_discovered_from_packaged_scripts():
 
 
 @pytest.mark.parametrize("revisions", [[], ["first", "second"], None])
-def test_invalid_packaged_schema_is_a_sanitized_configuration_error(
-    tmp_path, monkeypatch, revisions
-):
+def test_invalid_packaged_schema_is_a_sanitized_configuration_error(tmp_path, monkeypatch, revisions):
     from app.services import readiness
 
     config = tmp_path / "alembic.ini"
     if revisions is not None:
         versions = tmp_path / "migrations" / "versions"
         versions.mkdir(parents=True)
-        config.write_text(
-            "[alembic]\nscript_location = " + str(versions.parent), encoding="utf-8"
-        )
+        config.write_text("[alembic]\nscript_location = " + str(versions.parent), encoding="utf-8")
         for revision in revisions:
             (versions / (revision + ".py")).write_text(
                 f"revision = '{revision}'\ndown_revision = None\n", encoding="utf-8"
@@ -122,13 +140,9 @@ def test_required_revision_is_not_hardcoded(tmp_path, monkeypatch):
 
     versions = tmp_path / "migrations" / "versions"
     versions.mkdir(parents=True)
-    (versions / "future.py").write_text(
-        "revision = 'future_head'\ndown_revision = None\n", encoding="utf-8"
-    )
+    (versions / "future.py").write_text("revision = 'future_head'\ndown_revision = None\n", encoding="utf-8")
     config = tmp_path / "alembic.ini"
-    config.write_text(
-        "[alembic]\nscript_location = " + str(versions.parent), encoding="utf-8"
-    )
+    config.write_text("[alembic]\nscript_location = " + str(versions.parent), encoding="utf-8")
     monkeypatch.setattr(readiness, "ALEMBIC_CONFIG", config)
     assert readiness.required_schema_revision() == "future_head"
 
@@ -149,14 +163,8 @@ def test_version_timestamp_is_created_for_each_response(system_client, monkeypat
             return next(instants)
 
     monkeypatch.setattr("app.api.system.datetime", Clock)
-    assert (
-        system_client.get("/api/v1/version").json()["server_time"]
-        == "2026-10-29T01:02:03.456Z"
-    )
-    assert (
-        system_client.get("/api/v1/version").json()["server_time"]
-        == "2026-10-29T01:02:04.789Z"
-    )
+    assert system_client.get("/api/v1/version").json()["server_time"] == "2026-10-29T01:02:03.456Z"
+    assert system_client.get("/api/v1/version").json()["server_time"] == "2026-10-29T01:02:04.789Z"
 
 
 @pytest.mark.parametrize(

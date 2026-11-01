@@ -48,9 +48,7 @@ def create_database(settings: Settings) -> Database:
         finally:
             cursor.close()
 
-    return Database(
-        engine, async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
-    )
+    return Database(engine, async_sessionmaker(engine, expire_on_commit=False, autoflush=False))
 
 
 async def close_database(database: Database) -> None:

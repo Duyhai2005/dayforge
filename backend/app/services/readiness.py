@@ -43,34 +43,27 @@ async def _probe_readiness(database: Database, *, required_revision: str) -> boo
                     return False
                 charset, time_zone, sql_mode = (
                     await connection.execute(
-                        text(
-                            "SELECT @@character_set_connection, @@SESSION.time_zone, @@SESSION.sql_mode"
-                        )
+                        text("SELECT @@character_set_connection, @@SESSION.time_zone, @@SESSION.sql_mode")
                     )
                 ).one()
                 if (
                     charset != "utf8mb4"
                     or time_zone != "+00:00"
-                    or not {"STRICT_TRANS_TABLES", "STRICT_ALL_TABLES"}.intersection(
-                        sql_mode.split(",")
-                    )
+                    or not {"STRICT_TRANS_TABLES", "STRICT_ALL_TABLES"}.intersection(sql_mode.split(","))
                 ):
                     return False
-                revisions = (
-                    (
-                        await connection.execute(
-                            text("SELECT version_num FROM alembic_version")
-                        )
-                    )
-                    .scalars()
-                    .all()
-                )
+                revisions = (await connection.execute(text("SELECT version_num FROM alembic_version"))).scalars().all()
                 if revisions != [required_revision]:
                     return False
                 await connection.execute(text("SELECT id FROM users LIMIT 0"))
+                await connection.execute(text("SELECT owner_id FROM workspace_settings LIMIT 0"))
+                await connection.execute(text("SELECT claim_token, claim_expires_at FROM email_delivery_jobs LIMIT 0"))
                 await connection.execute(
-                    text("SELECT owner_id FROM workspace_settings LIMIT 0")
+                    text(
+                        "SELECT id, created_at, action, outcome, request_id, owner_id, email_digest, peer_digest "
+                        "FROM auth_audit_events LIMIT 0"
+                    )
                 )
                 return True
-    except (SQLAlchemyError, TimeoutError, OSError):
+    except SQLAlchemyError, TimeoutError, OSError:
         return False

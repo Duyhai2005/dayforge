@@ -1,5 +1,6 @@
 """Run backend tests, provisioning only a unique disposable MySQL project."""
 
+import base64
 import os
 import re
 import secrets
@@ -137,6 +138,29 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if key
                 not in ("DAYFORGE_TEST_MYSQL_ROOT_PASSWORD", "MYSQL_ROOT_PASSWORD")
             }
+            test_environ.update(
+                OWNER_EMAIL="owner@example.test",
+                LOCAL_KEY_KEK_B64=base64.urlsafe_b64encode(secrets.token_bytes(32))
+                .rstrip(b"=")
+                .decode("ascii"),
+                LOCAL_KEY_KEK_VERSION="1",
+                LOGOUT_TICKET_KEY_B64=base64.urlsafe_b64encode(secrets.token_bytes(32))
+                .rstrip(b"=")
+                .decode("ascii"),
+                AUTH_RATE_LIMIT_KEY_B64=base64.urlsafe_b64encode(
+                    secrets.token_bytes(32)
+                )
+                .rstrip(b"=")
+                .decode("ascii"),
+                AUTH_EMAIL_OUTBOX_KEY_B64=base64.urlsafe_b64encode(
+                    secrets.token_bytes(32)
+                )
+                .rstrip(b"=")
+                .decode("ascii"),
+                EMAIL_SMTP_HOST="127.0.0.1",
+                EMAIL_SMTP_PORT="1025",
+                EMAIL_FROM="dayforge@example.test",
+            )
             exit_code = subprocess.run(pytest, cwd=BACKEND, env=test_environ).returncode
         except (RunnerError, OSError):
             print(

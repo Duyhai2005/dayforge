@@ -93,20 +93,20 @@ test.describe("Storage Foundation Specifications", () => {
     });
 
     test("version compatibility check rejects unsupported higher versions", () => {
-      expect(isVersionSupported(1)).toBe(true);
-      expect(isVersionSupported(2)).toBe(false);
-      expect(isVersionSupported(2, 1)).toBe(false);
+      expect(isVersionSupported(CURRENT_SCHEMA_VERSION)).toBe(true);
+      expect(isVersionSupported(CURRENT_SCHEMA_VERSION + 1)).toBe(false);
+      expect(isVersionSupported(CURRENT_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION - 1)).toBe(false);
 
-      const okRes = checkVersionCompatibility(1);
+      const okRes = checkVersionCompatibility(CURRENT_SCHEMA_VERSION);
       expect(okRes.ok).toBe(true);
 
-      const errRes = checkVersionCompatibility(2);
+      const errRes = checkVersionCompatibility(CURRENT_SCHEMA_VERSION + 1);
       expect(errRes.ok).toBe(false);
       if (!errRes.ok) {
         expect(errRes.error.code).toBe("unsupported_version");
       }
 
-      const explicitErrRes = checkVersionCompatibility(2, 1);
+      const explicitErrRes = checkVersionCompatibility(CURRENT_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION - 1);
       expect(explicitErrRes.ok).toBe(false);
       if (!explicitErrRes.ok) {
         expect(explicitErrRes.error.code).toBe("unsupported_version");
@@ -329,19 +329,21 @@ test.describe("Storage Foundation Specifications", () => {
     });
     test("closes connection automatically on versionchange so new upgrades are not blocked", async ({ page }) => {
       const result = await page.evaluate(async () => {
-        const { openDatabase, closeDatabase, DB_NAME } = window.__dayforge_storage;
+        const { openDatabase, closeDatabase, CURRENT_SCHEMA_VERSION } = window.__dayforge_storage;
+        const name = `storage-versionchange-${crypto.randomUUID()}`;
 
         let versionChangeCalled = false;
         const conn1Res = await openDatabase({
+          name,
           onVersionChange: () => {
             versionChangeCalled = true;
           },
         });
         if (!conn1Res.ok) return { ok: false as const, error: "conn1 failed" };
 
-        // Open connection 2 with version 2 to trigger upgrade and versionchange
+        // Open a newer version to trigger versionchange and verify the app connection closes.
         return new Promise<{ ok: true; versionChangeCalled: boolean } | { ok: false; error: string }>((resolve) => {
-          const upgradeReq = indexedDB.open(DB_NAME, 2);
+          const upgradeReq = indexedDB.open(name, CURRENT_SCHEMA_VERSION + 1);
           upgradeReq.onupgradeneeded = () => {
             // upgrade succeeded because conn1 closed
           };
@@ -366,17 +368,20 @@ test.describe("Storage Foundation Specifications", () => {
 
     test("invokes onBlocked and fails with blocked error when connection refuses to close", async ({ page }) => {
       const result = await page.evaluate(async () => {
-        const { openDatabase, DB_NAME } = window.__dayforge_storage;
+        const { openDatabase, CURRENT_SCHEMA_VERSION } = window.__dayforge_storage;
+        const name = `storage-blocked-${crypto.randomUUID()}`;
 
         // Open a raw uncooperative connection that doesn't close on versionchange
-        const uncooperativeReq = indexedDB.open(DB_NAME, 1);
-        await new Promise<void>((resolve) => {
+        const uncooperativeReq = indexedDB.open(name, CURRENT_SCHEMA_VERSION);
+        await new Promise<void>((resolve, reject) => {
           uncooperativeReq.onsuccess = () => resolve();
+          uncooperativeReq.onerror = () => reject(uncooperativeReq.error);
         });
 
         let blockedFired = false;
         const upgradeRes = await openDatabase({
-          version: 2,
+          name,
+          version: CURRENT_SCHEMA_VERSION + 1,
           blockedTimeoutMs: 250,
           onBlocked: () => {
             blockedFired = true;
@@ -400,10 +405,11 @@ test.describe("Storage Foundation Specifications", () => {
 
     test("returns unsupported_version when database on disk has higher version than requested", async ({ page }) => {
       const result = await page.evaluate(async () => {
-        const { openDatabase, DB_NAME } = window.__dayforge_storage;
+        const { openDatabase, CURRENT_SCHEMA_VERSION } = window.__dayforge_storage;
+        const name = `storage-future-version-${crypto.randomUUID()}`;
 
-        // Upgrade DB to version 5
-        const v5Req = indexedDB.open(DB_NAME, 5);
+        // Upgrade the isolated database beyond the application-supported version.
+        const v5Req = indexedDB.open(name, CURRENT_SCHEMA_VERSION + 3);
         await new Promise<void>((resolve, reject) => {
           v5Req.onsuccess = () => {
             v5Req.result.close();
@@ -412,8 +418,8 @@ test.describe("Storage Foundation Specifications", () => {
           v5Req.onerror = () => reject(v5Req.error);
         });
 
-        // Now attempt to open with version 1
-        const res = await openDatabase({ version: 1 });
+        // Now attempt to open with the application-supported version.
+        const res = await openDatabase({ name, version: CURRENT_SCHEMA_VERSION });
         return {
           ok: res.ok,
           errorCode: !res.ok ? res.error.code : null,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import secrets
 import sys
 from pathlib import Path
@@ -9,6 +10,12 @@ TEMPLATE_OUTPUTS = (
     (Path("backend/.env.example"), Path("backend/.env")),
     (Path("frontend/.env.example"), Path("frontend/.env.local")),
 )
+
+
+def _encoded_key() -> str:
+    return (
+        base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode("ascii")
+    )
 
 
 def initialize_local(repo_root: Path) -> tuple[Path, Path, Path]:
@@ -36,12 +43,19 @@ def initialize_local(repo_root: Path) -> tuple[Path, Path, Path]:
     )
     app_password = secrets.token_urlsafe(32)
     root_password = secrets.token_urlsafe(32)
+    backend_replacements = {
+        "__GENERATE_MYSQL_PASSWORD__": app_password,
+        "__GENERATE_LOCAL_KEY_KEK_B64__": _encoded_key(),
+        "__GENERATE_LOGOUT_TICKET_KEY_B64__": _encoded_key(),
+        "__GENERATE_AUTH_RATE_LIMIT_KEY_B64__": _encoded_key(),
+        "__GENERATE_AUTH_EMAIL_OUTBOX_KEY_B64__": _encoded_key(),
+    }
     replacements = (
         {
             "__GENERATE_MYSQL_PASSWORD__": app_password,
             "__GENERATE_MYSQL_ROOT_PASSWORD__": root_password,
         },
-        {"__GENERATE_MYSQL_PASSWORD__": app_password},
+        backend_replacements,
         {},
     )
 

@@ -13,9 +13,7 @@ from app.core.values import (
 from app.models.types import LocalDateSQL, UTCMilliseconds, UUIDBytes
 
 
-@pytest.mark.parametrize(
-    "value", ["0001-01-01", "0999-12-31", "2000-02-29", "9999-12-31"]
-)
+@pytest.mark.parametrize("value", ["0001-01-01", "0999-12-31", "2000-02-29", "9999-12-31"])
 def test_local_date_accepts_canonical_gregorian(value):
     assert validate_local_date(value) == value
 
@@ -62,18 +60,10 @@ def test_wire_uuid_rejects_noncanonical(value):
 
 
 def test_timestamp_early_year_and_utc_conversion():
-    assert parse_wire_timestamp("0001-01-01T00:00:00.001Z") == datetime(
-        1, 1, 1, microsecond=1000, tzinfo=timezone.utc
-    )
+    assert parse_wire_timestamp("0001-01-01T00:00:00.001Z") == datetime(1, 1, 1, microsecond=1000, tzinfo=timezone.utc)
+    assert format_utc_timestamp(datetime(1, 1, 1, microsecond=1000, tzinfo=timezone.utc)) == "0001-01-01T00:00:00.001Z"
     assert (
-        format_utc_timestamp(datetime(1, 1, 1, microsecond=1000, tzinfo=timezone.utc))
-        == "0001-01-01T00:00:00.001Z"
-    )
-    assert (
-        format_utc_timestamp(
-            datetime(2026, 1, 1, 7, tzinfo=timezone(timedelta(hours=7)))
-        )
-        == "2026-01-01T00:00:00.000Z"
+        format_utc_timestamp(datetime(2026, 1, 1, 7, tzinfo=timezone(timedelta(hours=7)))) == "2026-01-01T00:00:00.000Z"
     )
 
 
@@ -132,10 +122,7 @@ def test_decimal_rejects_noncanonical_and_out_of_range(value):
 
 def test_decimal_custom_bounds():
     assert validate_decimal("1", minimum=1, maximum=2**64 - 1) == "1"
-    assert (
-        validate_decimal("18446744073709551615", minimum=1, maximum=2**64 - 1)
-        == "18446744073709551615"
-    )
+    assert validate_decimal("18446744073709551615", minimum=1, maximum=2**64 - 1) == "18446744073709551615"
     with pytest.raises(ValueError, match="^invalid_decimal$"):
         validate_decimal("0", minimum=1, maximum=2**64 - 1)
 

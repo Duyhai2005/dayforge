@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { createPortal } from "react-dom";
 import { useEffect, useId, useRef, useState } from "react";
+import { useAuthSession } from "../../lib/auth/session-provider";
 import { MAX_CALENDAR_DATE, MIN_CALENDAR_DATE, moveAnchor, parseViewState, todayInUtc7, type CalendarKind, type MilestoneScale, type ViewState } from "../../lib/calendar/view-state";
 
 export type CalendarWidgetProps = {
@@ -25,6 +27,10 @@ export function currentPeriod(view: ViewState): string {
 
 export function CalendarWidget({ calendar, view, onNavigate, onSwitch }: CalendarWidgetProps): React.JSX.Element {
   const [open, setOpen] = useState(false);
+  const [logoutChanges, setLogoutChanges] = useState<{ pendingOperations: number; drafts: number } | null>(null);
+  const [logoutError, setLogoutError] = useState("");
+  const [logoutBusy, setLogoutBusy] = useState(false);
+  const auth = useAuthSession();
   const root = useRef<HTMLDivElement>(null);
   const toggle = useRef<HTMLButtonElement>(null);
   const panelId = useId();
@@ -35,6 +41,53 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch }: Calenda
     setOpen(false);
     toggle.current?.focus({ preventScroll: true });
   };
+
+  const requestLogout = async () => {
+    setLogoutError("");
+    try {
+      const changes = await auth.inspectPendingChanges();
+      if (changes.pendingOperations > 0 || changes.drafts > 0) {
+        setLogoutChanges(changes);
+        return;
+      }
+      await finishLogout();
+    } catch {
+      setLogoutError("Không thể kiểm tra thay đổi cục bộ. Hãy thử lại.");
+    }
+  };
+
+  const finishLogout = async () => {
+    setLogoutBusy(true);
+    setLogoutError("");
+    try {
+      await auth.logout();
+      setLogoutChanges(null);
+    } catch {
+      setLogoutError("Không thể khóa dữ liệu cục bộ. Hãy thử lại trước khi đăng xuất.");
+    } finally {
+      setLogoutBusy(false);
+    }
+  };
+
+  const logoutDialog = logoutChanges && typeof document !== "undefined"
+    ? createPortal(
+      <div className="logout-backdrop">
+        <section className="logout-dialog" role="dialog" aria-modal="true" aria-labelledby="logout-title" aria-describedby="logout-description">
+          <h2 id="logout-title">Đăng xuất và khóa dữ liệu?</h2>
+          <p id="logout-description">
+            {logoutChanges.pendingOperations > 0 && `${logoutChanges.pendingOperations} thay đổi đang chờ đồng bộ`}
+            {logoutChanges.pendingOperations > 0 && logoutChanges.drafts > 0 && " và "}
+            {logoutChanges.drafts > 0 && `${logoutChanges.drafts} bản nháp chưa lưu`}. Dữ liệu sẽ được giữ trên thiết bị nhưng bị khóa cho đến lần đăng nhập tiếp theo.
+          </p>
+          <div className="logout-dialog-actions">
+            <button type="button" autoFocus disabled={logoutBusy} onClick={() => setLogoutChanges(null)}>Hủy</button>
+            <button type="button" disabled={logoutBusy} onClick={() => void finishLogout()}>{logoutBusy ? "Đang khóa…" : "Vẫn đăng xuất"}</button>
+          </div>
+        </section>
+      </div>,
+      document.body
+    )
+    : null;
 
   useEffect(() => {
     if (!open) return;
@@ -91,10 +144,16 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch }: Calenda
       </section>
       <div className="widget-bar">
         <button className="widget-quick-add" type="button" disabled aria-describedby={explanationId} aria-label="Thêm nhanh">+</button>
-        <div className="widget-summary"><strong>{calendar === "work" ? "Lịch công việc" : "Lịch dấu mốc"}</strong><span role="status">Chưa kết nối dữ liệu</span></div>
+        <div className="widget-summary"><strong>{calendar === "work" ? "Lịch công việc" : "Lịch dấu mốc"}</strong><span role="status">{auth.notice || (auth.ownerUnlocked ? "Dữ liệu cục bộ đã mở khóa." : "Chưa kết nối dữ liệu")}</span></div>
+        {(auth.session?.authenticated && auth.session.owner) || auth.ownerUnlocked ? <div className="widget-auth-control">
+          {auth.session?.authenticated && auth.session.owner && <span className="widget-auth-email">{auth.session.owner.email}</span>}
+          <button type="button" onClick={() => void requestLogout()}>{auth.session?.authenticated ? "Đăng xuất" : "Khóa dữ liệu"}</button>
+        </div> : null}
         <button ref={toggle} className="widget-toggle" type="button" aria-label="Mở hoặc đóng điều hướng lịch" aria-expanded={open} aria-controls={panelId} onClick={() => { if (open) close(); else setOpen(true); }}><span aria-hidden="true">{open ? "⌄" : "⌃"}</span></button>
       </div>
       <p id={explanationId} className="widget-save-explanation">Chưa thể lưu dữ liệu. Tính năng lưu sẽ có trong bước tiếp theo.</p>
+      {logoutError && <p className="account-error" role="alert">{logoutError}</p>}
+      {logoutDialog}
     </div>
   );
 }

@@ -8,6 +8,9 @@ dependencies = [
     # Keep utf8mb4 enforced in build_database_url; legacy multibyte charsets are unsupported.
     "pymysql==1.1.3",
     "alembic==1.19.2",
+    "argon2-cffi==25.1.0",
+    "cryptography==50.0.2",
+    "email-validator==2.3.0",
     "fastapi==0.162.0",
     "pydantic==2.14.1",
     "sqlalchemy[asyncio]==2.1.6",
@@ -21,6 +24,7 @@ required-version = "==0.13.6"
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+addopts = ["--import-mode=importlib"]
 markers = ["mysql: requires the isolated MySQL test runner"]
 
 [tool.black]

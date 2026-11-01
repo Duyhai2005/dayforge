@@ -36,6 +36,35 @@ _TEXT = {
         "Authentication is required.",
     ),
     "forbidden": ("Forbidden", "The request is not permitted."),
+    "csrf_failed": (
+        "Request verification failed",
+        "The request could not be verified.",
+    ),
+    "owner_mismatch": ("Owner mismatch", "The session does not match this owner."),
+    "email_not_verified": (
+        "Email not verified",
+        "Verify the owner email before continuing.",
+    ),
+    "reauthentication_required": (
+        "Reauthentication required",
+        "Enter the password again to continue.",
+    ),
+    "invalid_credentials": (
+        "Invalid credentials",
+        "The email or password is incorrect.",
+    ),
+    "email_token_invalid": ("Invalid link", "The email link is invalid."),
+    "email_token_used": ("Link already used", "This email link has already been used."),
+    "email_token_expired": ("Link expired", "This email link has expired."),
+    "password_policy_violation": (
+        "Password not accepted",
+        "Choose a password that meets the password policy.",
+    ),
+    "password_blocklisted": ("Password not accepted", "Choose a less common password."),
+    "owner_forbidden": (
+        "Owner access required",
+        "This action requires a verified owner session.",
+    ),
 }
 
 _STATUS_CODES = {
@@ -150,18 +179,14 @@ def _dereference(schema: dict, root: dict) -> dict:
 def _union_branches_for_label(schema: dict, label: str, root: dict) -> list[dict]:
     schema = _dereference(schema, root)
     matches = []
-    discriminator_reference = (
-        schema.get("discriminator", {}).get("mapping", {}).get(label)
-    )
+    discriminator_reference = schema.get("discriminator", {}).get("mapping", {}).get(label)
     for candidate in schema.get("anyOf", schema.get("oneOf", [])):
         branch = _dereference(candidate, root)
         reference = candidate.get("$ref")
         names = {branch.get("title")}
         if reference:
             names.add(reference.rsplit("/", 1)[-1])
-        if label in names or (
-            discriminator_reference and reference == discriminator_reference
-        ):
+        if label in names or (discriminator_reference and reference == discriminator_reference):
             matches.append(branch)
     return matches
 
@@ -170,15 +195,11 @@ def _resolve(schema: dict, root: dict) -> list[dict]:
     if "$ref" in schema:
         reference = schema["$ref"]
         if reference.startswith("#/$defs/"):
-            return _resolve(
-                root.get("$defs", {}).get(reference.removeprefix("#/$defs/"), {}), root
-            )
+            return _resolve(root.get("$defs", {}).get(reference.removeprefix("#/$defs/"), {}), root)
         return []
     if "anyOf" in schema or "oneOf" in schema:
         return [
-            branch
-            for candidate in schema.get("anyOf", schema.get("oneOf", []))
-            for branch in _resolve(candidate, root)
+            branch for candidate in schema.get("anyOf", schema.get("oneOf", [])) for branch in _resolve(candidate, root)
         ]
     return [schema]
 
@@ -201,11 +222,7 @@ def _validation_pointer(request: Request, location: tuple) -> str:
     candidates = [root]
     for part in parts:
         if isinstance(part, str):
-            branches = [
-                branch
-                for schema in candidates
-                for branch in _union_branches_for_label(schema, part, root)
-            ]
+            branches = [branch for schema in candidates for branch in _union_branches_for_label(schema, part, root)]
             if branches:
                 # Skip only schema-confirmed diagnostics, then stay in that branch.
                 candidates = branches
@@ -234,9 +251,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             )
             for error in exception.errors()
         ]
-        return make_problem(
-            request, status_code=422, code="validation_failed", field_errors=errors
-        )
+        return make_problem(request, status_code=422, code="validation_failed", field_errors=errors)
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request: Request, exception: StarletteHTTPException):
@@ -252,11 +267,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         retry_after = None
         if exception.status_code == 429:
             delay = next(
-                (
-                    value
-                    for name, value in (exception.headers or {}).items()
-                    if name.lower() == "retry-after"
-                ),
+                (value for name, value in (exception.headers or {}).items() if name.lower() == "retry-after"),
                 None,
             )
             if isinstance(delay, str) and delay.isascii() and delay.isdecimal():

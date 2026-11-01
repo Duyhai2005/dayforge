@@ -17,6 +17,7 @@ import {
   getRegisteredMigrationSteps,
   executeMigrations,
   getMaxSupportedVersion,
+  registerAuthStateMigration,
 } from "./storage-api";
 
 declare global {
@@ -37,6 +38,7 @@ declare global {
       getRegisteredMigrationSteps: typeof getRegisteredMigrationSteps;
       executeMigrations: typeof executeMigrations;
       getMaxSupportedVersion: typeof getMaxSupportedVersion;
+      registerAuthStateMigration: typeof registerAuthStateMigration;
     };
   }
 }
@@ -189,7 +191,7 @@ test.describe("Storage Schema Migration Specifications", () => {
     test.beforeEach(async ({ page }) => {
       const script = buildStorageScript();
       await page.addInitScript({ content: script });
-      await page.goto("/work");
+      await page.goto("/verify-email");
       await page.evaluate(async (dbName) => {
         return new Promise<void>((resolve, reject) => {
           const req = indexedDB.deleteDatabase(dbName);
@@ -759,7 +761,7 @@ test.describe("Storage Schema Migration Specifications", () => {
       const tab2 = await context.newPage();
       const script = buildStorageScript();
       await tab2.addInitScript({ content: script });
-      await tab2.goto("/work");
+      await tab2.goto("/verify-email");
 
       const tab2UpgradeResult = await tab2.evaluate(async () => {
         const {
@@ -951,4 +953,70 @@ test.describe("Storage Schema Migration Specifications", () => {
       expect(result.recordCiphertext).toBe("multi-version-cipher");
     });
   });
-});
+
+  test("ownerAuthStateMigrationPreservesT08Stores", async ({ page }) => {
+    await page.addInitScript({ content: buildStorageScript() });
+    await page.goto("/verify-email");
+    const result = await page.evaluate(async () => {
+      const {
+        openDatabase,
+        closeDatabase,
+        clearMigrationSteps,
+        registerAuthStateMigration,
+      } = window.__dayforge_storage_migrations;
+      const name = `auth-state-migration-${Date.now()}`;
+      clearMigrationSteps();
+      registerAuthStateMigration();
+      const v1 = await openDatabase({ name, version: 1 });
+      if (!v1.ok) return { ok: false, stage: "v1" };
+      const ownerId = "11111111-1111-4111-8111-111111111111";
+      await new Promise<void>((resolve, reject) => {
+        const tx = v1.value.transaction(["records", "operations"], "readwrite");
+        tx.objectStore("records").put({
+          owner_id: ownerId,
+          kind: "task",
+          id: "task-v2-001",
+          ciphertext: "t08-record-ciphertext",
+        });
+        tx.objectStore("operations").put({
+          owner_id: ownerId,
+          operation_id: "22222222-2222-4222-8222-222222222222",
+          status: "pending",
+          encrypted_envelope: { ciphertext: "t08-outbox-ciphertext" },
+        });
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+      closeDatabase(v1.value);
+      const v2 = await openDatabase({ name, version: 2 });
+      if (!v2.ok) return { ok: false, stage: "v2" };
+      const db = v2.value;
+      const preserved = await new Promise((resolve, reject) => {
+        const tx = db.transaction(["records", "operations"], "readonly");
+        const recordRequest = tx.objectStore("records").get([ownerId, "task", "task-v2-001"]);
+        const operationRequest = tx.objectStore("operations").get([ownerId, "22222222-2222-4222-8222-222222222222"]);
+        const result: { record?: any; operation?: any } = {};
+        recordRequest.onsuccess = () => { result.record = recordRequest.result; };
+        operationRequest.onsuccess = () => { result.operation = operationRequest.result; };
+        tx.oncomplete = () => resolve(result);
+        tx.onerror = () => reject(tx.error);
+      });
+      const stores = Array.from(db.objectStoreNames);
+      const authStateKeyPath = db.transaction(["auth_state"], "readonly").objectStore("auth_state").keyPath;
+      closeDatabase(db);
+      return {
+        ok: true,
+        stores,
+        authStateKeyPath,
+        recordCiphertext: (preserved as any).record?.ciphertext,
+        outboxCiphertext: (preserved as any).operation?.encrypted_envelope?.ciphertext,
+      };
+    });
+    expect(result.ok).toBe(true);
+    expect(result.stores).toContain("auth_state");
+    expect(result.authStateKeyPath).toBe("key");
+    expect(result.stores).toContain("operations");
+    expect(result.stores).toContain("drafts");
+    expect(result.recordCiphertext).toBe("t08-record-ciphertext");
+    expect(result.outboxCiphertext).toBe("t08-outbox-ciphertext");
+  });});

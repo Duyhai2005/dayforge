@@ -1,3 +1,4 @@
+import base64
 import os
 import re
 from datetime import datetime, timezone
@@ -14,9 +15,7 @@ def contract_validator():
     from jsonschema import Draft202012Validator, FormatChecker
 
     schema = json.loads(
-        (
-            Path(__file__).resolve().parents[2] / "docs/tasks/t03/contract.schema.json"
-        ).read_text(encoding="utf-8")
+        (Path(__file__).resolve().parents[2] / "docs/tasks/t03/contract.schema.json").read_text(encoding="utf-8")
     )
 
     def validator(definition):
@@ -54,10 +53,8 @@ def mysql_control(mysql_test_settings):
 
     def docker(*arguments, timeout=15):
         try:
-            result = subprocess.run(
-                ["docker", *arguments], capture_output=True, text=True, timeout=timeout
-            )
-        except (OSError, subprocess.TimeoutExpired):
+            result = subprocess.run(["docker", *arguments], capture_output=True, text=True, timeout=timeout)
+        except OSError, subprocess.TimeoutExpired:
             pytest.fail("Isolated MySQL control unavailable")
         code, output = result.returncode, result.stdout.strip()
         del result
@@ -101,9 +98,7 @@ def mysql_control(mysql_test_settings):
                         )
                         != initial_endpoint
                     ):
-                        pytest.fail(
-                            "Isolated MySQL published endpoint changed across container restart"
-                        )
+                        pytest.fail("Isolated MySQL published endpoint changed across container restart")
                     return
                 sleep(1)
             pytest.fail("Isolated MySQL did not become healthy")
@@ -148,11 +143,125 @@ def settings_factory():
             db_name="dayforge_test",
             db_user="dayforge_test",
             db_password="test-only-password",
+            owner_email="owner@example.test",
+            local_key_kek_b64=base64.urlsafe_b64encode(bytes(range(32))).decode("ascii").rstrip("="),
+            local_key_kek_version=1,
+            logout_ticket_key_b64=base64.urlsafe_b64encode(bytes(range(1, 33))).decode("ascii").rstrip("="),
+            auth_rate_limit_key_b64=base64.urlsafe_b64encode(bytes(range(2, 34))).decode("ascii").rstrip("="),
+            auth_email_outbox_key_b64=base64.urlsafe_b64encode(bytes(range(3, 35))).decode("ascii").rstrip("="),
+            email_smtp_host="127.0.0.1",
+            email_smtp_port=1025,
+            email_from="dayforge@example.test",
         )
         values.update(overrides)
         return Settings(**values)
 
     return factory
+
+
+@pytest.fixture
+def auth_repository():
+    from types import SimpleNamespace
+
+    return SimpleNamespace(users=[], email_requests=[])
+
+
+@pytest.fixture
+def auth_mailbox():
+    from types import SimpleNamespace
+
+    return SimpleNamespace(messages=[])
+
+
+@pytest.fixture
+def auth_client(settings_factory, auth_repository, auth_mailbox):
+    import warnings
+    from datetime import datetime, timedelta, timezone
+    from uuid import uuid4
+
+    from fastapi.testclient import TestClient
+
+    from app.api.auth import get_auth_service
+    from app.main import create_app
+    from app.models.auth import Session as AuthSession
+    from app.services.auth_crypto import encode_base64url
+    from app.services.email_address import EmailAddressError, canonicalize_email
+    from app.services.sessions import SessionContext, get_session_context
+
+    settings = settings_factory()
+    now = datetime(2026, 11, 1, 12, 0, tzinfo=timezone.utc)
+    csrf = bytes(range(32))
+    cookie_token = bytes(range(32, 64))
+    session = AuthSession(
+        id=uuid4(),
+        kind="anonymous",
+        token_hash=b"x" * 32,
+        owner_id=None,
+        csrf_token=csrf,
+        auth_version=None,
+        password_authenticated_at=None,
+        remember_me=False,
+        created_at=now,
+        last_activity_at=now,
+        idle_expires_at=now + timedelta(minutes=30),
+        absolute_expires_at=now + timedelta(minutes=30),
+        revoked_at=None,
+    )
+    context = SessionContext(session, None, csrf, encode_base64url(cookie_token))
+
+    class CapturedAuthService:
+        def __init__(self):
+            self.calls = []
+
+        async def request_email(self, email, purpose, peer_ip, **_audit_context):
+            self.calls.append((email, purpose, peer_ip))
+            auth_repository.email_requests.append((email, purpose))
+            try:
+                canonical = canonicalize_email(email).canonical
+                allowed = canonicalize_email(settings.owner_email).canonical
+            except EmailAddressError:
+                return
+            if canonical != allowed:
+                return
+            if purpose == "verify_email" and not auth_repository.users:
+                auth_mailbox.messages.append((email, purpose))
+            elif purpose == "password_reset" and auth_repository.users:
+                auth_mailbox.messages.append((email, purpose))
+
+        async def session_request_limit(self, context, peer_ip):
+            return None
+
+        async def confirm_email(self, token, password, peer_ip, **_audit_context):
+            raise AssertionError("confirm_email must be covered by MySQL tests")
+
+        async def login(self, email, password, remember_me, previous, peer_ip, **_audit_context):
+            raise AssertionError("login must be covered by MySQL tests")
+
+        async def reset_password(self, token, password, peer_ip, **_audit_context):
+            raise AssertionError("reset_password must be covered by MySQL tests")
+
+        async def local_key(self, context, peer_ip, **_audit_context):
+            raise AssertionError("local_key must be covered by MySQL tests")
+
+    service = CapturedAuthService()
+    application = create_app(settings)
+    application.state.auth_audit_enabled = False
+    application.dependency_overrides[get_session_context] = lambda: context
+    application.dependency_overrides[get_auth_service] = lambda: service
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Using `httpx` with `starlette.testclient` is deprecated.*",
+        )
+        with TestClient(application, base_url=settings.public_origin) as client:
+            client.headers.update(
+                {
+                    "Origin": settings.public_origin,
+                    "X-CSRF-Token": encode_base64url(csrf),
+                }
+            )
+            client.auth_service = service
+            yield client
 
 
 @pytest.fixture
@@ -167,9 +276,7 @@ def mysql_test_settings():
         or os.environ.get("APP_ENV") != "test"
         or os.environ.get("DB_USER") != "dayforge_test"
         or os.environ.get("DB_HOST") != "127.0.0.1"
-        or not re.fullmatch(
-            r"[0-9a-f]{12,64}", os.environ.get("DAYFORGE_TEST_CONTAINER_ID", "")
-        )
+        or not re.fullmatch(r"[0-9a-f]{12,64}", os.environ.get("DAYFORGE_TEST_CONTAINER_ID", ""))
         or os.environ.get("DAYFORGE_TEST_PROJECT") != f"dayforge-test-{run_id}"
     ):
         pytest.fail("MySQL test environment is not isolated")
