@@ -5,6 +5,7 @@ from fastapi import FastAPI
 
 from app.api.auth import router as auth_router
 from app.api.system import router as system_router
+from app.api.sync import router as sync_router
 from app.core.auth_security import AuthNoStoreMiddleware
 from app.core.config import Settings, load_settings
 from app.core.database import close_database, create_database
@@ -61,6 +62,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_exception_handlers(application)
     application.include_router(system_router)
     application.include_router(auth_router)
+    application.include_router(sync_router)
     application.add_middleware(StrictJSONMiddleware)
     application.add_middleware(AuthAuditMiddleware)
     application.add_middleware(AuthNoStoreMiddleware)

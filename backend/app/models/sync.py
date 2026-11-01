@@ -24,7 +24,7 @@ class OwnerSyncState(Base):
         primary_key=True,
         autoincrement=False,
     )
-    epoch: Mapped[UUID] = mapped_column(UUIDBytes(), unique=True)
+    epoch: Mapped[UUID] = mapped_column(UUIDBytes())
     head_cursor: Mapped[int] = mapped_column(BIGINT(unsigned=True), server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(UTCMilliseconds())
     updated_at: Mapped[datetime] = mapped_column(UTCMilliseconds())

@@ -4,7 +4,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field
 
-from app.schemas.common import ContractModel, DeviceSequence, WireUUID
+from app.schemas.common import ContractModel, DeviceSequence, WireTimestamp, WireUUID
 
 MAX_SAFE_INTEGER = 9007199254740991
 UINT32_MAX = 4294967295
@@ -32,3 +32,10 @@ class OperationEnvelope(ContractModel):
 
 class PushRequest(ContractModel):
     operations: Annotated[list[dict[str, Any]], Field(min_length=1, max_length=100)]
+
+
+class SyncClockResponse(ContractModel):
+    calibration_id: WireUUID
+    server_time_ms: Annotated[int, Field(ge=0, le=MAX_SAFE_INTEGER)]
+    server_time: WireTimestamp
+    max_future_skew_ms: Literal[300000]

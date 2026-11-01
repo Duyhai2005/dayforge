@@ -21,7 +21,6 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["owner_id"], ["users.id"], name="fk_owner_sync_states_owner_id_users", ondelete="RESTRICT"
         ),
-        sa.UniqueConstraint("epoch", name="uq_owner_sync_states_epoch"),
         sa.CheckConstraint("head_cursor >= 0", name=op.f("ck_owner_sync_states_head_cursor_nonnegative")),
         mysql_engine="InnoDB",
         mysql_charset="utf8mb4",
