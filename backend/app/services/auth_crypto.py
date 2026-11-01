@@ -7,7 +7,9 @@ import hmac
 import re
 import secrets
 import struct
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import cast
 from uuid import UUID
 
 from cryptography.exceptions import InvalidTag
@@ -69,7 +71,7 @@ def unwrap_owner_key(
     nonce, ciphertext = wrapped.wrapped_key[:12], wrapped.wrapped_key[12:]
     try:
         raw_key = AESGCM(kek).decrypt(nonce, ciphertext, aad)
-    except (InvalidTag, ValueError):
+    except InvalidTag, ValueError:
         raise CryptoEnvelopeError("wrapped_key_invalid") from None
     if len(raw_key) != 32:
         raise CryptoEnvelopeError("wrapped_key_invalid")
@@ -90,7 +92,7 @@ def decode_base64url(value: str | None, expected_bytes: int) -> bytes | None:
         return None
     try:
         decoded = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
-    except (ValueError, binascii.Error):
+    except ValueError, binascii.Error:
         return None
     if len(decoded) != expected_bytes or encode_base64url(decoded) != value:
         return None
@@ -105,16 +107,32 @@ def create_logout_ticket(session_id: UUID, key: bytes) -> str:
     return encode_base64url(identifier + signature)
 
 
-def verify_logout_ticket(ticket: str | None, key: bytes) -> UUID | None:
-    if not isinstance(key, bytes) or len(key) != 32:
+def verify_logout_ticket(
+    ticket: str | None, key: bytes | Sequence[bytes]
+) -> UUID | None:
+    if isinstance(key, bytes):
+        keys: tuple[bytes, ...] = (key,)
+    elif isinstance(key, Sequence):
+        if not all(isinstance(candidate, bytes) for candidate in key):
+            return None
+        keys = tuple(cast(Sequence[bytes], key))
+    else:
+        return None
+    if not keys or any(len(candidate) != 32 for candidate in keys):
         return None
     payload = decode_base64url(ticket, 48)
     if payload is None:
         return None
     identifier, supplied_signature = payload[:16], payload[16:]
-    expected_signature = hmac.new(
-        key, b"logout-v1" + identifier, hashlib.sha256
-    ).digest()
-    if not hmac.compare_digest(supplied_signature, expected_signature):
+    valid_signature = False
+    for candidate in keys:
+        expected_signature = hmac.new(
+            candidate, b"logout-v1" + identifier, hashlib.sha256
+        ).digest()
+        valid_signature = (
+            hmac.compare_digest(supplied_signature, expected_signature)
+            | valid_signature
+        )
+    if not valid_signature:
         return None
     return UUID(bytes=identifier)

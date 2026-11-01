@@ -1,4 +1,5 @@
 import asyncio
+import base64
 
 import pytest
 from pydantic import ValidationError
@@ -133,6 +134,23 @@ def test_auth_secret_keys_decode_to_32_bytes_and_remain_hidden(settings_factory)
     ):
         assert len(settings.secret_key(field)) == 32
     assert settings.local_key_kek_b64.get_secret_value() not in repr(settings)
+
+
+def test_logout_ticket_previous_keys_are_optional_and_available_for_verification(
+    settings_factory,
+):
+    def encode(raw):
+        return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+    current = bytes([4]) * 32
+    previous = bytes([5]) * 32
+    settings = settings_factory(
+        logout_ticket_key_b64=encode(current),
+        logout_ticket_previous_keys_b64=f"{encode(previous)}",
+    )
+
+    assert settings.logout_ticket_verification_keys() == [current, previous]
+    assert settings_factory().logout_ticket_previous_keys_b64 is None
 
 
 @pytest.mark.parametrize(

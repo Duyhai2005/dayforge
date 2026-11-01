@@ -144,11 +144,11 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch }: Calenda
       </section>
       <div className="widget-bar">
         <button className="widget-quick-add" type="button" disabled aria-describedby={explanationId} aria-label="Thêm nhanh">+</button>
-        <div className="widget-summary"><strong>{calendar === "work" ? "Lịch công việc" : "Lịch dấu mốc"}</strong><span role="status">{auth.notice || "Chưa kết nối dữ liệu"}</span></div>
-        {auth.session?.authenticated && <div className="widget-auth-control">
-          <span className="widget-auth-email">{auth.session.owner?.email}</span>
-          <button type="button" onClick={() => void requestLogout()}>Đăng xuất</button>
-        </div>}
+        <div className="widget-summary"><strong>{calendar === "work" ? "Lịch công việc" : "Lịch dấu mốc"}</strong><span role="status">{auth.notice || (auth.ownerUnlocked ? "Dữ liệu cục bộ đã mở khóa." : "Chưa kết nối dữ liệu")}</span></div>
+        {(auth.session?.authenticated && auth.session.owner) || auth.ownerUnlocked ? <div className="widget-auth-control">
+          {auth.session?.authenticated && auth.session.owner && <span className="widget-auth-email">{auth.session.owner.email}</span>}
+          <button type="button" onClick={() => void requestLogout()}>{auth.session?.authenticated ? "Đăng xuất" : "Khóa dữ liệu"}</button>
+        </div> : null}
         <button ref={toggle} className="widget-toggle" type="button" aria-label="Mở hoặc đóng điều hướng lịch" aria-expanded={open} aria-controls={panelId} onClick={() => { if (open) close(); else setOpen(true); }}><span aria-hidden="true">{open ? "⌄" : "⌃"}</span></button>
       </div>
       <p id={explanationId} className="widget-save-explanation">Chưa thể lưu dữ liệu. Tính năng lưu sẽ có trong bước tiếp theo.</p>

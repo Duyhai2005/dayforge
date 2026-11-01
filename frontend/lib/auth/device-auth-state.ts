@@ -9,11 +9,16 @@ type LockMessage = Readonly<{
 export const OWNER_LOCK_EVENT = "dayforge:owner-locked";
 const CHANNEL_NAME = "dayforge-owner-auth-v1";
 
-export function publishOwnerLocked(ownerId: string): void {
+function notifyOwnerLockLocally(ownerId: string): void {
   if (typeof window === "undefined" || !ownerId) return;
   window.dispatchEvent(
     new CustomEvent<OwnerLockNotice>(OWNER_LOCK_EVENT, { detail: { ownerId } })
   );
+}
+
+export function publishOwnerLocked(ownerId: string): void {
+  if (typeof window === "undefined" || !ownerId) return;
+  notifyOwnerLockLocally(ownerId);
   if (typeof BroadcastChannel !== "undefined") {
     const channel = new BroadcastChannel(CHANNEL_NAME);
     channel.postMessage({ type: "owner-locked", ownerId } satisfies LockMessage);
@@ -48,6 +53,7 @@ export function listenForRemoteOwnerLock(
       message?.type === "owner-locked" &&
       typeof message.ownerId === "string"
     ) {
+      notifyOwnerLockLocally(message.ownerId);
       listener({ ownerId: message.ownerId });
     }
   };

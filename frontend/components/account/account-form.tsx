@@ -66,7 +66,7 @@ export function AccountForm(): React.JSX.Element {
       <form className="account-fields" onSubmit={submit}>
         {mode !== "login" && <h2>{MODE_COPY[mode].title}</h2>}
         <label className="account-field" htmlFor="account-email">Email
-          <input id="account-email" name="email" type="email" autoComplete="email" required maxLength={254} value={email} onChange={event => setEmail(event.target.value)} />
+          <input id="account-email" name="email" type="text" inputMode="email" autoComplete="email" required maxLength={254} value={email} onChange={event => setEmail(event.target.value)} />
         </label>
         {mode === "login" && <>
           <label className="account-field" htmlFor="account-password">Mật khẩu

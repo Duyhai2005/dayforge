@@ -103,3 +103,13 @@ def test_logout_ticket_is_target_bound_and_has_contract_encoding():
         verify_logout_ticket(ticket[:-1] + ("A" if ticket[-1] != "A" else "B"), key)
         is None
     )
+
+
+def test_logout_ticket_accepts_previous_verification_key_after_rotation():
+    session_id = uuid4()
+    previous_key = bytes([9]) * 32
+    current_key = bytes([10]) * 32
+    ticket = create_logout_ticket(session_id, previous_key)
+
+    assert verify_logout_ticket(ticket, (current_key, previous_key)) == session_id
+    assert verify_logout_ticket(ticket, (current_key, bytes([11]) * 32)) is None

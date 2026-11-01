@@ -117,7 +117,7 @@ async def logout(
         target_id = None if context is None else context.session.id
     else:
         target_id = verify_logout_ticket(
-            body.logout_ticket, settings.secret_key("logout_ticket_key_b64")
+            body.logout_ticket, settings.logout_ticket_verification_keys()
         )
     if target_id is not None:
         await revoke_session(request, target_id)

@@ -30,6 +30,7 @@ ENV_FIELDS = {
     "local_key_kek_b64": "LOCAL_KEY_KEK_B64",
     "local_key_kek_version": "LOCAL_KEY_KEK_VERSION",
     "logout_ticket_key_b64": "LOGOUT_TICKET_KEY_B64",
+    "logout_ticket_previous_keys_b64": "LOGOUT_TICKET_PREVIOUS_KEYS_B64",
     "auth_rate_limit_key_b64": "AUTH_RATE_LIMIT_KEY_B64",
     "auth_email_outbox_key_b64": "AUTH_EMAIL_OUTBOX_KEY_B64",
     "email_smtp_host": "EMAIL_SMTP_HOST",
@@ -49,7 +50,7 @@ def _decode_key(value: str) -> bytes:
         raise ValueError("invalid_key")
     try:
         decoded = base64.b64decode(value + "=", altchars=b"-_", validate=True)
-    except (binascii.Error, ValueError):
+    except binascii.Error, ValueError:
         raise ValueError("invalid_key") from None
     if (
         len(decoded) != 32
@@ -73,6 +74,7 @@ class Settings(BaseModel):
     local_key_kek_b64: SecretStr
     local_key_kek_version: int
     logout_ticket_key_b64: SecretStr
+    logout_ticket_previous_keys_b64: SecretStr | None = None
     auth_rate_limit_key_b64: SecretStr
     auth_email_outbox_key_b64: SecretStr
     email_smtp_host: str
@@ -85,6 +87,20 @@ class Settings(BaseModel):
             value = values.get(field)
             if isinstance(value, SecretStr):
                 value = value.get_secret_value()
+            if field == "logout_ticket_previous_keys_b64":
+                if field not in values or value is None or value == "":
+                    values[field] = None
+                    continue
+                keys = value.split(",") if isinstance(value, str) else []
+                if not keys:
+                    invalid.add(field)
+                    continue
+                try:
+                    for key in keys:
+                        _decode_key(key)
+                except ValueError:
+                    invalid.add(field)
+                continue
             if field in ("db_port", "email_smtp_port", "local_key_kek_version"):
                 maximum = 65535
                 try:
@@ -171,6 +187,17 @@ class Settings(BaseModel):
         ],
     ) -> bytes:
         return _decode_key(getattr(self, field).get_secret_value())
+
+    def logout_ticket_verification_keys(self) -> list[bytes]:
+        keys = [self.secret_key("logout_ticket_key_b64")]
+        if self.logout_ticket_previous_keys_b64 is not None:
+            keys.extend(
+                _decode_key(value)
+                for value in self.logout_ticket_previous_keys_b64.get_secret_value().split(
+                    ","
+                )
+            )
+        return keys
 
 
 def load_settings(environ: Mapping[str, str] | None = None) -> Settings:

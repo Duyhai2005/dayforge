@@ -236,3 +236,44 @@ def test_logout_ticket_revokes_only_target_session(
     stored = asyncio.run(database_sessions(auth_database, [target.id, current.id]))
     assert stored[target.id].revoked_at == now
     assert stored[current.id].revoked_at is None
+
+
+def test_logout_ticket_survives_key_rotation_until_session_expiry(
+    auth_database, auth_client, monkeypatch, settings_factory
+):
+    from app.services import sessions
+
+    now = datetime(2026, 11, 1, 12, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(sessions, "utc_now", lambda: now)
+    _, records = insert_owner_and_sessions(auth_database, {"target": {}, "current": {}})
+    target, _, _ = records["target"]
+    current, current_token, _ = records["current"]
+    session_view = auth_client.get(
+        "/api/v1/auth/session",
+        headers={"Cookie": f"{COOKIE_NAME}={encoded_token(current_token)}"},
+    ).json()
+    ticket = create_logout_ticket(
+        target.id, auth_database.secret_key("logout_ticket_key_b64")
+    )
+    rotated_settings = settings_factory(
+        logout_ticket_key_b64=encoded_token(bytes([23]) * 32),
+        logout_ticket_previous_keys_b64=(
+            auth_database.logout_ticket_key_b64.get_secret_value()
+        ),
+    )
+    monkeypatch.setattr(auth_client.app.state, "settings", rotated_settings)
+
+    response = auth_client.post(
+        "/api/v1/auth/logout",
+        json={"logout_ticket": ticket},
+        headers={
+            "Cookie": f"{COOKIE_NAME}={encoded_token(current_token)}",
+            "Origin": auth_database.public_origin,
+            "X-CSRF-Token": session_view["csrf_token"],
+        },
+    )
+
+    assert response.status_code == 204
+    stored = asyncio.run(database_sessions(auth_database, [target.id, current.id]))
+    assert stored[target.id].revoked_at == now
+    assert stored[current.id].revoked_at is None

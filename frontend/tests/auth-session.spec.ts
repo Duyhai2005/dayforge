@@ -31,6 +31,7 @@ type ApiMockState = {
   loginBody: Record<string, unknown> | null;
   localKeyRequests: number;
   failLogout: boolean;
+  failSession: boolean;
 };
 
 function sessionView(authenticated = false): SessionView {
@@ -65,6 +66,7 @@ async function mockAuthApi(page: Page, initial = sessionView()): Promise<ApiMock
     loginBody: null,
     localKeyRequests: 0,
     failLogout: false,
+    failSession: false,
   };
   await page.route("**/api/v1/auth/**", async (route) => {
     const request = route.request();
@@ -77,6 +79,10 @@ async function mockAuthApi(page: Page, initial = sessionView()): Promise<ApiMock
       headers: request.headers(),
     });
     if (path === "/api/v1/auth/session" && method === "GET") {
+      if (state.failSession) {
+        await route.abort();
+        return;
+      }
       await route.fulfill({ json: state.currentSession });
       return;
     }
@@ -285,6 +291,18 @@ test("accountLoginDefaultsRememberMeAndUnlocksOwner", async ({ page }) => {
   });
 });
 
+test("unicodeEmailReachesServerCanonicalization", async ({ page }) => {
+  const api = await mockAuthApi(page);
+  await page.goto("/account");
+  await page.getByRole("button", { name: "Quên mật khẩu" }).click();
+  await page.getByLabel("Email").fill("chủ@BÜCHER.example");
+  await page.getByRole("button", { name: "Gửi hướng dẫn đặt lại" }).click();
+  await expect(page.getByRole("status")).toContainText("Nếu email phù hợp");
+  const request = api.requests.find(item => item.path === "/api/v1/auth/password/forgot");
+  expect(request?.method).toBe("POST");
+  expect(JSON.parse(request?.body ?? "null")).toEqual({ email: "chủ@BÜCHER.example" });
+});
+
 test("verifyCallbackPostsOnlyAfterConfirmationAndScrubsFragment", async ({ page }) => {
   const api = await mockAuthApi(page);
   await page.goto(`/verify-email#token=${CALLBACK_TOKEN}`);
@@ -313,6 +331,48 @@ test("resetCallbackRequiresMatchingPasswords", async ({ page }) => {
   expect(api.requests.some((request) => request.path.endsWith("/password/reset"))).toBe(false);
 });
 
+test("delayedLocalKeyCannotReopenOwnerAfterRemoteLogout", async ({ page, context }) => {
+  await mockAuthApi(page);
+  await page.goto("/account");
+  await page.getByLabel("Email").fill("owner@example.test");
+  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
+  await page.getByRole("button", { name: "Đăng nhập" }).click();
+  await expect(page.getByRole("status")).toContainText("đã mở khóa");
+
+  const otherTab = await context.newPage();
+  await mockAuthApi(otherTab, sessionView(true));
+  await otherTab.goto("/work");
+  await expect(otherTab.getByRole("button", { name: "Đăng xuất" })).toBeVisible();
+
+  let releaseLocalKey!: () => void;
+  let signalLocalKeyStarted!: () => void;
+  const localKeyGate = new Promise<void>(resolve => { releaseLocalKey = resolve; });
+  const localKeyStarted = new Promise<void>(resolve => { signalLocalKeyStarted = resolve; });
+  await page.route("**/api/v1/auth/local-key", async route => {
+    signalLocalKeyStarted();
+    await localKeyGate;
+    await route.fulfill({
+      json: {
+        owner_id: OWNER_ID,
+        key_id: KEY_ID,
+        algorithm: "A256GCM",
+        key_base64url: LOCAL_KEY,
+      },
+    });
+  });
+
+  await page.getByLabel("Email").fill("owner@example.test");
+  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
+  await page.getByRole("button", { name: "Đăng nhập" }).click();
+  await localKeyStarted;
+
+  await otherTab.getByRole("button", { name: "Đăng xuất" }).click();
+  await expect(otherTab.getByRole("status")).toContainText("Đã đăng xuất");
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
+
+  releaseLocalKey();
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
+});
 test("expiredSessionKeepsLocalVaultAvailable", async ({ page }) => {
   const api = await prepareUnlockedOwnerWithPendingOperation(page);
   api.currentSession = sessionView();
@@ -321,11 +381,35 @@ test("expiredSessionKeepsLocalVaultAvailable", async ({ page }) => {
   await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
 });
 
+test("expiredSessionStillAllowsManualLocalLock", async ({ page }) => {
+  const api = await prepareUnlockedOwnerWithPendingOperation(page);
+  await page.getByRole("link", { name: "Quay lại lịch công việc" }).click();
+  await expect(page.getByRole("heading", { name: "Lịch công việc" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Đăng xuất" })).toBeVisible();
+  api.currentSession = sessionView();
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(page.getByRole("status")).toContainText("Phiên đã hết hạn");
+  await expect(page.getByRole("button", { name: "Khóa dữ liệu" })).toBeVisible();
+  await page.getByRole("button", { name: "Khóa dữ liệu" }).click();
+  await expect(page.getByRole("dialog")).toContainText("đang chờ đồng bộ");
+  await page.getByRole("button", { name: "Vẫn đăng xuất" }).click();
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
+  expect(api.requests.some(request => request.path === "/api/v1/auth/logout" && request.method === "POST")).toBe(false);
+});
+
 test("logoutOfflineLocksAllTabsAndPreservesPendingData", async ({ page, context }) => {
   const api = await prepareUnlockedOwnerWithPendingOperation(page);
   const otherTab = await context.newPage();
   await otherTab.goto("/work");
   await expect(otherTab.getByRole("heading", { name: "Lịch công việc" })).toBeVisible();
+  await otherTab.evaluate(() => {
+    const target = window as Window & { __ownerLockNotices?: string[] };
+    target.__ownerLockNotices = [];
+    window.addEventListener("dayforge:owner-locked", event => {
+      const detail = (event as CustomEvent<{ ownerId: string }>).detail;
+      target.__ownerLockNotices?.push(detail.ownerId);
+    });
+  });
   await page.goto("/work");
   await expect(page.getByRole("button", { name: "Đăng xuất" })).toBeVisible();
   const pendingBefore = await readEncryptedOutbox(page);
@@ -338,6 +422,7 @@ test("logoutOfflineLocksAllTabsAndPreservesPendingData", async ({ page, context 
   await expect(page.getByRole("status")).toContainText("chưa thu hồi trên máy chủ");
   await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
   await expect.poll(async () => (await readOwnerMeta(otherTab))?.locked).toBe(true);
+  await expect.poll(async () => otherTab.evaluate(() => (window as Window & { __ownerLockNotices?: string[] }).__ownerLockNotices ?? [])).toEqual([OWNER_ID]);
   expect(await readEncryptedOutbox(page)).toEqual(pendingBefore);
   const authState = await page.evaluate((dbName) => new Promise<unknown[]>((resolve) => {
     const request = indexedDB.open(dbName);
@@ -365,4 +450,21 @@ test("loginDoesNotAutoUnlockFromRestoredCookie", async ({ page }) => {
   await expect(page.getByRole("status")).toContainText("dữ liệu cục bộ vẫn khóa");
   expect(api.localKeyRequests).toBe(0);
   expect(await readOwnerMeta(page)).toBeNull();
+});
+
+test("reloadRestoresUnlockedOwnerWhenSessionApiIsUnavailable", async ({ page }) => {
+  const api = await mockAuthApi(page);
+  await page.goto("/account");
+  await page.getByLabel("Email").fill("owner@example.test");
+  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
+  await page.getByRole("button", { name: "Đăng nhập" }).click();
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
+  await page.getByRole("link", { name: "Quay lại lịch công việc" }).click();
+  await expect(page.getByRole("status")).toContainText("Dữ liệu cục bộ đã mở khóa");
+
+  api.failSession = true;
+  await page.reload();
+  await expect(page.getByRole("status")).toContainText("Dữ liệu cục bộ đã mở khóa");
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
+  expect(api.localKeyRequests).toBe(1);
 });

@@ -71,6 +71,8 @@ The frozen pnpm install and locked uv sync must finish without changing either l
 
 The setup command refuses a partial set of local environment files instead of overwriting existing files. If it reports missing files, restore only the missing file from its matching `*.env.example` and deliberately configure the generated database credential values to match, or recover the original local configuration. Do not copy real `.env` files into Git.
 
+`LOGOUT_TICKET_KEY_B64` signs newly issued, session-bound logout tickets. When rotating it, move each still-valid old key into `LOGOUT_TICKET_PREVIOUS_KEYS_B64` as a comma-separated base64url list, then set a new current key. Keep prior keys available for verification through the 30-day maximum absolute lifetime of sessions issued under them; remove an old key only after that window has elapsed. Previous keys never sign new tickets.
+
 ## 3. Create localhost TLS files
 
 From the repository root, create a local certificate and key for the development hostnames:

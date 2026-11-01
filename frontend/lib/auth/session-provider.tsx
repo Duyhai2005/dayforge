@@ -36,7 +36,7 @@ import {
   type OwnerChangeSummary,
 } from "../storage";
 import { openDatabase } from "../storage/db";
-import { isOwnerUnlocked, lockOwner, unlockOwner, type OwnerAccessContext } from "../storage/owner-gate";
+import { restoreUnlockedOwnerContext, lockOwner, unlockOwner, type OwnerAccessContext } from "../storage/owner-gate";
 
 export type EmailRequestAction = "register" | "verification/resend" | "password/forgot";
 
@@ -92,6 +92,7 @@ export function AuthSessionProvider({ children }: Readonly<{ children: ReactNode
   const dbRef = useRef<IDBDatabase | null>(null);
   const sessionRef = useRef<SessionView | null>(null);
   const ownerAccessRef = useRef<OwnerAccessContext | null>(null);
+  const loginAttemptRef = useRef(0);
 
   const updateSession = useCallback((value: SessionView | null) => {
     sessionRef.current = value;
@@ -138,11 +139,13 @@ export function AuthSessionProvider({ children }: Readonly<{ children: ReactNode
   useEffect(() => {
     let active = true;
     const handleLocalLock = (noticeValue: { ownerId: string }) => {
+      loginAttemptRef.current += 1;
       if (ownerAccessRef.current?.ownerId === noticeValue.ownerId) {
         updateOwnerAccess(null);
       }
     };
     const handleRemoteLock = (noticeValue: { ownerId: string }) => {
+      loginAttemptRef.current += 1;
       void (async () => {
         let db = dbRef.current;
         if (!db) {
@@ -168,7 +171,12 @@ export function AuthSessionProvider({ children }: Readonly<{ children: ReactNode
       } catch {
         // Local storage may be unavailable while the account API still works.
       }
-      let initial: SessionView;
+      let queuedLogoutCount: number | null = null;
+      if (db) {
+        const queued = await listPendingLogoutTickets(db);
+        if (queued.ok) queuedLogoutCount = queued.value.length;
+      }
+      let initial: SessionView | null = null;
       try {
         initial = await getSession();
         if (db) {
@@ -180,22 +188,32 @@ export function AuthSessionProvider({ children }: Readonly<{ children: ReactNode
         }
         if (!active) return;
         updateSession(initial);
-        const rememberedContext = getActiveOwnerContext();
-        if (db && rememberedContext) {
-          const unlocked = await isOwnerUnlocked(db, rememberedContext.ownerId);
-          if (unlocked.ok && unlocked.value) updateOwnerAccess(rememberedContext);
-          else {
-            clearActiveOwnerContext(rememberedContext.ownerId);
-            updateOwnerAccess(null);
-          }
-        }
         setError("");
       } catch (caught) {
         if (!active) return;
         setError(authErrorText(caught));
-      } finally {
-        if (active) setLoading(false);
       }
+      if (!active) return;
+      if (db && queuedLogoutCount === 0) {
+        const restored = await restoreUnlockedOwnerContext(db);
+        if (!active) return;
+        if (
+          restored.ok && restored.value &&
+          (!initial?.authenticated || initial.owner?.id === restored.value.ownerId)
+        ) {
+          updateOwnerAccess(restored.value);
+          if (!initial?.authenticated) setNotice("Dữ liệu cục bộ đã mở khóa.");
+        } else {
+          const rememberedContext = getActiveOwnerContext();
+          if (rememberedContext) clearActiveOwnerContext(rememberedContext.ownerId);
+          updateOwnerAccess(null);
+        }
+      } else {
+        const rememberedContext = getActiveOwnerContext();
+        if (rememberedContext) clearActiveOwnerContext(rememberedContext.ownerId);
+        updateOwnerAccess(null);
+      }
+      if (active) setLoading(false);
     };
     void initialize();
     const onFocus = () => void refreshSession();
@@ -242,27 +260,35 @@ export function AuthSessionProvider({ children }: Readonly<{ children: ReactNode
     password: string,
     rememberMe: boolean
   ): Promise<void> => {
+    const attempt = ++loginAttemptRef.current;
+    const isCurrentAttempt = () => loginAttemptRef.current === attempt;
     setError("");
     setNotice("");
     let current = sessionRef.current ?? await getSession();
+    if (!isCurrentAttempt()) return;
     const db = await ensureDatabase();
     const retry = await retryQueuedLogouts(db, current);
+    if (!isCurrentAttempt()) return;
     if (retry.remaining > 0) {
       throw new AuthApiError(503, "service_unavailable");
     }
     if (retry.revoked > 0) current = await getSession();
+    if (!isCurrentAttempt()) return;
     const authenticated = await postAuth<SessionView>(
       "login",
       { email, password, remember_me: rememberMe },
       current.csrf_token
     );
+    if (!isCurrentAttempt()) return;
     updateSession(authenticated);
     if (!authenticated.owner) throw new AuthApiError(503, "service_unavailable");
     const localKey = await getLocalKey();
+    if (!isCurrentAttempt()) return;
     if (localKey.owner_id !== authenticated.owner.id) {
       throw new AuthApiError(503, "service_unavailable");
     }
     const imported = await importLocalKey(localKey.key_base64url);
+    if (!isCurrentAttempt()) return;
     if (!imported.ok) throw imported.error;
     const unlocked = await unlockOwner(
       db,
@@ -270,6 +296,12 @@ export function AuthSessionProvider({ children }: Readonly<{ children: ReactNode
       localKey.key_id,
       imported.value
     );
+    if (!isCurrentAttempt()) {
+      const relocked = await lockOwner(db, localKey.owner_id);
+      if (!relocked.ok) throw relocked.error;
+      clearActiveOwnerContext(localKey.owner_id);
+      return;
+    }
     if (!unlocked.ok) throw unlocked.error;
     updateOwnerAccess(unlocked.value);
     setNotice("Dữ liệu cục bộ đã mở khóa.");
@@ -277,44 +309,54 @@ export function AuthSessionProvider({ children }: Readonly<{ children: ReactNode
 
   const inspectPendingChanges = useCallback(async (): Promise<OwnerChangeSummary> => {
     const current = sessionRef.current;
-    if (!current?.owner) return { pendingOperations: 0, drafts: 0 };
+    const ownerAccess = ownerAccessRef.current;
+    const ownerId = ownerAccess?.ownerId ?? current?.owner?.id;
+    if (!ownerId) return { pendingOperations: 0, drafts: 0 };
     const db = await ensureDatabase();
     const result = await countOwnerChanges(
       db,
-      ownerAccessRef.current?.ownerId === current.owner.id ? ownerAccessRef.current : null,
-      current.owner.id
+      ownerAccess?.ownerId === ownerId ? ownerAccess : null,
+      ownerId
     );
     if (!result.ok) throw result.error;
     return result.value;
   }, [ensureDatabase]);
 
   const logout = useCallback(async (): Promise<void> => {
+    loginAttemptRef.current += 1;
     const current = sessionRef.current;
-    if (!current?.authenticated || !current.owner) return;
+    const localOwnerId = ownerAccessRef.current?.ownerId;
+    const liveSession = current?.authenticated && current.owner ? current : null;
+    const ownerId = localOwnerId ?? liveSession?.owner?.id;
+    if (!ownerId) return;
     setError("");
     const db = await ensureDatabase();
     let ticketStored = false;
-    if (current.logout_ticket && current.session) {
+    if (liveSession?.owner?.id === ownerId && liveSession.logout_ticket && liveSession.session) {
       const stored = await storePendingLogoutTicket(
         db,
-        current.session.id,
-        current.logout_ticket
+        liveSession.session.id,
+        liveSession.logout_ticket
       );
       ticketStored = stored.ok;
     }
-    const locked = await lockOwner(db, current.owner.id);
+    const locked = await lockOwner(db, ownerId);
     if (!locked.ok) throw locked.error;
-    clearActiveOwnerContext(current.owner.id);
+    clearActiveOwnerContext(ownerId);
     updateOwnerAccess(null);
-    publishOwnerLocked(current.owner.id);
+    publishOwnerLocked(ownerId);
+    if (!liveSession) {
+      setNotice("Đã khóa dữ liệu cục bộ.");
+      return;
+    }
     try {
       await postAuth<void>(
         "logout",
-        current.logout_ticket ? { logout_ticket: current.logout_ticket } : {},
-        current.csrf_token
+        liveSession.logout_ticket ? { logout_ticket: liveSession.logout_ticket } : {},
+        liveSession.csrf_token
       );
-      if (ticketStored && current.session) {
-        await removePendingLogoutTicket(db, `logout:${current.session.id}`);
+      if (ticketStored && liveSession.session) {
+        await removePendingLogoutTicket(db, `logout:${liveSession.session.id}`);
       }
       const fresh = await getSession();
       updateSession(fresh);
