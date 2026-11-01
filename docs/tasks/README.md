@@ -10,7 +10,7 @@
 
 **Spec:** [Thiết kế T01 đã duyệt](t01/design.md), [tổng quan hồ sơ](../project-definition/README.md), [yêu cầu chức năng](../project-definition/02-functional-requirements.md), [UX](../project-definition/03-ux-and-interactions.md), [kiến trúc](../project-definition/04-technical-architecture.md), [dữ liệu và đồng bộ](../project-definition/05-data-and-sync.md), [nghiệm thu](../project-definition/06-delivery-and-acceptance.md).
 
-Ngày cập nhật: **31/10/2026** · Trạng thái: **T01–T03 hoàn thành thiết kế/hợp đồng; T04 hoàn thành nền môi trường local; T05 hoàn thành nền FastAPI/MySQL theo [báo cáo kiểm chứng](t05/review-and-verification.md); T06 hoàn thành khung Next.js; T07 hoàn thành kiểm tra tự động và CI theo [báo cáo kiểm chứng](t07/review-and-verification.md). T08–T36 chưa hoàn thành; chưa triển khai các luồng dữ liệu, tài khoản hoặc offline thực.**
+Ngày cập nhật: **31/10/2026** · Trạng thái: **T01–T03 hoàn thành thiết kế/hợp đồng; T04 hoàn thành nền môi trường local; T05 hoàn thành nền FastAPI/MySQL theo [báo cáo kiểm chứng](t05/review-and-verification.md); T06 hoàn thành khung Next.js; T07 hoàn thành kiểm tra tự động và CI theo [báo cáo kiểm chứng](t07/review-and-verification.md); T08 hoàn thành lớp lưu trữ cục bộ bền vững theo [báo cáo kiểm chứng](t08/review-and-verification.md). T09–T36 chưa hoàn thành; chưa triển khai các luồng dữ liệu, tài khoản hoặc offline thực.**
 
 ## 1. Cách dùng kế hoạch
 
@@ -73,7 +73,7 @@ Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hi
 
 ### Nhóm 3 — Làm nền offline và đồng bộ · T08–T13
 
-- [ ] **T08 — Lưu dữ liệu cục bộ bền vững.** Dựng IndexedDB, migration và lớp đọc/ghi; lưu thay đổi cùng outbox nguyên tử, giữ dữ liệu qua reload và phát hiện lỗi lưu trữ.
+- [x] **T08 — Lưu dữ liệu cục bộ bền vững.** Hoàn thành ngày **31/10/2026**: dựng IndexedDB native adapter, mã hóa AES-256-GCM với AAD theo owner, migration có versioning bảo toàn zero-deletion, unit of work commit nguyên tử (outbox + overlays + sequence + clock), và xử lý lỗi quota/blocked/unavailable. Đạt 20/20 kịch bản kiểm thử ST-01 đến ST-20 và 89 tests Playwright. Xem [kế hoạch chi tiết](t08/plan.md) và [báo cáo kiểm chứng](t08/review-and-verification.md).
 - [ ] **T09 — Làm tài khoản và phiên đăng nhập.** Email/mật khẩu, xác minh, login/session và bảo vệ API; làm signup/reset/ghi nhớ phiên theo thiết kế được duyệt, adapter gửi email và kiểm thử liên kết qua hộp thư phát triển. Giao thư thật kiểm chứng tại T30/T32.
 - [ ] **T10 — Xây API đồng bộ phía máy chủ.** Làm snapshot, push/pull, revision/cursor, chống gửi trùng, dấu xóa và giao dịch nguyên tử; kiểm chứng không bỏ sót thay đổi đã commit.
 - [ ] **T11 — Xây bộ đồng bộ phía client.** Tự gửi/nhận khi app mở có kết nối hoặc mở lại; xử lý retry, thứ tự phụ thuộc, nhiều tab và phản hồi trễ theo LWW, không lấy bản cũ đè bản mới.
