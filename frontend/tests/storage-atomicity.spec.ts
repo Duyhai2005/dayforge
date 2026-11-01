@@ -3416,6 +3416,25 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           { name: "ciphertext-type", apply: (row) => { row.encrypted_envelope.ciphertext = Array.from(row.encrypted_envelope.ciphertext); } },
           { name: "ciphertext-short", apply: (row) => { row.encrypted_envelope.ciphertext = new Uint8Array(15); } },
           { name: "excluded-row-hash", apply: (row) => { row.status = "superseded_by"; row.superseded_by = "44444444-9011-4000-8000-000000000099"; row.request_hash = "bad"; } },
+          { name: "superseded-valid-hash-mismatch", apply: (row) => {
+            row.status = "superseded_by";
+            row.superseded_by = "44444444-9011-4000-8000-000000000099";
+            row.request_hash = `${row.request_hash.slice(0, -1)}${row.request_hash.endsWith("0") ? "1" : "0"}`;
+          } },
+          { name: "superseded-ciphertext-tamper", apply: (row) => {
+            row.status = "superseded_by";
+            row.superseded_by = "44444444-9011-4000-8000-000000000099";
+            const tampered = new Uint8Array(row.encrypted_envelope.ciphertext);
+            tampered[0] ^= 0x01;
+            row.encrypted_envelope.ciphertext = tampered;
+          } },
+          { name: "superseded-self-reference", apply: (row) => {
+            row.status = "superseded_by";
+            row.superseded_by = row.operation_id;
+          } },
+          { name: "queued-with-superseded-marker", apply: (row) => {
+            row.superseded_by = "44444444-9011-4000-8000-000000000099";
+          } },
           { name: "envelope-id-mismatch", apply: async (row, operationId) => {
             const decrypted = await s.decryptPayload(ctx.key, row.encrypted_envelope, ownerId, s.STORAGE_STORES.operations, operationId);
             if (!decrypted.ok) throw new Error("test setup could not decrypt the envelope");

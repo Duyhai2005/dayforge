@@ -219,15 +219,23 @@ export async function lockOwner(
 
         metaStore.put(updatedMeta);
 
-        // Delete keys for owner from crypto_keys
-        try {
-          const range = IDBKeyRange.bound([ownerId, ""], [ownerId, "\uffff"]);
-          cryptoStore.delete(range);
-        } catch {
-          if (existing?.active_key_id) {
-            cryptoStore.delete([ownerId, existing.active_key_id]);
+        // Delete every key for this owner. Do not use a synthetic string
+        // upper bound (for example "\\uffff"): IndexedDB strings can sort
+        // beyond that sentinel, so such a range can leave recoverable keys
+        // behind after logout.
+        const keyCursorReq = cryptoStore.openCursor(
+          IDBKeyRange.lowerBound([ownerId])
+        );
+        keyCursorReq.onsuccess = () => {
+          const cursor = keyCursorReq.result;
+          if (!cursor) return;
+          const cursorKey = cursor.key;
+          if (!Array.isArray(cursorKey) || cursorKey[0] !== ownerId) {
+            return;
           }
-        }
+          cursor.delete();
+          cursor.continue();
+        };
       };
 
       getReq.onerror = () => {

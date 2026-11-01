@@ -660,6 +660,91 @@ test.describe("Storage Security Specifications", () => {
       expect(result.valStaleCtx1Error).toBe("locked");
     });
 
+    test("N11: lockOwner deletes every crypto key across the full owner prefix", async ({ page }) => {
+      const script = buildStorageScript();
+      await page.addInitScript(script);
+      await page.goto("/work");
+
+      const result = await page.evaluate(async () => {
+        const {
+          openDatabase,
+          closeDatabase,
+          generateTestKey,
+          storeCryptoKey,
+          getCryptoKey,
+          unlockOwner,
+          lockOwner,
+          STORAGE_STORES,
+        } = window.__dayforge_security_storage;
+
+        const ownerId = "owner-n11";
+        const activeKeyId = "key-active";
+        const highKeyId = "\uffff-extra-key";
+        const dbRes = await openDatabase({ name: `test-n11-${crypto.randomUUID()}` });
+        if (!dbRes.ok) return { setup: false };
+        const db = dbRes.value;
+
+        const activeKey = await generateTestKey();
+        const extraKey = await generateTestKey();
+        const unlock = await unlockOwner(db, ownerId, activeKeyId, activeKey);
+        if (!unlock.ok) {
+          closeDatabase(db);
+          return { setup: false };
+        }
+
+        const storedExtra = await storeCryptoKey(db, ownerId, highKeyId, extraKey);
+        const extraBefore = await getCryptoKey(db, ownerId, highKeyId);
+        const locked = await lockOwner(db, ownerId);
+        const activeAfter = await getCryptoKey(db, ownerId, activeKeyId);
+        const extraAfter = await getCryptoKey(db, ownerId, highKeyId);
+
+        const remainingOwnerKeys = await new Promise<number>((resolve, reject) => {
+          const tx = db.transaction(STORAGE_STORES.crypto_keys, "readonly");
+          const store = tx.objectStore(STORAGE_STORES.crypto_keys);
+          const req = store.openCursor(IDBKeyRange.lowerBound([ownerId]));
+          let count = 0;
+          req.onsuccess = () => {
+            const cursor = req.result;
+            if (!cursor) {
+              resolve(count);
+              return;
+            }
+            const key = cursor.key;
+            if (!Array.isArray(key) || key[0] !== ownerId) {
+              resolve(count);
+              return;
+            }
+            count += 1;
+            cursor.continue();
+          };
+          req.onerror = () => reject(req.error);
+        });
+
+        closeDatabase(db);
+        return {
+          setup: true,
+          storedExtraOk: storedExtra.ok,
+          extraBeforeOk: extraBefore.ok,
+          lockOk: locked.ok,
+          activeAfterOk: activeAfter.ok,
+          activeAfterCode: activeAfter.ok ? null : activeAfter.error.code,
+          extraAfterOk: extraAfter.ok,
+          extraAfterCode: extraAfter.ok ? null : extraAfter.error.code,
+          remainingOwnerKeys,
+        };
+      });
+
+      expect(result.setup).toBe(true);
+      expect(result.storedExtraOk).toBe(true);
+      expect(result.extraBeforeOk).toBe(true);
+      expect(result.lockOk).toBe(true);
+      expect(result.activeAfterOk).toBe(false);
+      expect(result.activeAfterCode).toBe("unavailable");
+      expect(result.extraAfterOk).toBe(false);
+      expect(result.extraAfterCode).toBe("unavailable");
+      expect(result.remainingOwnerKeys).toBe(0);
+    });
+
     test("unlockOwner rejects unexpected different keyId (both when unlocked and after lock) and fails closed on missing active_key_id", async ({
       page,
     }) => {

@@ -223,11 +223,15 @@ function isValidOutboxEntry(
   ) {
     return false;
   }
-  if (
-    value.superseded_by !== undefined &&
-    (typeof value.superseded_by !== "string" ||
-      !UUID_PATTERN.test(value.superseded_by))
-  ) {
+  if (value.status === "superseded_by") {
+    if (
+      typeof value.superseded_by !== "string" ||
+      !UUID_PATTERN.test(value.superseded_by) ||
+      value.superseded_by === value.operation_id
+    ) {
+      return false;
+    }
+  } else if (value.superseded_by !== undefined) {
     return false;
   }
 
@@ -422,10 +426,11 @@ async function listOutboxOperations(
     validatedRows.push(row);
   }
 
-  const visibleRows = validatedRows.filter((row) => includeStatus(row.status));
-
-  const replayItems: OutboxReplayItem[] = [];
-  for (const row of visibleRows) {
+  // Authenticate every owner-scoped row before deciding whether it belongs
+  // to a specific read surface. Diagnostic/superseded rows are intentionally
+  // excluded from replay, but corruption in them must still fail closed.
+  const verifiedItems: OutboxReplayItem[] = [];
+  for (const row of validatedRows) {
     const decRes = await decryptPayload<OperationEnvelope>(
       ctx.key,
       row.encrypted_envelope,
@@ -448,12 +453,14 @@ async function listOutboxOperations(
     if (computedHash !== row.request_hash) {
       return integrityError();
     }
-    replayItems.push({
+    verifiedItems.push({
       envelope: decRes.value,
       status: row.status,
       requestHash: row.request_hash,
     });
   }
+
+  const replayItems = verifiedItems.filter((item) => includeStatus(item.status));
 
   // Revalidate after decryption; a concurrent close or upgrade stays typed.
   const accessRes = await revalidateOwnerContext(db, ctx);
