@@ -515,11 +515,12 @@ async function readUnlockSnapshot(
       // Cursor iteration avoids materializing a second getAll() array per store.
       // The authenticated inventory itself is retained for the CAS comparison.
       const scanStore = (store: IDBObjectStore, storeName: string) => {
-        const range = IDBKeyRange.bound([ownerId, ""], [ownerId, "\uffff"]);
+        const range = IDBKeyRange.lowerBound([ownerId]);
         const req = store.openCursor(range);
         req.onsuccess = () => {
           const cursor = req.result;
           if (!cursor) return;
+          if (!Array.isArray(cursor.key) || cursor.key[0] !== ownerId) return;
           const extracted = extractLegacyRow(
             storeName, cursor.value, ownerId, incomingKeyId
           );
@@ -1024,20 +1025,27 @@ export async function unlockOwner(
           };
 
           for (const storeName of stores) {
-            const range = IDBKeyRange.bound([ownerId, ""], [ownerId, "\uffff"]);
+            const range = IDBKeyRange.lowerBound([ownerId]);
             const req = tx.objectStore(storeName).openCursor(range);
+            const finishStoreScan = () => {
+              remaining--;
+              if (remaining === 0) {
+                inventoryDone = seen.size === expected.size;
+                if (!inventoryDone) {
+                  markConflict();
+                  return;
+                }
+                checkAndCommit();
+              }
+            };
             req.onsuccess = () => {
               const cursor = req.result;
               if (!cursor) {
-                remaining--;
-                if (remaining === 0) {
-                  inventoryDone = seen.size === expected.size;
-                  if (!inventoryDone) {
-                    markConflict();
-                    return;
-                  }
-                  checkAndCommit();
-                }
+                finishStoreScan();
+                return;
+              }
+              if (!Array.isArray(cursor.key) || cursor.key[0] !== ownerId) {
+                finishStoreScan();
                 return;
               }
               const extracted = extractLegacyRow(

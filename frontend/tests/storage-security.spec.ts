@@ -1665,6 +1665,81 @@ test.describe("Storage Security Specifications", () => {
       expect(result.hasSentinel).toBe(true);
     });
 
+    test("M07: malformed owner-scoped operation keys block legacy unlock before sentinel installation", async ({ page }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+
+      const testDbName = `test-sentinel-m07-${Date.now()}`;
+      const ownerId = "11111111-1111-4111-8111-777777777778";
+      const keyId = "key-sentinel-m07";
+      const validOpId = "33333333-3333-4333-8333-777777777778";
+
+      const result = await page.evaluate(
+        async ({ testDbName, ownerId, keyId, validOpId }) => {
+          const {
+            openDatabase,
+            closeDatabase,
+            importRawKey,
+            encryptPayload,
+            unlockOwner,
+            STORAGE_STORES,
+          } = window.__dayforge_security_storage;
+
+          const openRes = await openDatabase({ name: testDbName });
+          if (!openRes.ok) return { setup: false };
+          const db = openRes.value;
+          const rightKey = await importRawKey(new Uint8Array(32).fill(0x79));
+          const wrongKey = await importRawKey(new Uint8Array(32).fill(0x7a));
+          const encrypted = await encryptPayload(
+            rightKey,
+            ownerId,
+            keyId,
+            STORAGE_STORES.operations,
+            validOpId,
+            { client_time: "2026-11-01T00:00:00.000Z", commands: [] }
+          );
+          if (!encrypted.ok) return { setup: false };
+
+          await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(STORAGE_STORES.operations, "readwrite");
+            tx.objectStore(STORAGE_STORES.operations).put({
+              owner_id: ownerId,
+              operation_id: 123,
+              status: "queued",
+              request_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+              encrypted_envelope: encrypted.value,
+            });
+            tx.oncomplete = () => resolve();
+            tx.onabort = () => reject(tx.error);
+          });
+
+          const unlock = await unlockOwner(db, ownerId, keyId, wrongKey);
+          const state = await new Promise<{ sentinel: unknown; row: unknown }>((resolve, reject) => {
+            const tx = db.transaction([STORAGE_STORES.sync_meta, STORAGE_STORES.operations], "readonly");
+            const sentinel = tx.objectStore(STORAGE_STORES.sync_meta).get([ownerId, "owner-key-sentinel"]);
+            const row = tx.objectStore(STORAGE_STORES.operations).get([ownerId, 123]);
+            tx.oncomplete = () => resolve({ sentinel: sentinel.result, row: row.result });
+            tx.onerror = () => reject(tx.error);
+          });
+          closeDatabase(db);
+          return {
+            setup: true,
+            unlockOk: unlock.ok,
+            errorCode: unlock.ok ? null : unlock.error.code,
+            sentinelInstalled: Boolean(state.sentinel),
+            rowRetained: Boolean(state.row),
+          };
+        },
+        { testDbName, ownerId, keyId, validOpId }
+      );
+
+      expect(result.setup).toBe(true);
+      expect(result.unlockOk).toBe(false);
+      expect(result.errorCode).toBe("integrity_failed");
+      expect(result.sentinelInstalled).toBe(false);
+      expect(result.rowRetained).toBe(true);
+    });
+
     test("ST-S08: Legacy data in view_preferences store only: right key migrates, wrong key fails integrity_failed", async ({
       page,
     }) => {

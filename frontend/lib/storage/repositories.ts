@@ -305,11 +305,8 @@ async function listOutboxOperations(
       const opStore = tx.objectStore(STORAGE_STORES.operations);
 
       const metaReq = metaStore.get(ctx.ownerId);
-      const range = IDBKeyRange.bound(
-        [ctx.ownerId, ""],
-        [ctx.ownerId, "\uffff"]
-      );
-      const opReq = opStore.getAll(range);
+      const range = IDBKeyRange.lowerBound([ctx.ownerId]);
+      const opReq = opStore.openCursor(range);
 
       let metaChecked = false;
       let rows: unknown[] = [];
@@ -343,9 +340,20 @@ async function listOutboxOperations(
       };
 
       opReq.onsuccess = () => {
-        rows = Array.isArray(opReq.result) ? opReq.result : [];
-        opsRead = true;
-        finishIfReady();
+        const cursor = opReq.result;
+        if (!cursor) {
+          opsRead = true;
+          finishIfReady();
+          return;
+        }
+        const key = cursor.key;
+        if (!Array.isArray(key) || key[0] !== ctx.ownerId) {
+          opsRead = true;
+          finishIfReady();
+          return;
+        }
+        rows.push(cursor.value);
+        cursor.continue();
       };
       opReq.onerror = () => {
         if (!customError) {

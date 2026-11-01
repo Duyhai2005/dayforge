@@ -3229,6 +3229,65 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
       expect(result.nullQualityCode).toBe("invalid_data");
     });
 
+    test("R04: undefined precondition guards are rejected before commit", async ({ page }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+      const result = await page.evaluate(async () => {
+        const s = window.__dayforge_storage_atomicity;
+        const ownerId = "11111111-9004-4000-8000-000000000001";
+        const deviceId = "33333333-9004-4000-8000-000000000001";
+        const open = await s.openDatabase({ name: `r04-${crypto.randomUUID()}` });
+        if (!open.ok) return { setup: false, results: [], operationCount: -1, deviceMetaCount: -1 };
+        const db = open.value;
+        const key = await s.generateTestKey();
+        const unlocked = await s.unlockOwner(db, ownerId, "r04-key", key);
+        if (!unlocked.ok) return { setup: false, results: [], operationCount: -1, deviceMetaCount: -1 };
+        const guardValues = [
+          { expected_root_hash: undefined },
+          { expected_bucket: undefined },
+        ];
+        const results = [] as Array<{ ok: boolean; code: string | null }>;
+        for (let index = 0; index < guardValues.length; index += 1) {
+          const saved = await s.persistOperationAtomic(db, {
+            context: unlocked.value,
+            deviceId,
+            operationId: `22222222-9004-4000-8000-${(index + 1).toString().padStart(12, "0")}`,
+            commands: [{
+              root: { kind: "plan", id: "44444444-9004-4000-8000-000000000001" },
+              action: "plan.create",
+              payload: { data: { name: "undefined guard", color_id: "green" } },
+              precondition: guardValues[index],
+            }],
+            dependencies: [],
+            clockInput: {
+              estimatedUtcMs: 1793480000000 + index,
+              rawWallMs: 1793480000000 + index,
+              calibrationId: "55555555-9004-4000-8000-000000000001",
+              quality: "calibrated",
+            },
+          } as any);
+          results.push({ ok: saved.ok, code: saved.ok ? null : saved.error.code });
+        }
+        const counts = await new Promise<{ operations: number; deviceMeta: number }>((resolve, reject) => {
+          const tx = db.transaction([s.STORAGE_STORES.operations, s.STORAGE_STORES.device_meta], "readonly");
+          const operations = tx.objectStore(s.STORAGE_STORES.operations).count();
+          const deviceMeta = tx.objectStore(s.STORAGE_STORES.device_meta).count();
+          tx.oncomplete = () => resolve({ operations: operations.result, deviceMeta: deviceMeta.result });
+          tx.onerror = () => reject(tx.error);
+        });
+        db.close();
+        return { setup: true, results, operationCount: counts.operations, deviceMetaCount: counts.deviceMeta };
+      });
+
+      expect(result.setup).toBe(true);
+      expect(result.results).toEqual([
+        { ok: false, code: "invalid_data" },
+        { ok: false, code: "invalid_data" },
+      ]);
+      expect(result.operationCount).toBe(0);
+      expect(result.deviceMetaCount).toBe(0);
+    });
+
     test("N07: replay preserves persisted status and request hash after gateway reload", async ({ page }) => {
       await page.goto("/work");
       await page.addScriptTag({ content: buildStorageScript() });
@@ -3341,6 +3400,9 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
         const cases: Array<{ name: string; apply: (row: any, operationId: string) => Promise<void> | void }> = [
           { name: "unknown-status", apply: (row) => { row.status = "garbage"; } },
           { name: "operation-uuid", apply: (row) => { row.operation_id = "not-a-uuid"; } },
+          { name: "operation-id-number", apply: (row) => { row.operation_id = 123; } },
+          { name: "operation-id-array", apply: (row) => { row.operation_id = ["bad"]; } },
+          { name: "operation-id-high-sentinel", apply: (row) => { row.operation_id = "\uffffx"; } },
           { name: "sequence-type", apply: (row) => { row.device_sequence = 1; } },
           { name: "sequence-overflow", apply: (row) => { row.device_sequence = "18446744073709551616"; } },
           { name: "request-hash-shape", apply: (row) => { row.request_hash = "A".repeat(64); } },
@@ -3366,8 +3428,12 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             row.request_hash = hash.hash;
           } },
         ];
-        const codes: Array<{ name: string; sendableCode: string | null; replayCode: string | null; rowRetained: boolean }> = [];
+        const codes: Array<{ name: string; sendableCode: string | null; replayCode: string | null; rowRetained: boolean; baselineOk: boolean }> = [];
         for (let index = 0; index < cases.length; index += 1) {
+          const baselineSendable = await gateway.listSendableOperations(ctx);
+          const baselineReplay = await (gateway as any).listOutboxForReplay(ctx);
+          const baselineOk = baselineSendable.ok && baselineSendable.value.length === 0 &&
+            baselineReplay?.ok && baselineReplay.value.length === 0;
           const operationId = `22222222-9011-4000-8000-${(index + 1).toString().padStart(12, "0")}`;
           const saved = await gateway.persistOperation({
             context: ctx,
@@ -3423,6 +3489,13 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             sendableCode: sendable.ok ? null : sendable.error.code,
             replayCode: replay?.ok ? null : replay?.error.code ?? "missing_api",
             rowRetained: beforeCount === afterCount,
+            baselineOk,
+          });
+          await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(s.STORAGE_STORES.operations, "readwrite");
+            tx.objectStore(s.STORAGE_STORES.operations).delete([ownerId, row.operation_id]);
+            tx.oncomplete = () => resolve();
+            tx.onabort = () => reject(tx.error);
           });
         }
         gateway.close();
@@ -3434,6 +3507,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
       expect(result.codes.map((entry: any) => entry.sendableCode)).toEqual(Array(result.codes.length).fill("integrity_failed"));
       expect(result.codes.map((entry: any) => entry.replayCode)).toEqual(Array(result.codes.length).fill("integrity_failed"));
       expect(result.codes.every((entry: any) => entry.rowRetained)).toBe(true);
+      expect(result.codes.every((entry: any) => entry.baselineOk)).toBe(true);
       expect(pageErrors).toEqual([]);
     });
 

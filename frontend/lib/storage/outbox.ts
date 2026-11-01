@@ -862,6 +862,17 @@ export function validateCommand(cmd: unknown, index = 0): cmd is StorageCommand 
         );
       }
     }
+    if (
+      (Object.prototype.hasOwnProperty.call(candidate.precondition, "expected_root_hash") &&
+        candidate.precondition.expected_root_hash === undefined) ||
+      (Object.prototype.hasOwnProperty.call(candidate.precondition, "expected_bucket") &&
+        candidate.precondition.expected_bucket === undefined)
+    ) {
+      throw new StorageError(
+        "invalid_data",
+        `Command at index ${index} precondition guards must not be undefined`
+      );
+    }
     if (candidate.action === "set_order" && !candidate.precondition.expected_root_hash) {
       throw new StorageError(
         "invalid_data",
