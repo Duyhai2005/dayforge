@@ -1,53 +1,42 @@
 # T08 — Verification and handoff
 
-**Date:** 31/10/2026  
-**Branch:** `feature/local-persistent-storage`  
-**Base commit:** `65480f2`  
-**Pull Request:** [#8 Implement persistent local storage engine with encrypted outbox](https://github.com/Duyhai2005/dayforge/pull/8)  
-**PR target:** `develop`  
-**Status:** Hoàn thành toàn diện lớp lưu trữ cục bộ bền vững IndexedDB (T08). Tất cả 20 kịch bản kiểm thử bắt buộc (ST-01 đến ST-20) và 89 tests Playwright trình duyệt đã được kiểm chứng 100% PASS trên cả môi trường Next.js Dev Server và Production Server. Toàn bộ các quality gates CI (`verify:fast`, `test:web`, `build:web`, `test:web:prod`, `verify`) đều vượt qua với 0 cảnh báo và 0 lỗi.
+**Cập nhật:** 01/11/2026
+**PR:** [#8 Implement persistent local storage engine with encrypted outbox](https://github.com/Duyhai2005/dayforge/pull/8) → `develop`
+**Nhánh:** `feature/local-persistent-storage` (worktree `codex/t08-integrity-api`)
+**Mốc CI gần nhất đã xác minh:** [`bc63108`](https://github.com/Duyhai2005/dayforge/commit/bc6310890f0c91dda3feef705e0f08bc2be3f6e7), [run 41277992819](https://github.com/Duyhai2005/dayforge/actions/runs/41277992819) — `quality`, `frontend`, `backend-mysql` đều xanh. Run này áp dụng cho `bc63108`; chưa có CI cho commit `29bada5` vì commit đó chưa push.
 
----
+Phần bên dưới là trạng thái hiện tại của API và kiểm chứng. Các mục review cũ được giữ làm lịch sử; không dùng các API trong chúng làm hướng dẫn tích hợp.
 
-## 1. Môi Trường Kiểm Thử (Verification Environment)
+## 1. Môi trường kiểm thử hiện tại
 
-| Thành phần | Phiên bản / Cấu hình |
+| Thành phần | Trạng thái |
 |---|---|
-| Hệ điều hành | Microsoft Windows 11 Home, `10.0.26300`, build `26300` |
-| Node.js | `24.22.1` |
-| pnpm | `12.16.1` |
-| uv | `0.13.6` |
-| Python (uv managed) | `3.14.10` |
-| Next.js / React / TypeScript | `16.4.3` / `19.3.1` / `6.0.3` (strict mode: 0 errors) |
-| ESLint / eslint-config-next | `9.39.5` / `16.4.3` (`--max-warnings=0`) |
-| Ruff / Black / mypy | `0.17.3` / `26.10.1` / `2.4.1` (0 issues) |
-| Playwright | `1.64.1` / Chromium `156.0.8078.4` (headless, trace retain-on-failure) |
-| Cổng dịch vụ kiểm thử | Port 3010 (Next dev server), Port 3001 (Next production server) |
+| Node.js / pnpm | `24.22.1` / `12.16.1` |
+| Next.js / React / TypeScript | `16.4.3` / `19.3.1` / `6.0.3` |
+| Playwright | `1.64.1`, Chromium headless |
+| `uv` | Không cài trong môi trường cục bộ; chưa chạy backend gates tại đây |
+| Cổng Playwright | 3010 (dev), 3001 (production) |
 
----
+## 2. Quality gates đã quan sát
 
-## 2. Kết Quả Xác Minh Quality Gates (Commands & Observed Results)
+Các kết quả frontend dưới đây thuộc mã cục bộ sau N07–N10. CI link ở đầu trang xác nhận commit nền `bc63108`, không đại diện cho diff chưa push.
 
-Toàn bộ các lệnh kiểm thử và kiểm tra chất lượng từ root repo đều đạt kết quả PASS:
-
-| Quality Gate | Lệnh thực thi | Kết quả quan sát |
+| Gate | Lệnh | Kết quả |
 |---|---|---|
-| Frontend Lint | `pnpm lint:web` | **PASS**, ESLint bao quát toàn bộ workspace với `--max-warnings=0`, 0 lỗi, 0 cảnh báo |
-| Backend Lint | `pnpm lint:api` | **PASS**, Ruff check trên `app`, `tests`, `migrations`, `scripts`, 0 issues |
-| Backend Format | `pnpm format:check:api` | **PASS**, Black check 42 files để nguyên |
-| Frontend Typecheck | `pnpm typecheck:web` | **PASS**, `tsc --noEmit` hoàn thành không có bất kỳ lỗi kiểu nào |
-| Backend Typecheck | `pnpm typecheck:api` | **PASS**, mypy trên 21 source files không phát hiện lỗi |
-| Environment Regressions | `pnpm verify:env` | **PASS**, 28/28 tests trong 1.25s (generator, smoke, origin guard, runner regressions) |
-| Backend Non-MySQL Tests | `pnpm test:api` | **PASS**, 203 passed, 38 deselected trong 7.67s |
-| Fast Aggregate Gate | `pnpm verify:fast` | **PASS**, chạy tuần tự lint, typecheck, verify:env, test:api thành công |
-| Frontend Dev Browser Suite | `pnpm test:web` | **PASS**, 89/89 tests passed (bao gồm 57 tests lưu trữ T08 và 32 tests T06) |
-| Frontend Production Build | `pnpm build:web` | **PASS**, Next.js production build tối ưu hóa trong 2.1s |
-| Frontend Prod Browser Suite | `pnpm test:web:prod` | **PASS**, 89/89 tests passed trên production server (port 3001) với strict security headers |
-| Full Repository Gate | `pnpm verify` | **PASS**, toàn bộ pipeline verify:fast + test:web + build:web + test:web:prod hoàn tất 100% |
+| Frontend lint | `pnpm lint:web` | PASS, `eslint . --max-warnings=0` |
+| Frontend typecheck | `pnpm typecheck:web` | PASS, `tsc --noEmit` |
+| Dev browser suite | `pnpm --filter @dayforge/frontend exec playwright test --workers=4` | PASS, 139/139 |
+| Production build | `pnpm build:web` | PASS, optimized Next.js build |
+| Production browser suite | `pnpm test:web:prod` | PASS, 139/139 |
+| Backend local gates | `pnpm verify:fast` | Chưa chạy: thiếu `uv`; CI trên commit nền xanh như link đầu trang |
+
+`pnpm test:web` và `pnpm test:web:prod` trong các mục lịch sử phía dưới là số liệu tại thời điểm cũ, không phải số hiện tại.
 
 ---
 
-## 3. Ma Trận Nghiệm Thu 20 Kịch Bản Lưu Trữ (ST-01 đến ST-20)
+## 3. Ma Trận Nghiệm Thu Ban Đầu (ST-01 đến ST-20, bản lịch sử)
+
+> Ma trận và thời lượng bên dưới ghi lại lượt kiểm thử đầu tiên của T08; số lượng hiện tại nằm ở mục 2.
 
 T08 xây dựng 6 tệp kiểm thử Playwright chuyên biệt (`frontend/tests/storage-*.spec.ts`) bao phủ chính xác 20 kịch bản cốt lõi theo hợp đồng kỹ thuật T03:
 
@@ -69,14 +58,14 @@ T08 xây dựng 6 tệp kiểm thử Playwright chuyên biệt (`frontend/tests/
 | **ST-14** | Unsupported Version Rejection | `storage-migrations.spec.ts`<br>Tab cũ mở cơ sở dữ liệu có phiên bản cao hơn `CURRENT_SCHEMA_VERSION`: trả về `StorageError('unsupported_version')`, tuyệt đối không gọi `deleteDatabase()`. | **PASS** (1.7s) |
 | **ST-15** | View Preferences Safe Migration | `storage-view-state.spec.ts`<br>Di chuyển sở thích xem hợp lệ từ `sessionStorage` của T06 vào store `view_preferences` được mã hóa theo owner trong IndexedDB và dọn sạch key cũ. | **PASS** (1.4s) |
 | **ST-16** | 64-Bit Sequence Precision | `storage-atomicity.spec.ts`<br>Bảo toàn độ chính xác số học của `device_sequence` 64-bit: tăng từ `18446744073709551614` lên max `18446744073709551615` bằng `BigInt` mà không mất độ chính xác. | **PASS** (555ms) |
-| **ST-17** | Untrusted Clock Handling | `storage-atomicity.spec.ts`<br>Thao tác có chất lượng đồng hồ `quality: "untrusted"` được gắn cờ `status: "time_invalid"` trong outbox và bị loại trừ khỏi `listPending`. | **PASS** (497ms) |
+| **ST-17** | Untrusted Clock Handling | `storage-atomicity.spec.ts`<br>Thao tác có chất lượng đồng hồ `quality: "untrusted"` được gắn cờ `status: "time_invalid"` trong outbox và bị loại trừ khỏi `listSendableOperations`. | **PASS** (497ms) |
 | **ST-18** | Non-Leakage Security Invariant | `storage-failures.spec.ts`<br>Quét toàn bộ 8 object stores trong IndexedDB và console logs của trình duyệt: xác nhận 0 token phiên, 0 raw key, và 0 bí mật plaintext bị rò rỉ. | **PASS** (1.1s) |
 | **ST-19** | Boundary Scale & Unicode Content | `storage-failures.spec.ts`<br>1. Lưu và xác thực 1.000 commands trong một operation với mã băm chuẩn RFC 8785 Canonical JSON SHA-256.<br>2. Lưu và đọc 4.000 codepoint Unicode note đa ngôn ngữ (Persian RTL, Tiếng Việt dấu thanh, Emoji astral plane, CJK) không bị cắt ngắn hay lỗi giải mã. | **PASS** (2.6s + 1.2s) |
 | **ST-20** | Performance Scale Benchmark | `storage-failures.spec.ts`<br>Đo kiểm hiệu năng thực tế 100 outbox operations được mã hóa AES-256-GCM trong Chromium: batch persist ~ 1.28 ms/op, read & decrypt ~ 0.05 ms/op. | **PASS** (850ms) |
 
 ---
 
-## 4. Đo Kiểm Hiệu Năng Thực Tế (Performance Metrics)
+## 4. Đo Kiểm Hiệu Năng Ban Đầu (bản lịch sử)
 
 Thực thi trên trình duyệt Chromium thực tế thông qua Playwright runner:
 
@@ -134,35 +123,25 @@ Avg Read & Decrypt per Op:    0.05 ms
 
 ---
 
-## 7. Bàn Giao Kỹ Thuật (Handoff to Subsequent Tasks)
+## 7. Bàn giao kỹ thuật hiện tại cho T09–T13
 
-Lớp lưu trữ T08 đã sẵn sàng cung cấp các giao diện và hợp đồng cho các task tiếp theo:
+`frontend/lib/storage/index.ts` là API app-facing. `frontend/lib/storage/integration.ts` là bề mặt low-level cho các tích hợp T09/T10/T11. Dùng các chữ ký đang export:
 
-1. **Bàn giao cho T09 (Tài khoản, Xác thực & Khóa phiên `local-key`):**
-   - API sẵn sàng: `unlockOwner(ownerId, lockEpoch, cryptoKey)`, `lockOwner(ownerId)`, `isOwnerUnlocked(ownerId)`.
-   - T09 chỉ cần gọi `/auth/local-key` từ server, import thành non-extractable `CryptoKey` qua Web Crypto API, và truyền vào `unlockOwner` để mở khóa toàn bộ quyền ghi/đọc dữ liệu của chủ sở hữu.
-2. **Bàn giao cho T10 (API Đồng Bộ Máy Chủ `push`/`pull`):**
-   - `outbox.ts` đã chuẩn hóa `OperationEnvelope` và mã băm `request_hash` theo chuẩn RFC 8785 Canonical JSON SHA-256.
-   - API `listPendingOperations(ownerContext)` cung cấp danh sách thao tác pending kèm theo `device_sequence` và `hlc` theo đúng định dạng wire của T03.
-3. **Bàn giao cho T11 (Bộ Điều Phối Đồng Bộ Client `sync-coordinator`):**
-   - T11 sử dụng `listPendingOperations` (hoặc `listPending`) để lấy danh sách thao tác có trạng thái `pending` gửi push lên máy chủ khi có mạng.
-   - **Vòng đời Outbox & Xác nhận Pull (`ack_waiting_pull`):**
-     - Khi máy chủ trả về ACK xác nhận đã nhận operation, T11 gọi `markOperationAcked(ctx, operationId)` để chuyển trạng thái sang `ack_waiting_pull`. **Hàng outbox KHÔNG được xóa ngay tại thời điểm ACK!**
-     - Theo quy định hợp đồng T03 và T08, một hàng outbox BẮT BUỘC phải tiếp tục tồn tại ở trạng thái `ack_waiting_pull` cho đến khi một lượt pull tiếp theo (`subsequent pull`) xác nhận máy chủ đã xử lý thành công và cập nhật bản ghi vào projection.
-     - Tại thời điểm đó, T11 gọi một trong hai API:
-       - `confirmPulledOperationInTx(tx, ctx, operationId, expectedRequestHash)` khi T11 đã sở hữu transaction readwrite bao quát `owner_meta`, shadow records, pull cursor và `operations`. Helper này xác thực owner gate (`ctx` khớp `owner_meta`: chưa khóa, đúng `active_key_id`, đúng `lock_epoch`) ngay bên trong transaction trước khi xóa hàng outbox.
-       - `markOperationSynced(db, ctx, operationId, expectedRequestHash)` cho luồng standalone; hàm này mở transaction `[owner_meta, operations]` và ủy quyền cho helper trên.
-     - Cả hai API đều yêu cầu `expectedRequestHash` khớp hash SHA-256 của envelope đã ACK và hàng outbox phải đang ở `ack_waiting_pull`; nếu không, transaction bị hủy và hàng outbox được giữ nguyên.
-4. **Bàn giao cho T12 (Bộ Thu Gọn LWW Reducer & Giải Quyết Xung Đột):**
-   - T08 lưu trữ các bản ghi dưới dạng snapshot/overlay độc lập.
-   - Khi T12 hoàn thành LWW reducer theo hợp đồng T03, T12 có thể đọc tuần tự các operations và áp dụng deterministic reduction lên store `records` một cách an toàn.
-5. **Bàn giao cho T13 (Cache Offline & Primitives Lưu Trữ Tùy Chọn Xem):**
-   - **Storage Primitive / Handoff Seam (`view_preferences`):** Store `view_preferences` là một primitive lưu trữ cục bộ có schema rõ ràng (`calendar`, `date`, `scale`, `scrollY`, `updatedAt`), được mã hóa AES-256-GCM theo từng owner với AAD gắn chặt `ownerId:calendar`. Đây là một storage primitive / handoff seam độc lập với tầng UI components, cung cấp `readOwnerViewPreference` và `writeOwnerViewPreference` an toàn cho bất kỳ caller nào cần lưu trữ trạng thái hiển thị của owner mà không làm ô nhiễm store `records`.
-   - Service worker ở T13 có thể phục vụ shell ứng dụng offline từ cache, trong khi toàn bộ dữ liệu nghiệp vụ offline được đảm bảo 100% bền vững trong IndexedDB của T08.
+1. **T09 — owner và khóa phiên:** `openDatabase(options?)` trả `StorageResult<IDBDatabase>`; sau khi nạp khóa AES-GCM 256-bit không extractable, gọi `unlockOwner(db, ownerId, keyId, key, optionsForTest?)`. `lockOwner(db, ownerId)` trả `StorageResult<number>` và `isOwnerUnlocked(db, ownerId)` trả `StorageResult<boolean>`. Các thao tác đọc/ghi dùng `OwnerAccessContext` trả về từ `unlockOwner`.
+2. **T10 — push:** gọi `gateway.listSendableOperations(ctx)` để nhận envelope có trạng thái `queued`, `sending` hoặc `pending`. Mỗi envelope giữ `device_sequence`, `edit_time`, dependencies và commands; `requestHash` trong DTO replay là SHA-256 của JCS envelope gốc. Không dùng alias `listPending`/`listPendingOperations`; chúng không còn trong API production.
+3. **T11 — replay/pull:** gọi `gateway.listOutboxForReplay(ctx)` để nhận `OutboxReplayItem { envelope, status, requestHash }`. Kết quả gồm `queued`, `sending`, `blocked`, `ack_waiting_pull`, `time_invalid`, `pending`; `superseded_by` vẫn lưu trên đĩa nhưng bị loại khỏi replay. ACK không xóa row: `gateway.markOperationAcked(ctx, operationId)` chỉ đổi trạng thái sang `ack_waiting_pull`.
+   - Sau khi pull xác nhận đúng operation ID/hash, T11 gọi `confirmPulledOperationInTx(tx, ctx, operationId, expectedRequestHash, callbacks?)` trong chính transaction `readwrite` của caller.
+   - Transaction caller phải bao gồm `owner_meta`, `operations` và các store dùng để ghi shadow, projection/replay cùng pull cursor. Helper kiểm tra owner gate bên trong transaction, rồi xác nhận trạng thái `ack_waiting_pull` và hash trước khi xóa outbox. Ghi shadow/projection, tiến cursor và xóa outbox phải commit hoặc rollback cùng nhau.
+   - Không có API production `markOperationSynced` mở transaction riêng; helper tích hợp không tự ghi shadow hoặc cursor.
+   - UI đếm operation chưa ACK: giữ `blocked`/`time_invalid` trong pending overlay; không đếm `ack_waiting_pull`. API replay trả status để caller không phải suy đoán từ envelope.
+4. **T12 — reducer:** đọc `item.envelope` từ replay DTO và kết hợp theo operation ID/hash với shadow/pull; không xóa row ACK trước khi pull cùng transaction xác nhận.
+5. **T13 — view preferences:** các primitive `readOwnerViewPreference`, `writeOwnerViewPreference` và `migrateLegacyViewPreferences` nằm ở integration exports; dữ liệu có owner scope và mã hóa trong IndexedDB.
 
 ---
 
-## 8. Giải Quyết Đầy Đủ Các Nhận Xét Đánh Giá PR #8 (PR #8 Review Resolution)
+## 8. Lịch sử review: Nhận xét ban đầu PR #8
+
+> Nội dung các mục 8–14 là lịch sử theo từng thời điểm; API/hướng dẫn hiện tại ở mục 7.
 
 Dưới đây là chi tiết kỹ thuật 8 hạng mục được review bởi maintainer repository `Duyhai2005` và các giải pháp đã được tích hợp:
 
@@ -206,7 +185,7 @@ Dưới đây là chi tiết kỹ thuật 8 hạng mục được review bởi m
 
 ---
 
-## 9. Giải Quyết Nhận Xét Đánh Giá Bổ Sung PR #8 (Follow-up Review Resolution)
+## 9. Lịch sử review: follow-up PR #8
 
 Maintainer `Duyhai2005` đã tiến hành rà soát chuyên sâu bổ sung sau commit `32248cdf`. Toàn bộ 7 hạng mục còn lại đã được xử lý triệt để:
 
@@ -241,7 +220,7 @@ Maintainer `Duyhai2005` đã tiến hành rà soát chuyên sâu bổ sung sau c
 
 ---
 
-## 10. Giải Quyết Nhận Xét Đánh Giá Chuyên Sâu T03 Schema Parity (Review Comment ID 6545156728)
+## 10. Lịch sử review: T03 schema parity (Comment ID 6545156728)
 
 Reviewer `Duyhai2005` đã rà soát chuyên sâu commit `1a3db33d` và yêu cầu 6 nhóm sửa đổi trọng yếu về tính toàn vẹn schema wire protocol T03 cùng bảo mật vault key:
 
@@ -279,7 +258,7 @@ Reviewer `Duyhai2005` đã rà soát chuyên sâu commit `1a3db33d` và yêu c�
    - `pnpm lint:web` và `pnpm typecheck:web` hoàn thành với 0 cảnh báo.
    - `pnpm verify:fast` vượt qua 100% (203 pytest API tests, 28 python unittests, black formatting, ruff linter, mypy typing).
 
-## 11. Giải Quyết Nhận Xét Đánh Giá Bổ Sung PR #8 (Review Comment ID 6545873304)
+## 11. Lịch sử review: bổ sung PR #8 (Comment ID 6545873304)
 
 Reviewer `Duyhai2005` đã rà soát commit tiếp theo và chỉ ra 6 phát hiện (F01–F06) cùng 1 yêu cầu bàn giao cho T11 (H01):
 
@@ -336,7 +315,7 @@ Reviewer `Duyhai2005` đã rà soát commit tiếp theo và chỉ ra 6 phát hi�
 
 ---
 
-## 12. Bổ Sung Giải Quyết Review Findings S01–S05 (Key-Continuity Sentinel, Concurrency CAS & Legacy Store Migration)
+## 12. Lịch sử review: S01–S05 (key-continuity sentinel, concurrency CAS, legacy migration)
 
 Dựa trên tài liệu đề xuất rà soát chuyên sâu (*"DAYFORGE — PR #8: Detailed Fix Proposal for Key-Continuity Sentinel"*), nhóm đã hoàn thiện triển khai và bổ sung bộ regression test tương ứng cho 5 phát hiện S01–S05:
 
@@ -388,7 +367,7 @@ Dựa trên tài liệu đề xuất rà soát chuyên sâu (*"DAYFORGE — PR #
 
 ---
 
-## 13. Giải Quyết Review Findings M01–M05 (Legacy Full-Inventory Auth, Epoch Invalidation, Transactional Owner Gate)
+## 13. Lịch sử review: M01–M05 (legacy inventory, epoch invalidation, owner gate)
 
 Maintainer `Duyhai2005` đã rà soát commit `fe0c2b75` và yêu cầu sửa 5 phát hiện còn lại (M01–M05). Toàn bộ đã được xử lý:
 
@@ -429,7 +408,7 @@ Maintainer `Duyhai2005` đã rà soát commit `fe0c2b75` và yêu cầu sửa 5 
 
 ---
 
-## 14. M06 — Kiểm tra lại ciphertext legacy trong transaction CAS
+## 14. Lịch sử review: M06 — ciphertext legacy trong transaction CAS
 
 Commit `c4638f3` đóng race giữa việc chụp snapshot/giải mã toàn bộ legacy inventory và Phase 3 CAS:
 
@@ -439,37 +418,29 @@ Commit `c4638f3` đóng race giữa việc chụp snapshot/giải mã toàn bộ
 - Transaction còn giữ lock đọc-ghi trên toàn bộ stores trong lúc so khớp và tăng `lock_epoch`/cài sentinel, nên những write khác hoặc được kiểm tra trước commit, hoặc bị đẩy về sau epoch bump và sẽ bị owner gate từ chối.
 - Regression **M06** mô phỏng context cũ ghi thêm encrypted preference với khóa khác ngay sau Phase 1. Migration phải phát hiện conflict, thử lại và trả `integrity_failed` **mà không cài sentinel hoặc xóa các ciphertext cũ**.
 
-### Ràng buộc T11
+### Ràng buộc T11 trong bản M06 (lịch sử, đã thay thế)
 
-`markOperationSynced()` vẫn được giữ tạm cho consumer/test cũ nhưng được đánh dấu **`@deprecated`** vì xóa outbox qua transaction riêng, không ghi shadow/cursor. Network sync T11 **không được dùng hàm này**. T11 phải dùng `confirmPulledOperationInTx()` trong **cùng một transaction readwrite** chứa `owner_meta`, `operations` và những stores ghi pull shadow, projection/cursor; cả ba bước ghi shadow, tiến cursor và xóa outbox phải commit/rollback cùng nhau.
+Bản ghi cũ nhắc tới `markOperationSynced()` như API tạm thời. API production đó đã bị gỡ; tích hợp hiện tại phải theo mục 7 và dùng `confirmPulledOperationInTx()` trong transaction do pull sở hữu.
 
-> Kết quả CI của các commit sửa M06 cần được kiểm tra trực tiếp trên GitHub Actions; tài liệu không tự khẳng định đã pass trước khi CI hoàn tất.
+> Kết quả CI phải được kiểm tra trên GitHub Actions; mục 2 chỉ ghi những run và SHA đã quan sát.
 
-## 15. PR #8 Follow-up — Integrity and API Findings R01–R04
+## 15. PR #8 follow-up hiện tại — R01–R04 và N07–N10
 
-**Date:** 01/11/2026
-**Reviewed head:** `0bb5877695574378ab78b7e8e81d69738891308c`
+**Cập nhật:** 01/11/2026
+**Implementation commit:** `29bada5`, dựa trên `bc63108`. CI ở đầu tài liệu hiện xác nhận SHA nền; CI cho implementation commit sẽ được cập nhật sau khi push.
 
-The follow-up remediation addresses the four findings from the open PR review:
+- **R01–R04:** input persist được snapshot trước validate/hash/encrypt; sequence metadata lỗi fail-closed; HLC validation strict và quality không còn mặc định; close trong lúc read trả lỗi typed.
+- **N07:** `listOutboxForReplay(ctx)` trả `{ envelope, status, requestHash }`; ACK-waiting tiếp tục replay-visible nhưng không sendable.
+- **N08:** mục 7 là handoff hiện hành với chữ ký thật và transaction ownership cho pull; các mục review cũ đã được đánh dấu lịch sử.
+- **N09:** `ClockInputParams.quality` bắt buộc; thiếu, `undefined`, `null` hoặc sai enum không thể được diễn giải thành `calibrated`.
+- **N10:** mọi owner-scoped row được kiểm tra status, UUID, sequence uint64, hash và encrypted context trước khi lọc; row được giải mã còn được đối chiếu envelope và canonical hash. Lỗi trả `integrity_failed`, không xóa row.
 
-1. **R01 — Immutable operation snapshot:** `persistOperationAtomic()` structured-clones its input before validation and derivation. It hashes the canonical envelope bytes and encrypts that same serialized string, so caller mutation cannot make the stored envelope disagree with `request_hash`.
-2. **R02 — Sequence metadata fails closed:** a persisted device lane must contain a canonical, bounded decimal `last_sequence`; missing, malformed (including structured-cloneable objects), or out-of-range values return `invalid_data` instead of restarting at sequence `1`. Existing optional `last_hlc` metadata remains compatible, while malformed present values remain rejected.
-3. **R03 — HLC values are strict:** HLC validation rejects extra own fields, and `advanceHlc()` rejects quality values outside the supported enum, including explicit `null` (only omitted quality defaults). These checks happen before commit.
-4. **R04 — Typed close-during-read failure:** the post-decryption owner recheck is shared by record, outbox, and view-preference reads. A closed connection during revalidation is returned as a typed storage error. The gateway also drops its cached connection on close/versionchange.
-
-The app-facing `frontend/lib/storage/index.ts` now exposes the gateway, result/error helpers, and essential DTO types. Low-level T09/T11 primitives live in `frontend/lib/storage/integration.ts`; key-store mutation, migration registry, sentinel internals, and test-key generation are excluded. The deprecated standalone `markOperationSynced` API and `listPending` aliases were removed from production. Test-only compatibility helpers live in `frontend/tests/storage-api.ts`, and all six storage specs use the shared per-module browser harness in `frontend/tests/helpers/storage-browser-harness.ts`.
-
-### Follow-up verification
-
-| Check | Result |
+| Check cục bộ | Kết quả |
 |---|---|
-| `pnpm lint:web` | PASS, no lint errors or warnings |
+| `pnpm lint:web` | PASS |
 | `pnpm typecheck:web` | PASS |
-| R01–R04 Playwright regressions (including hostile sequence metadata and explicit-null quality) | PASS, 4/4 |
-| Full frontend Playwright suite (`--workers=4`) | PASS, 136/136 |
-| Production build (`pnpm build:web`) | PASS |
-| Production Playwright suite (`--workers=4`) | PASS, 136/136 |
-| `pnpm verify` | Could not complete: `uv` is not installed, so the backend Ruff step stopped `verify:fast` before backend checks. Frontend lint/typecheck and both browser suites were run separately. |
-
-The frontend and storage changes are verified locally. Backend checks remain unverified in this environment because the required `uv` executable is unavailable.
+| Dev Playwright suite (`--workers=4`) | PASS, 139/139 |
+| `pnpm build:web` | PASS, optimized Next.js build |
+| Production Playwright suite (`--workers=4`) | PASS, 139/139 |
+| Backend `pnpm verify:fast` | Chưa chạy tại local vì thiếu `uv`; CI xanh trên SHA nền theo link đầu trang |
 
