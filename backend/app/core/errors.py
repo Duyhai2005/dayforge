@@ -41,6 +41,17 @@ _TEXT = {
         "The request could not be verified.",
     ),
     "owner_mismatch": ("Owner mismatch", "The session does not match this owner."),
+    "client_update_required": (
+        "Client update required",
+        "Update the client before syncing this operation.",
+    ),
+    "dependency_missing": ("Dependency missing", "Sync the required operation before retrying this one."),
+    "operation_id_reused": ("Operation ID reused", "This operation ID was already used for different content."),
+    "invalid_causality": ("Invalid operation order", "The operation dependency order is invalid."),
+    "time_invalid": ("Invalid operation time", "The operation timestamp cannot be accepted."),
+    "clock_unhealthy": ("Server clock unavailable", "The server clock is temporarily unreliable."),
+    "cursor_epoch_mismatch": ("Sync state changed", "Bootstrap the current sync epoch before continuing."),
+    "page_token_expired": ("Page token expired", "Start a new sync page from the last saved cursor."),
     "email_not_verified": (
         "Email not verified",
         "Verify the owner email before continuing.",
@@ -111,6 +122,37 @@ class ProblemHTTPException(HTTPException):
         self.retry_after_seconds = retry_after_seconds
 
 
+def build_problem(
+    request: Request,
+    *,
+    status_code: int,
+    code: str,
+    field_errors: list[FieldError] | None = None,
+    retry_after_seconds: int | None = None,
+    retryable: bool | None = None,
+) -> Problem:
+    if code not in _TEXT:
+        status_code, code = 500, "internal_error"
+    title, detail = _TEXT[code]
+    now = datetime.now(timezone.utc)
+    now = now.replace(microsecond=(now.microsecond // 1000) * 1000)
+    retry_after = retry_after_seconds if status_code == 429 else None
+    request.state.error_code = code
+    return Problem(
+        type=f"/api/v1/problems/{code}",
+        title=title,
+        status=status_code,
+        detail=detail,
+        instance=f"/api/v1/requests/{request.state.request_id}",
+        code=code,
+        request_id=request.state.request_id,
+        retryable=status_code in (429, 503) if retryable is None else retryable,
+        server_time=format_utc_timestamp(now),
+        field_errors=field_errors,
+        retry_after_seconds=retry_after,
+    )
+
+
 def make_problem(
     request: Request,
     *,
@@ -119,29 +161,16 @@ def make_problem(
     field_errors: list[FieldError] | None = None,
     retry_after_seconds: int | None = None,
 ) -> JSONResponse:
-    if code not in _TEXT:
-        status_code, code = 500, "internal_error"
-    title, detail = _TEXT[code]
-    now = datetime.now(timezone.utc)
-    now = now.replace(microsecond=(now.microsecond // 1000) * 1000)
-    retry_after = retry_after_seconds if status_code == 429 else None
-    problem = Problem(
-        type=f"/api/v1/problems/{code}",
-        title=title,
-        status=status_code,
-        detail=detail,
-        instance=f"/api/v1/requests/{request.state.request_id}",
+    problem = build_problem(
+        request,
+        status_code=status_code,
         code=code,
-        request_id=request.state.request_id,
-        retryable=status_code in (429, 503),
-        server_time=format_utc_timestamp(now),
         field_errors=field_errors,
-        retry_after_seconds=retry_after,
+        retry_after_seconds=retry_after_seconds,
     )
-    request.state.error_code = code
     headers = {"Cache-Control": "no-store"}
-    if retry_after is not None:
-        headers["Retry-After"] = str(retry_after)
+    if problem.retry_after_seconds is not None:
+        headers["Retry-After"] = str(problem.retry_after_seconds)
     return JSONResponse(
         problem.model_dump(exclude_none=True),
         status_code=status_code,

@@ -2,9 +2,10 @@
 
 from typing import Annotated, Any, Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
-from app.schemas.common import ContractModel, DeviceSequence, WireTimestamp, WireUUID
+from app.schemas.common import ContractModel, Cursor, DeviceSequence, WireTimestamp, WireUUID
+from app.schemas.problem import Problem
 
 MAX_SAFE_INTEGER = 9007199254740991
 UINT32_MAX = 4294967295
@@ -39,3 +40,43 @@ class SyncClockResponse(ContractModel):
     server_time_ms: Annotated[int, Field(ge=0, le=MAX_SAFE_INTEGER)]
     server_time: WireTimestamp
     max_future_skew_ms: Literal[300000]
+
+
+class OperationReceiptView(ContractModel):
+    operation_id: WireUUID
+    request_hash: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    recorded: Literal[True]
+    commit_cursor: DeviceSequence
+    effect_at_commit: Literal["applied", "superseded", "no_op"]
+    reason_at_commit: (
+        Literal[
+            "duplicate_target",
+            "reference_unavailable",
+            "target_retired",
+            "precondition_failed",
+            "undo_not_applicable",
+        ]
+        | None
+    )
+
+
+class PushResult(ContractModel):
+    operation_id: WireUUID | None
+    status: Literal["recorded", "duplicate", "deferred", "rejected"]
+    receipt: OperationReceiptView | None = None
+    problem: Problem | None = None
+
+    @model_validator(mode="after")
+    def result_matches_status(self):
+        if self.status in ("recorded", "duplicate"):
+            if self.operation_id is None or self.receipt is None or self.problem is not None:
+                raise ValueError("invalid_push_result")
+        elif self.receipt is not None or self.problem is None:
+            raise ValueError("invalid_push_result")
+        return self
+
+
+class PushResponse(ContractModel):
+    epoch: WireUUID
+    head_cursor: Cursor
+    results: Annotated[list[PushResult], Field(min_length=1, max_length=100)]
