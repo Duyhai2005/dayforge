@@ -86,6 +86,38 @@ def test_operation_rejects_unknown_fields_and_duplicate_dependencies():
     assert dependency_error.value.code == "validation_failed"
 
 
+def test_validation_errors_do_not_echo_unknown_property_names():
+    module = sync_wire()
+    operation = operation_example()
+    operation["private-note-as-unknown-property"] = "do not echo"
+
+    with pytest.raises(module.SyncWireError) as error:
+        module.validate_operation(operation)
+
+    assert error.value.field_errors is not None
+    assert error.value.field_errors[0].path == ""
+    assert "private-note-as-unknown-property" not in str(error.value.field_errors)
+
+    nested = operation_example()
+    nested["commands"][0]["private-note-as-unknown-property"] = "do not echo"
+    with pytest.raises(module.SyncWireError) as nested_error:
+        module.validate_operation(nested)
+    assert nested_error.value.field_errors is not None
+    assert all("private-note-as-unknown-property" not in item.path for item in nested_error.value.field_errors or [])
+
+
+def test_validation_error_with_newline_property_name_is_sanitized():
+    module = sync_wire()
+    operation = operation_example()
+    operation["unexpected\nfield"] = True
+
+    with pytest.raises(module.SyncWireError) as error:
+        module.validate_operation(operation)
+
+    assert error.value.field_errors is not None
+    assert error.value.field_errors[0].path == ""
+
+
 def test_unknown_protocol_returns_client_update_required():
     module = sync_wire()
     operation = operation_example()

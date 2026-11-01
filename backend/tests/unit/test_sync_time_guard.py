@@ -49,3 +49,10 @@ def test_clock_monitor_detects_large_wall_clock_step_and_stays_unhealthy():
     assert monitor.observe(wall_ms=1_120_000, monotonic_ms=20_000) is True
     assert monitor.observe(wall_ms=1_240_001, monotonic_ms=20_000) is False
     assert monitor.observe(wall_ms=1_240_002, monotonic_ms=20_001) is False
+
+
+def test_clock_monitor_tolerates_small_backward_wall_clock_correction():
+    monitor = ClockMonitor()
+    assert monitor.observe(wall_ms=1_000_000, monotonic_ms=20_000) is True
+    assert monitor.observe(wall_ms=999_999, monotonic_ms=20_001) is True
+    assert monitor.observe(wall_ms=1_000_001, monotonic_ms=20_002) is True

@@ -54,6 +54,22 @@ def _operation_validator() -> Draft202012Validator:
     return Draft202012Validator(schema, format_checker=FormatChecker())
 
 
+@lru_cache(maxsize=1)
+def _operation_property_names() -> frozenset[str]:
+    pending = [_operation_validator().schema]
+    names: set[str] = set()
+    while pending:
+        value = pending.pop()
+        if isinstance(value, dict):
+            properties = value.get("properties")
+            if isinstance(properties, dict):
+                names.update(key for key in properties if isinstance(key, str))
+            pending.extend(value.values())
+        elif isinstance(value, list):
+            pending.extend(value)
+    return frozenset(names)
+
+
 def _reject_value(value: Any) -> None:
     if isinstance(value, str):
         if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
@@ -118,17 +134,30 @@ def _json_pointer(parts) -> str:
     return "".join("/" + str(part).replace("~", "~0").replace("/", "~1") for part in parts)
 
 
+def _safe_json_pointer(parts) -> str:
+    known_properties = _operation_property_names()
+    safe_parts: list[int | str] = []
+    for part in parts:
+        if type(part) is int and part >= 0:
+            safe_parts.append(part)
+        elif isinstance(part, str) and part in known_properties:
+            safe_parts.append(part)
+        else:
+            break
+    return _json_pointer(safe_parts)
+
+
 def _schema_field_errors(errors: list[ValidationError]) -> list[FieldError]:
     output = []
     for error in errors[:50]:
-        output.append(FieldError(path=_json_pointer(error.absolute_path), code="invalid_value"))
+        output.append(FieldError(path=_safe_json_pointer(error.absolute_path), code="invalid_value"))
     return output
 
 
 def _model_field_errors(error: PydanticValidationError) -> list[FieldError]:
     output = []
     for item in error.errors(include_url=False)[:50]:
-        output.append(FieldError(path=_json_pointer(item.get("loc", ())), code="invalid_value"))
+        output.append(FieldError(path=_safe_json_pointer(item.get("loc", ())), code="invalid_value"))
     return output
 
 

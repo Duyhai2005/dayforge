@@ -56,11 +56,7 @@ class ClockMonitor:
             if self._last_wall_ms is not None and self._last_monotonic_ms is not None and self._healthy:
                 wall_elapsed = wall_ms - self._last_wall_ms
                 monotonic_elapsed = monotonic_ms - self._last_monotonic_ms
-                if (
-                    wall_elapsed < 0
-                    or monotonic_elapsed < 0
-                    or abs(wall_elapsed - monotonic_elapsed) > self._max_step_ms
-                ):
+                if monotonic_elapsed < 0 or abs(wall_elapsed - monotonic_elapsed) > self._max_step_ms:
                     self._healthy = False
             self._last_wall_ms = wall_ms
             self._last_monotonic_ms = monotonic_ms

@@ -12,7 +12,7 @@ Ngày cập nhật: **02/11/2026** · Branch/worktree: `codex/t10-sync-api`.
 | Owner isolation, epoch/cursor, dependency, idempotency, fixed watermark H, page cap/progress | Đạt MySQL integration tests. |
 | Event, receipt, change-log và head rollback nguyên tử; race duplicate và cursor liên tục | Đạt MySQL integration tests. |
 | Migration `0004_sync` và schema FK/index | Đạt MySQL integration và Alembic offline SQL. |
-| Ý nghĩa `effect_at_commit` | **Chưa đạt T03:** giá trị mới đang là placeholder `applied`; cần kết quả reducer T12. T10 chưa được đánh dấu hoàn tất. |
+| Ý nghĩa `effect_at_commit` | **Chưa đạt T03:** giá trị mới đang là placeholder `applied`; cần kết quả reducer T12. T10 chưa được đánh dấu hoàn tất và chưa sẵn sàng merge. |
 
 ## Lệnh và kết quả
 
@@ -23,18 +23,19 @@ $env:PYTHONPATH = 'C:\Users\ADMIN\AppData\Roaming\Python\Python314\site-packages
 & 'C:\WorkSpace\dayforge\backend\.venv\Scripts\python.exe' -m pytest tests/api -q
 ```
 
-Kết quả: **114 passed**, 2 cảnh báo tương thích từ AnyIO/httpx.
+Kết quả: **115 passed**, 2 cảnh báo tương thích từ AnyIO/httpx.
 
 ```powershell
 $env:PYTHONPATH = 'C:\Users\ADMIN\AppData\Roaming\Python\Python314\site-packages'
 & 'C:\WorkSpace\dayforge\backend\.venv\Scripts\python.exe' scripts/test_backend.py --mysql -q
 ```
 
-Kết quả: **87 passed, 285 deselected**, 2 cảnh báo, 658.26 giây. Runner tạo project MySQL cô lập với credential ngẫu nhiên và tự teardown.
+Kết quả sau review fix: **87 passed, 289 deselected**, 2 cảnh báo, 660.68 giây. Runner tạo project MySQL cô lập với credential ngẫu nhiên và tự teardown.
 
 Các kiểm tra khác:
 
-- Tập sync unit: **28 passed**.
+- Tập sync unit: **31 passed**.
+- Toàn bộ backend không gồm MySQL: **289 passed, 87 deselected**.
 - Ruff: pass trên code/service/test liên quan.
 - Mypy: `app/services/sync.py` pass.
 - `compileall -q app tests`: pass.
@@ -46,6 +47,16 @@ Lệnh monorepo theo plan không khởi chạy được trong sandbox:
 
 - `pnpm verify:fast` và `pnpm test:api:mysql` dừng trong bước cài workspace khi PNPM không thể tạo symlink project vào store (`EPERM`). `uv` cũng không có trên PATH. Frontend lint/typecheck vì vậy chưa chạy trong lượt này.
 - Lệnh Python MySQL runner bên trên chạy trực tiếp và hoàn tất toàn bộ 87 MySQL tests.
+
+## Kết quả review độc lập
+
+Review toàn nhánh từ T09 xác định ba lỗi Important. Hai lỗi đã được sửa và kiểm chứng RED→GREEN:
+
+- Clock monitor giờ so bước nhảy wall clock với monotonic elapsed theo ngưỡng 120 giây; điều chỉnh lùi 1 ms không còn làm process từ chối write vĩnh viễn. `test_clock_monitor_tolerates_small_backward_wall_clock_correction` đã đỏ trước fix, xanh sau fix.
+- Field errors chỉ đưa tên property thuộc schema T03 vào JSON Pointer. Key ngoài schema, kể cả key có newline, dừng path ở ancestor an toàn; operation lỗi không làm hỏng operation độc lập trong cùng batch. `test_validation_errors_do_not_echo_unknown_property_names`, `test_validation_error_with_newline_property_name_is_sanitized` và `test_unknown_newline_field_does_not_abort_an_independent_push` đã đỏ trước fix, xanh sau fix.
+- Receipt `effect_at_commit` vẫn trả `applied` placeholder dù T03 yêu cầu kết quả reducer thật. T10 plan giao reducer/projection cho T12; chưa có client sync trong codebase. Giữ T10 unchecked và **không merge** cho tới khi tích hợp reducer hoặc sửa T03 theo version mới. Rủi ro còn lại: consumer gọi trực tiếp API có thể hiểu sai hiệu lực nghiệp vụ; retry cùng ID giữ nguyên receipt này.
+
+Review không tìm thấy Critical hoặc Minor khác. Reviewer không chạy MySQL; suite đầy đủ sau fix được chạy riêng bằng isolated runner ở trên. Chi tiết các quyết định và chi phí nếu sai được ghi trong SDD ledger.
 
 ## T11 handoff — client coordinator
 

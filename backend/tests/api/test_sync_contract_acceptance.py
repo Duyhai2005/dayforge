@@ -86,6 +86,61 @@ def test_push_duplicate_returns_the_same_receipt_and_never_logs_payload(
     assert "test-only-private-sync-payload" not in response.text + capsys.readouterr().out
 
 
+def test_unknown_newline_field_does_not_abort_an_independent_push(settings_factory, monkeypatch, contract_validator):
+    from app.api import sync as sync_api
+    from app.services.auth_crypto import encode_base64url
+    from app.services.sync import OperationWriteResult, OwnerSyncHead, ReceiptData
+
+    settings = settings_factory()
+    application = create_app(settings)
+    _verified_owner(application)
+    invalid = _valid_operation()
+    invalid["unexpected\nprivate-field"] = "do not echo"
+    valid = _valid_operation()
+    valid["operation_id"] = "33333333-3333-4333-8333-333333333333"
+    recorded_ids = []
+
+    async def record(_database, owner_id, operation):
+        assert owner_id == UUID(OWNER_ID)
+        recorded_ids.append(operation.operation_id)
+        receipt = ReceiptData(
+            operation_id=operation.operation_id,
+            request_hash=operation.request_hash,
+            commit_cursor=1,
+            effect_at_commit="applied",
+            reason_at_commit=None,
+        )
+        return OperationWriteResult(
+            status="recorded",
+            epoch=UUID(EPOCH),
+            head_cursor=1,
+            receipt=receipt,
+        )
+
+    async def read_head(_database, owner_id):
+        assert owner_id == UUID(OWNER_ID)
+        return OwnerSyncHead(epoch=UUID(EPOCH), head_cursor=1)
+
+    monkeypatch.setattr(sync_api, "record_operation", record)
+    monkeypatch.setattr(sync_api, "read_owner_sync_head", read_head)
+    with TestClient(application, base_url=settings.public_origin, raise_server_exceptions=False) as client:
+        response = client.post(
+            "/api/v1/sync/push",
+            json={"operations": [invalid, valid]},
+            headers={"Origin": settings.public_origin, "X-CSRF-Token": encode_base64url(CSRF)},
+        )
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    result = response.json()["results"]
+    assert [item["status"] for item in result] == ["rejected", "recorded"]
+    contract_validator("Problem").validate(result[0]["problem"])
+    assert result[0]["problem"]["field_errors"][0]["path"] == ""
+    assert recorded_ids == [UUID(valid["operation_id"])]
+    assert "unexpected\\nprivate-field" not in response.text
+    assert "do not echo" not in response.text
+
+
 def test_sync_push_rejects_wrong_media_type_with_problem_and_no_store(settings_factory, contract_validator):
     settings = settings_factory()
     application = create_app(settings)
