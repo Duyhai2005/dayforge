@@ -627,8 +627,7 @@ def test_email_delivery_renews_active_job_lease_while_batch_crosses_lease_bounda
 
     assert sorted(calls) == sorted(f"<{job.id.hex}@dayforge.local>" for job in jobs)
     assert all(
-        _query_one(auth_database, select(EmailDeliveryJob).where(EmailDeliveryJob.id == job.id)) is None
-        for job in jobs
+        _query_one(auth_database, select(EmailDeliveryJob).where(EmailDeliveryJob.id == job.id)) is None for job in jobs
     )
 
 
