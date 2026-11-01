@@ -477,10 +477,11 @@ def test_login_rehashes_old_argon2_hash_and_audits_login_and_local_key(auth_data
     )
     assert stored_user is not None and not password_needs_rehash(stored_user.password_hash)
     assert verify_password(PASSWORD, stored_user.password_hash)
-    assert [(event.action, event.outcome) for event in events] == [
+    # Login and session creation share a timestamp; MySQL need not order ties.
+    assert sorted((event.action, event.outcome) for event in events) == [
+        ("local_key", "success"),
         ("login", "success"),
         ("session_created", "success"),
-        ("local_key", "success"),
     ]
     assert all(event.email_digest is not None and event.peer_digest is not None for event in events)
 

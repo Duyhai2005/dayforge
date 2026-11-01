@@ -99,6 +99,8 @@ Recovery now emits a local lock notice immediately after the durable lock is rec
 - Frontend ESLint and TypeScript checks passed.
 - Browser-only runs log expected refused backend proxy connections when the API is not running; all browser tests passed.
 
+The first pushed CI run exposed an existing audit-test tie-order assumption: login and session creation use the same timestamp, and MySQL may return those rows in either order. The audit assertion now compares the exact event multiset in sorted order while retaining the hash and pseudonym checks.
+
 ## Handoffs
 
 - **T10:** protect sync endpoints with require_verified_owner; preserve the T09 owner ID and use the existing auth session boundary.
