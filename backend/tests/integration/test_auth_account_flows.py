@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from pathlib import Path
+from threading import Event, Lock
 from uuid import uuid4
 
 import pytest
@@ -18,6 +19,7 @@ from app.core.database import create_database
 from app.core.errors import ProblemHTTPException
 from app.main import create_app
 from app.models.auth import (
+    AuthAuditEvent,
     AuthRateLimit,
     EmailDeliveryJob,
     EmailToken,
@@ -28,14 +30,16 @@ from app.models.auth import (
 )
 from app.models.owner import User, WorkspaceSettings
 from app.services.auth import _apply_limits, _Limit
+from app.services.auth_audit import make_auth_audit_event
 from app.services.auth_crypto import (
     WrappedKey,
     decode_base64url,
     unwrap_owner_key,
     wrap_owner_key,
 )
-from app.services.email_delivery import deliver_pending_jobs
-from app.services.passwords import hash_password, verify_password
+from app.services.auth_maintenance import cleanup_auth_storage
+from app.services.email_delivery import deliver_pending_jobs, make_delivery_job
+from app.services.passwords import hash_password, password_needs_rehash, verify_password
 
 pytestmark = pytest.mark.mysql
 BACKEND = Path(__file__).resolve().parents[2]
@@ -101,6 +105,12 @@ def _run_with_database(settings, operation):
             await database.engine.dispose()
 
     return asyncio.run(run())
+
+
+async def _insert_delivery_job(database, job):
+    async with database.sessions() as db:
+        async with db.begin():
+            db.add(job)
 
 
 def _insert_owner(settings, password=PASSWORD):
@@ -437,6 +447,344 @@ def test_two_devices_get_distinct_sessions_for_same_owner_and_stable_key(auth_da
     assert one_key.json()["owner_id"] == str(owner_id)
     assert one_key.json()["key_id"] == str(key_id)
     assert decode_base64url(one_key.json()["key_base64url"], 32) == raw_key
+
+
+def test_login_rehashes_old_argon2_hash_and_audits_login_and_local_key(auth_database, auth_client):
+    from argon2 import PasswordHasher, Type
+
+    owner_id, _, _ = _insert_owner(auth_database)
+    old_hash = PasswordHasher(time_cost=1, memory_cost=8192, parallelism=1, type=Type.ID).hash(PASSWORD)
+
+    async def set_old_hash(database):
+        async with database.sessions() as db:
+            async with db.begin():
+                user = await db.get(User, owner_id)
+                user.password_hash = old_hash
+
+    _run_with_database(auth_database, set_old_hash)
+    response = _login(auth_client, auth_database)
+    assert response.status_code == 200
+    assert auth_client.get("/api/v1/auth/local-key").status_code == 200
+
+    stored_user = _query_one(auth_database, select(User).where(User.id == owner_id))
+    events = _query_all(
+        auth_database,
+        select(AuthAuditEvent).where(AuthAuditEvent.owner_id == owner_id).order_by(AuthAuditEvent.created_at),
+    )
+    assert stored_user is not None and not password_needs_rehash(stored_user.password_hash)
+    assert verify_password(PASSWORD, stored_user.password_hash)
+    assert [(event.action, event.outcome) for event in events] == [
+        ("login", "success"),
+        ("session_created", "success"),
+        ("local_key", "success"),
+    ]
+    assert all(event.email_digest is not None and event.peer_digest is not None for event in events)
+
+
+def test_failed_login_is_audited_without_plaintext_credentials(auth_database, auth_client):
+    _insert_owner(auth_database)
+    response = post_auth(
+        auth_client,
+        auth_database,
+        "login",
+        {"email": "owner@example.test", "password": "wrong password value", "remember_me": True},
+    )
+    event = _query_one(
+        auth_database,
+        select(AuthAuditEvent).where(
+            AuthAuditEvent.action == "login",
+            AuthAuditEvent.outcome == "denied",
+        ),
+    )
+
+    assert response.status_code == 401
+    assert event is not None and event.request_id == response.headers["x-request-id"]
+    assert event.email_digest is not None and event.peer_digest is not None
+    assert event.owner_id is None
+    assert not {"email", "password", "ip", "cookie", "token"}.intersection(event.__dict__)
+
+
+def test_login_does_not_create_session_after_password_reset_wins_race(auth_database, auth_client, monkeypatch):
+    import app.services.auth as auth_service
+
+    owner_id, _, _ = _insert_owner(auth_database)
+    original_password_work = auth_service._password_work
+
+    async def bump_auth_version_after_verification(function, *arguments):
+        result = await original_password_work(function, *arguments)
+        if function is auth_service.verify_password and result:
+            database = create_database(auth_database)
+            try:
+                async with database.sessions() as db:
+                    async with db.begin():
+                        owner = await db.get(User, owner_id, with_for_update=True)
+                        owner.auth_version += 1
+            finally:
+                await database.engine.dispose()
+        return result
+
+    monkeypatch.setattr(auth_service, "_password_work", bump_auth_version_after_verification)
+    response = _login(auth_client, auth_database)
+    authenticated = _query_all(auth_database, select(AuthSession).where(AuthSession.kind == "authenticated"))
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "invalid_credentials"
+    assert authenticated == []
+
+
+def test_email_delivery_claim_prevents_two_workers_from_sending_same_job(auth_database):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    job = make_delivery_job(
+        auth_database,
+        recipient="owner@example.test",
+        kind="verify_email",
+        token="A" * 43,
+        now=now,
+        expires_at=now + timedelta(minutes=10),
+    )
+    _run_with_database(auth_database, lambda database: _insert_delivery_job(database, job))
+    send_started = Event()
+    release_send = Event()
+    calls = []
+    calls_lock = Lock()
+
+    def slow_sender(_host, _port, message):
+        with calls_lock:
+            calls.append(message["Message-ID"])
+        send_started.set()
+        assert release_send.wait(5)
+
+    def first_worker(database):
+        return deliver_pending_jobs(database, auth_database, now=now, send_message=slow_sender)
+
+    def second_worker(database):
+        return deliver_pending_jobs(database, auth_database, now=now, send_message=slow_sender)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(_run_with_database, auth_database, first_worker)
+        assert send_started.wait(5)
+        second = executor.submit(_run_with_database, auth_database, second_worker)
+        assert second.result(timeout=10) == 0
+        release_send.set()
+        assert first.result(timeout=10) == 1
+
+    assert len(calls) == 1 and calls[0] == f"<{job.id.hex}@dayforge.local>"
+    assert _query_one(auth_database, select(EmailDeliveryJob).where(EmailDeliveryJob.id == job.id)) is None
+
+
+def test_stale_email_worker_cannot_finalize_reclaimed_lease(auth_database):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    job = make_delivery_job(
+        auth_database,
+        recipient="owner@example.test",
+        kind="verify_email",
+        token="B" * 43,
+        now=now,
+        expires_at=now + timedelta(minutes=10),
+    )
+    _run_with_database(auth_database, lambda database: _insert_delivery_job(database, job))
+    send_started = Event()
+    release_first = Event()
+
+    def stale_sender(_host, _port, _message):
+        send_started.set()
+        assert release_first.wait(5)
+        raise TimeoutError("simulated SMTP timeout")
+
+    def first_worker(database):
+        return deliver_pending_jobs(
+            database,
+            auth_database,
+            now=now,
+            clock=lambda: now + timedelta(seconds=122),
+            send_message=stale_sender,
+        )
+
+    def reclaimed_worker(database):
+        return deliver_pending_jobs(
+            database,
+            auth_database,
+            now=now + timedelta(seconds=121),
+            send_message=lambda *_args: None,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        stale = executor.submit(_run_with_database, auth_database, first_worker)
+        assert send_started.wait(5)
+        reclaimed = executor.submit(_run_with_database, auth_database, reclaimed_worker)
+        assert reclaimed.result(timeout=10) == 1
+        release_first.set()
+        assert stale.result(timeout=10) == 0
+
+    assert _query_one(auth_database, select(EmailDeliveryJob).where(EmailDeliveryJob.id == job.id)) is None
+
+
+def test_email_job_expiring_during_smtp_send_is_discarded(auth_database):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    job = make_delivery_job(
+        auth_database,
+        recipient="owner@example.test",
+        kind="verify_email",
+        token="C" * 43,
+        now=now,
+        expires_at=now + timedelta(seconds=60),
+    )
+    _run_with_database(auth_database, lambda database: _insert_delivery_job(database, job))
+
+    async def deliver(database):
+        return await deliver_pending_jobs(
+            database,
+            auth_database,
+            now=now,
+            clock=lambda: job.expires_at,
+            send_message=lambda *_args: (_ for _ in ()).throw(TimeoutError("simulated SMTP timeout")),
+        )
+
+    assert _run_with_database(auth_database, deliver) == 0
+    assert _query_one(auth_database, select(EmailDeliveryJob).where(EmailDeliveryJob.id == job.id)) is None
+
+
+def test_auth_cleanup_is_bounded_and_observes_retention_leases(auth_database):
+    owner_id, _, _ = _insert_owner(auth_database)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    old = now - timedelta(days=31)
+    recent = now - timedelta(days=29)
+    expired_session_id = uuid4()
+    old_revoked_session_id = uuid4()
+    recent_revoked_session_id = uuid4()
+
+    def session_row(identifier, *, revoked_at, idle_expires_at, absolute_expires_at):
+        return AuthSession(
+            id=identifier,
+            kind="authenticated",
+            token_hash=hashlib.sha256(identifier.bytes).digest(),
+            owner_id=owner_id,
+            csrf_token=b"c" * 32,
+            auth_version=1,
+            password_authenticated_at=now - timedelta(days=1),
+            remember_me=False,
+            created_at=now - timedelta(days=2),
+            last_activity_at=now - timedelta(days=1),
+            idle_expires_at=idle_expires_at,
+            absolute_expires_at=absolute_expires_at,
+            revoked_at=revoked_at,
+        )
+
+    sessions = [
+        session_row(
+            expired_session_id,
+            revoked_at=None,
+            idle_expires_at=now - timedelta(minutes=1),
+            absolute_expires_at=now + timedelta(days=1),
+        ),
+        session_row(
+            old_revoked_session_id,
+            revoked_at=now - timedelta(days=8),
+            idle_expires_at=now + timedelta(days=1),
+            absolute_expires_at=now + timedelta(days=1),
+        ),
+        session_row(
+            recent_revoked_session_id,
+            revoked_at=now - timedelta(days=1),
+            idle_expires_at=now + timedelta(days=1),
+            absolute_expires_at=now + timedelta(days=1),
+        ),
+    ]
+    expired_job = make_delivery_job(
+        auth_database,
+        recipient="owner@example.test",
+        kind="verify_email",
+        token="D" * 43,
+        now=now - timedelta(days=2),
+        expires_at=now - timedelta(minutes=1),
+    )
+    leased_job = make_delivery_job(
+        auth_database,
+        recipient="owner@example.test",
+        kind="verify_email",
+        token="E" * 43,
+        now=now - timedelta(days=2),
+        expires_at=now - timedelta(minutes=1),
+    )
+    leased_job.claim_token = uuid4()
+    leased_job.claim_expires_at = now + timedelta(seconds=30)
+    stale_token = EmailToken(
+        id=uuid4(),
+        purpose="password_reset",
+        token_hash=hashlib.sha256(b"stale-cleanup-token").digest(),
+        email_canonical=b"owner@example.test",
+        owner_id=owner_id,
+        created_at=now - timedelta(days=10),
+        expires_at=now - timedelta(days=9),
+        consumed_at=now - timedelta(days=8),
+        invalidated_at=None,
+    )
+    recent_token = EmailToken(
+        id=uuid4(),
+        purpose="password_reset",
+        token_hash=hashlib.sha256(b"recent-cleanup-token").digest(),
+        email_canonical=b"owner@example.test",
+        owner_id=owner_id,
+        created_at=now - timedelta(days=7),
+        expires_at=now - timedelta(days=6),
+        consumed_at=now - timedelta(days=6),
+        invalidated_at=None,
+    )
+    stale_audit = [
+        make_auth_audit_event(auth_database, action="login", outcome="denied", request_id=str(uuid4()), now=old)
+        for _ in range(2)
+    ]
+    fresh_audit = make_auth_audit_event(
+        auth_database, action="login", outcome="success", request_id=str(uuid4()), now=recent
+    )
+
+    async def seed(database):
+        async with database.sessions() as db:
+            async with db.begin():
+                db.add_all(
+                    sessions + [expired_job, leased_job, stale_token, recent_token] + stale_audit + [fresh_audit]
+                )
+                db.add(
+                    AuthRateLimit(
+                        action="cleanup-test",
+                        subject_kind="ip",
+                        subject_digest=b"r" * 32,
+                        window_seconds=60,
+                        request_count=0,
+                        event_timestamps=[],
+                        updated_at=now - timedelta(days=3),
+                        expires_at=now - timedelta(hours=1),
+                    )
+                )
+
+    _run_with_database(auth_database, seed)
+
+    counts = _run_with_database(
+        auth_database,
+        lambda database: cleanup_auth_storage(database, now=now, limit=1),
+    )
+
+    assert counts == {
+        "sessions": 1,
+        "email_tokens": 0,
+        "email_delivery_jobs": 1,
+        "auth_audit_events": 1,
+        "auth_rate_limits": 1,
+    }
+    remaining_sessions = _query_all(
+        auth_database,
+        select(AuthSession).where(
+            AuthSession.id.in_([expired_session_id, old_revoked_session_id, recent_revoked_session_id])
+        ),
+    )
+    remaining_session_ids = {item.id for item in remaining_sessions}
+    assert recent_revoked_session_id in remaining_session_ids and len(remaining_session_ids) == 2
+    assert (expired_session_id in remaining_session_ids) != (old_revoked_session_id in remaining_session_ids)
+    assert _query_one(auth_database, select(EmailDeliveryJob).where(EmailDeliveryJob.id == leased_job.id)) is not None
+    assert _query_one(auth_database, select(EmailDeliveryJob).where(EmailDeliveryJob.id == expired_job.id)) is None
+    assert _query_one(auth_database, select(EmailToken).where(EmailToken.id == stale_token.id)) is None
+    assert _query_one(auth_database, select(EmailToken).where(EmailToken.id == recent_token.id)) is not None
+    assert _query_one(auth_database, select(AuthAuditEvent).where(AuthAuditEvent.id == fresh_audit.id)) is not None
 
 
 def test_unknown_user_uses_dummy_argon2_and_same_credentials_error(auth_database, auth_client, monkeypatch):

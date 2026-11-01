@@ -35,6 +35,9 @@ class Session(Base):
         ),
         CheckConstraint("idle_expires_at <= absolute_expires_at", name="expiry_order"),
         Index("ix_sessions_owner_revoked", "owner_id", "revoked_at"),
+        Index("ix_sessions_idle_expires_at", "idle_expires_at"),
+        Index("ix_sessions_absolute_expires_at", "absolute_expires_at"),
+        Index("ix_sessions_revoked_at", "revoked_at"),
         {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"},
     )
 
@@ -65,6 +68,9 @@ class EmailToken(Base):
         CheckConstraint("consumed_at IS NULL OR consumed_at >= created_at", name="consume_order"),
         Index("ix_email_tokens_email_purpose", "email_canonical", "purpose"),
         Index("ix_email_tokens_owner_purpose", "owner_id", "purpose"),
+        Index("ix_email_tokens_expires_at", "expires_at"),
+        Index("ix_email_tokens_consumed_at", "consumed_at"),
+        Index("ix_email_tokens_invalidated_at", "invalidated_at"),
         {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"},
     )
 
@@ -133,6 +139,7 @@ class EmailDeliveryJob(Base):
         CheckConstraint("attempt_count >= 0", name="attempt_count_nonnegative"),
         CheckConstraint("expires_at > created_at", name="expiry_order"),
         Index("ix_email_delivery_jobs_ready", "sent_at", "available_at", "expires_at"),
+        Index("ix_email_delivery_jobs_lease", "claim_expires_at"),
         {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"},
     )
 
@@ -145,3 +152,29 @@ class EmailDeliveryJob(Base):
     attempt_count: Mapped[int] = mapped_column(TINYINT(unsigned=True), server_default=text("0"))
     sent_at: Mapped[datetime | None] = mapped_column(UTCMilliseconds())
     last_error_code: Mapped[str | None] = mapped_column(VARCHAR(64, charset="ascii", collation="ascii_bin"))
+    claim_token: Mapped[UUID | None] = mapped_column(UUIDBytes())
+    claim_expires_at: Mapped[datetime | None] = mapped_column(UTCMilliseconds())
+
+
+class AuthAuditEvent(Base):
+    __tablename__ = "auth_audit_events"
+    __table_args__ = (
+        CheckConstraint(
+            "action IN ('session_created', 'register', 'verification_resend', 'email_verified', "
+            "'login', 'password_forgot', 'password_reset', 'logout', 'local_key')",
+            name="action_valid",
+        ),
+        CheckConstraint("outcome IN ('success', 'accepted', 'denied', 'noop', 'error')", name="outcome_valid"),
+        Index("ix_auth_audit_events_created_at", "created_at"),
+        Index("ix_auth_audit_events_owner_created", "owner_id", "created_at"),
+        {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"},
+    )
+
+    id: Mapped[UUID] = mapped_column(UUIDBytes(), primary_key=True, autoincrement=False)
+    created_at: Mapped[datetime] = mapped_column(UTCMilliseconds())
+    action: Mapped[str] = mapped_column(VARCHAR(32, charset="ascii", collation="ascii_bin"))
+    outcome: Mapped[str] = mapped_column(VARCHAR(16, charset="ascii", collation="ascii_bin"))
+    request_id: Mapped[str] = mapped_column(VARCHAR(36, charset="ascii", collation="ascii_bin"))
+    owner_id: Mapped[UUID | None] = mapped_column(UUIDBytes())
+    email_digest: Mapped[bytes | None] = mapped_column(BINARY(32))
+    peer_digest: Mapped[bytes | None] = mapped_column(BINARY(32))

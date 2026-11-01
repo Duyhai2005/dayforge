@@ -15,6 +15,7 @@ from sqlalchemy import select
 
 from app.core.database import create_database
 from app.main import create_app
+from app.models.auth import AuthAuditEvent
 from app.models.auth import Session as AuthSession
 from app.models.owner import User
 from app.services.auth_crypto import create_logout_ticket
@@ -193,7 +194,7 @@ def test_logout_ticket_revokes_only_target_session(auth_database, auth_client, m
 
     now = datetime(2026, 11, 1, 12, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(sessions, "utc_now", lambda: now)
-    _, records = insert_owner_and_sessions(auth_database, {"target": {}, "current": {}})
+    owner_id, records = insert_owner_and_sessions(auth_database, {"target": {}, "current": {}})
     target, _, _ = records["target"]
     current, current_token, _ = records["current"]
     session_view = auth_client.get(
@@ -216,6 +217,26 @@ def test_logout_ticket_revokes_only_target_session(auth_database, auth_client, m
     stored = asyncio.run(database_sessions(auth_database, [target.id, current.id]))
     assert stored[target.id].revoked_at == now
     assert stored[current.id].revoked_at is None
+
+    database = create_database(auth_database)
+
+    async def read_logout_event():
+        try:
+            async with database.sessions() as db:
+                return (
+                    await db.execute(
+                        select(AuthAuditEvent).where(
+                            AuthAuditEvent.action == "logout",
+                            AuthAuditEvent.outcome == "success",
+                        )
+                    )
+                ).scalar_one()
+        finally:
+            await database.engine.dispose()
+
+    audit = asyncio.run(read_logout_event())
+    assert audit.owner_id == owner_id
+    assert audit.request_id == response.headers["x-request-id"]
 
 
 def test_logout_ticket_survives_key_rotation_until_session_expiry(

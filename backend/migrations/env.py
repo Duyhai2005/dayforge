@@ -6,7 +6,6 @@ from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
-from app.core.config import build_database_url, load_settings
 from app.models import Base
 
 target_metadata = Base.metadata
@@ -24,6 +23,8 @@ def configure(connection):
 
 
 async def run_online():
+    from app.core.config import build_database_url, load_settings
+
     engine = create_async_engine(
         build_database_url(load_settings()),
         poolclass=NullPool,

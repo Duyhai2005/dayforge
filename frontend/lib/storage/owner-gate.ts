@@ -290,93 +290,69 @@ export async function restoreUnlockedOwnerContext(
   return storageOk(valid.ok ? context : null);
 }
 
-export async function lockOwner(
-  db: IDBDatabase,
-  ownerId: string
-): Promise<StorageResult<number>> {
+export type OwnerLockTransaction = Readonly<{ lockEpoch(): number }>;
+
+/** Add the locked metadata write and key deletion to an existing transaction. */
+export function lockOwnerInTransaction(
+  tx: IDBTransaction,
+  ownerId: string,
+  options: Readonly<{ incrementEpoch?: boolean }> = {}
+): OwnerLockTransaction {
+  const metaStore = tx.objectStore(STORAGE_STORES.owner_meta);
+  const cryptoStore = tx.objectStore(STORAGE_STORES.crypto_keys);
+  let calculatedEpoch = 1;
+  const getReq = metaStore.get(ownerId);
+  getReq.onsuccess = () => {
+    const existing = getReq.result as OwnerMetadata | undefined;
+    const existingEpoch = existing?.lock_epoch ?? 0;
+    const shouldIncrement = options.incrementEpoch !== false || existing?.locked !== true ||
+      !Number.isSafeInteger(existingEpoch) || existingEpoch < 1;
+    calculatedEpoch = existingEpoch + (shouldIncrement ? 1 : 0);
+    if (!Number.isSafeInteger(calculatedEpoch) || calculatedEpoch < 1) {
+      tx.abort();
+      return;
+    }
+    metaStore.put({
+      owner_id: ownerId,
+      lock_epoch: calculatedEpoch,
+      locked: true,
+      active_key_id: existing?.active_key_id,
+    } satisfies OwnerMetadata);
+
+    // Delete every key for this owner. Do not use a synthetic string upper
+    // bound: IndexedDB strings can sort beyond that sentinel.
+    const keyCursorReq = cryptoStore.openCursor(IDBKeyRange.lowerBound([ownerId]));
+    keyCursorReq.onsuccess = () => {
+      const cursor = keyCursorReq.result;
+      if (!cursor) return;
+      const cursorKey = cursor.key;
+      if (!Array.isArray(cursorKey) || cursorKey[0] !== ownerId) return;
+      cursor.delete();
+      cursor.continue();
+    };
+  };
+  return { lockEpoch: () => calculatedEpoch };
+}
+
+export async function lockOwner(db: IDBDatabase, ownerId: string): Promise<StorageResult<number>> {
   return new Promise((resolve) => {
     try {
       const tx = db.transaction(
         [STORAGE_STORES.owner_meta, STORAGE_STORES.crypto_keys],
         "readwrite"
       );
-      const metaStore = tx.objectStore(STORAGE_STORES.owner_meta);
-      const cryptoStore = tx.objectStore(STORAGE_STORES.crypto_keys);
-      let calculatedEpoch = 1;
-
-      const getReq = metaStore.get(ownerId);
-      getReq.onsuccess = () => {
-        const existing = getReq.result as OwnerMetadata | undefined;
-        calculatedEpoch = (existing?.lock_epoch ?? 0) + 1;
-        const updatedMeta: OwnerMetadata = {
-          owner_id: ownerId,
-          lock_epoch: calculatedEpoch,
-          locked: true,
-          active_key_id: existing?.active_key_id,
-        };
-
-        metaStore.put(updatedMeta);
-
-        // Delete every key for this owner. Do not use a synthetic string
-        // upper bound (for example "\\uffff"): IndexedDB strings can sort
-        // beyond that sentinel, so such a range can leave recoverable keys
-        // behind after logout.
-        const keyCursorReq = cryptoStore.openCursor(
-          IDBKeyRange.lowerBound([ownerId])
-        );
-        keyCursorReq.onsuccess = () => {
-          const cursor = keyCursorReq.result;
-          if (!cursor) return;
-          const cursorKey = cursor.key;
-          if (!Array.isArray(cursorKey) || cursorKey[0] !== ownerId) {
-            return;
-          }
-          cursor.delete();
-          cursor.continue();
-        };
-      };
-
-      getReq.onerror = () => {
-        resolve(
-          storageErr(
-            "transaction_aborted",
-            getReq.error?.message ?? "Failed to read owner metadata for lock",
-            getReq.error
-          )
-        );
-      };
-
-      tx.oncomplete = () => {
-        resolve(storageOk(calculatedEpoch));
-      };
-
-      tx.onerror = () => {
-        resolve(
-          storageErr(
-            "transaction_aborted",
-            tx.error?.message ?? "Transaction aborted while locking owner",
-            tx.error
-          )
-        );
-      };
-
-      tx.onabort = () => {
-        resolve(
-          storageErr(
-            "transaction_aborted",
-            tx.error?.message ?? "Transaction aborted while locking owner",
-            tx.error
-          )
-        );
-      };
-    } catch (err) {
-      resolve(
-        storageErr(
-          "unavailable",
-          err instanceof Error ? err.message : "Error executing lockOwner transaction",
-          err
-        )
-      );
+      const lock = lockOwnerInTransaction(tx, ownerId);
+      tx.oncomplete = () => resolve(storageOk(lock.lockEpoch()));
+      const fail = (message: string, error?: DOMException | null) =>
+        resolve(storageErr("transaction_aborted", message, error));
+      tx.onerror = () => fail(tx.error?.message ?? "Transaction failed while locking owner", tx.error);
+      tx.onabort = () => fail(tx.error?.message ?? "Transaction aborted while locking owner", tx.error);
+    } catch (error) {
+      resolve(storageErr(
+        "unavailable",
+        error instanceof Error ? error.message : "Error executing lockOwner transaction",
+        error
+      ));
     }
   });
 }

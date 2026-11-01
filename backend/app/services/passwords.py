@@ -51,7 +51,7 @@ _PASSWORD_HASHER = PasswordHasher(
     type=Type.ID,
 )
 DUMMY_PASSWORD_HASH = (
-    "$argon2id$v=19$m=65536,t=3,p=1$kBvIFFyeBVP14QrH1obrFA$" "9wchBP85PZYgqtWeVw6VrDNZOdGCOYXGFj1UWAPYyKE"
+    "$argon2id$v=19$m=65536,t=3,p=1$kBvIFFyeBVP14QrH1obrFA$9wchBP85PZYgqtWeVw6VrDNZOdGCOYXGFj1UWAPYyKE"
 )
 
 
@@ -117,4 +117,12 @@ def verify_password(password: str, password_hash: str | None) -> bool:
         VerifyMismatchError,
         UnicodeEncodeError,
     ):
+        return False
+
+
+def password_needs_rehash(password_hash: str) -> bool:
+    """Return whether a verified Argon2 hash should be upgraded to current parameters."""
+    try:
+        return _PASSWORD_HASHER.check_needs_rehash(password_hash)
+    except InvalidHashError, VerificationError:
         return False

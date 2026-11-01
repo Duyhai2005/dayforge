@@ -69,6 +69,7 @@ async def query(settings, statement):
 def isolated_schema(mysql_test_settings):
     def reset():
         for table in (
+            "auth_audit_events",
             "email_delivery_jobs",
             "auth_rate_limits",
             "owner_local_keys",

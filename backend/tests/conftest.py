@@ -213,7 +213,7 @@ def auth_client(settings_factory, auth_repository, auth_mailbox):
         def __init__(self):
             self.calls = []
 
-        async def request_email(self, email, purpose, peer_ip):
+        async def request_email(self, email, purpose, peer_ip, **_audit_context):
             self.calls.append((email, purpose, peer_ip))
             auth_repository.email_requests.append((email, purpose))
             try:
@@ -231,20 +231,21 @@ def auth_client(settings_factory, auth_repository, auth_mailbox):
         async def session_request_limit(self, context, peer_ip):
             return None
 
-        async def confirm_email(self, token, password, peer_ip):
+        async def confirm_email(self, token, password, peer_ip, **_audit_context):
             raise AssertionError("confirm_email must be covered by MySQL tests")
 
-        async def login(self, email, password, remember_me, previous, peer_ip):
+        async def login(self, email, password, remember_me, previous, peer_ip, **_audit_context):
             raise AssertionError("login must be covered by MySQL tests")
 
-        async def reset_password(self, token, password, peer_ip):
+        async def reset_password(self, token, password, peer_ip, **_audit_context):
             raise AssertionError("reset_password must be covered by MySQL tests")
 
-        async def local_key(self, context, peer_ip):
+        async def local_key(self, context, peer_ip, **_audit_context):
             raise AssertionError("local_key must be covered by MySQL tests")
 
     service = CapturedAuthService()
     application = create_app(settings)
+    application.state.auth_audit_enabled = False
     application.dependency_overrides[get_session_context] = lambda: context
     application.dependency_overrides[get_auth_service] = lambda: service
     with warnings.catch_warnings():

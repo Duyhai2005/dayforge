@@ -25,6 +25,7 @@ from app.models.auth import (
 )
 from app.models.owner import User, WorkspaceSettings
 from app.schemas.problem import FieldError
+from app.services.auth_audit import make_auth_audit_event
 from app.services.auth_crypto import (
     CryptoEnvelopeError,
     WrappedKey,
@@ -44,6 +45,7 @@ from app.services.passwords import (
     DUMMY_PASSWORD_HASH,
     PasswordPolicyError,
     hash_password,
+    password_needs_rehash,
     validate_new_password,
     verify_password,
 )
@@ -356,7 +358,15 @@ class AuthService:
             record_event=True,
         )
 
-    async def request_email(self, email: str, purpose: str, peer_ip: str | None) -> None:
+    async def request_email(
+        self,
+        email: str,
+        purpose: str,
+        peer_ip: str | None,
+        *,
+        audit_action: str,
+        request_id: str,
+    ) -> None:
         canonical = _canonical_or_problem(email)
         if purpose not in {"verify_email", "password_reset"}:
             raise ValueError("email_purpose_invalid")
@@ -411,10 +421,22 @@ class AuthService:
                         )
                         db.add(record)
                         db.add(job)
+                    db.add(
+                        make_auth_audit_event(
+                            self.settings,
+                            action=audit_action,
+                            outcome="accepted",
+                            request_id=request_id,
+                            owner_id=owner_id if eligible else None,
+                            email_canonical=canonical.canonical,
+                            peer_ip=peer_ip,
+                            now=now,
+                        )
+                    )
         except SQLAlchemyError:
             raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
 
-    async def confirm_email(self, token: str, password: str, peer_ip: str | None) -> None:
+    async def confirm_email(self, token: str, password: str, peer_ip: str | None, *, request_id: str) -> None:
         raw_token, digest = _email_token_digest(token)
         now = utc_now()
         await _apply_limits(
@@ -494,6 +516,18 @@ class AuthService:
                         )
                         .values(invalidated_at=now)
                     )
+                    db.add(
+                        make_auth_audit_event(
+                            self.settings,
+                            action="email_verified",
+                            outcome="success",
+                            request_id=request_id,
+                            owner_id=owner_id,
+                            email_canonical=self.owner_email.canonical,
+                            peer_ip=peer_ip,
+                            now=now,
+                        )
+                    )
         except ProblemHTTPException:
             raise
         except IntegrityError:
@@ -512,6 +546,8 @@ class AuthService:
         remember_me: bool,
         previous: SessionContext | None,
         peer_ip: str | None,
+        *,
+        request_id: str,
     ) -> SessionContext:
         try:
             canonical = canonicalize_email(email)
@@ -539,9 +575,25 @@ class AuthService:
         if not valid or user is None or user.email_verified_at is None or not allowed_owner:
             await _apply_limits(self.database, limits, now, record_event=True)
             raise ProblemHTTPException(status_code=401, code="invalid_credentials")
-        return await create_authenticated_session(self.database, user, remember_me, previous, now=now)
+        replacement_password_hash = None
+        if password_needs_rehash(password_hash):
+            replacement_password_hash = await _password_work(hash_password, password)
+        return await create_authenticated_session(
+            self.database,
+            user,
+            remember_me,
+            previous,
+            settings=self.settings,
+            request_id=request_id,
+            peer_ip=peer_ip,
+            email_canonical=canonical.canonical,
+            expected_auth_version=user.auth_version,
+            verified_password_hash=password_hash,
+            replacement_password_hash=replacement_password_hash,
+            now=now,
+        )
 
-    async def reset_password(self, token: str, password: str, peer_ip: str | None) -> None:
+    async def reset_password(self, token: str, password: str, peer_ip: str | None, *, request_id: str) -> None:
         _raw_token, digest = _email_token_digest(token)
         now = utc_now()
         await _apply_limits(
@@ -609,6 +661,18 @@ class AuthService:
                             expires_at=now + timedelta(days=30),
                         )
                     )
+                    db.add(
+                        make_auth_audit_event(
+                            self.settings,
+                            action="password_reset",
+                            outcome="success",
+                            request_id=request_id,
+                            owner_id=user.id,
+                            email_canonical=user.email_canonical,
+                            peer_ip=peer_ip,
+                            now=now,
+                        )
+                    )
         except ProblemHTTPException:
             raise
         except IntegrityError:
@@ -616,7 +680,7 @@ class AuthService:
         except SQLAlchemyError:
             raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
 
-    async def local_key(self, context: SessionContext, peer_ip: str | None) -> dict[str, str]:
+    async def local_key(self, context: SessionContext, peer_ip: str | None, *, request_id: str) -> dict[str, str]:
         now = utc_now()
         await _apply_limits(
             self.database,
@@ -633,19 +697,31 @@ class AuthService:
             raise ProblemHTTPException(status_code=403, code="reauthentication_required")
         try:
             async with self.database.sessions() as db:
-                record = await db.get(OwnerLocalKey, context.session.owner_id)
+                async with db.begin():
+                    record = await db.get(OwnerLocalKey, context.session.owner_id)
+                    if record is None:
+                        raise ProblemHTTPException(status_code=503, code="service_unavailable")
+                    raw_key = unwrap_owner_key(
+                        record.owner_id,
+                        record.key_id,
+                        WrappedKey(record.algorithm, record.wrapped_key, record.kek_version),
+                        self.settings.secret_key("local_key_kek_b64"),
+                        self.settings.local_key_kek_version,
+                    )
+                    db.add(
+                        make_auth_audit_event(
+                            self.settings,
+                            action="local_key",
+                            outcome="success",
+                            request_id=request_id,
+                            owner_id=record.owner_id,
+                            email_canonical=context.user.email_canonical if context.user else None,
+                            peer_ip=peer_ip,
+                            now=now,
+                        )
+                    )
         except SQLAlchemyError:
             raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
-        if record is None:
-            raise ProblemHTTPException(status_code=503, code="service_unavailable")
-        try:
-            raw_key = unwrap_owner_key(
-                record.owner_id,
-                record.key_id,
-                WrappedKey(record.algorithm, record.wrapped_key, record.kek_version),
-                self.settings.secret_key("local_key_kek_b64"),
-                self.settings.local_key_kek_version,
-            )
         except CryptoEnvelopeError:
             raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
         return {

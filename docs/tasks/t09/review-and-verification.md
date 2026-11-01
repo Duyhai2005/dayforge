@@ -51,6 +51,35 @@ The independent review of `8d8debe..dc3971f` found no Critical findings and six 
 
 The review’s Minor finding was the production acceptance command’s `--workers=2` mismatch; this report now records the final passing `--workers=1` command. The reviewer declined to judge real inbox delivery/T30/T32, sync cancellation and offline cache/T11/T13, and deployment capacity/Argon2 latency; those remain outside T09 acceptance.
 
+## PR #9 review follow-up
+
+Date: 2026-11-02
+
+The follow-up changes address the PR #9 lifecycle and concurrency findings:
+
+| Area | Change |
+| --- | --- |
+| Offline logout | The pending revoke ticket and local owner lock now commit in one IndexedDB transaction. Tickets bind to an owner; recovery locks that owner before replay, and legacy unbound tickets lock all known local owners. |
+| CSRF refresh | Auth mutations refresh the session and retry once only for an explicit `csrf_failed` response. Request-attempt guards prevent a stale login/local-key response from reopening a vault after logout. |
+| Password/session race | Successful login rehashes outdated Argon2 parameters and creates the session only after locking and re-reading the user. A changed auth version rejects the attempt, and concurrent rehashes are not overwritten. |
+| Audit trail | Added a migration-backed auth audit table and privacy-safe records for auth lifecycle outcomes. Email and peer identifiers use scoped HMAC digests; raw email, IP, token, password, and request body are not stored. |
+| Email delivery concurrency | Outbox work is claimed in a short transaction with a claim token and 120-second lease. SMTP runs outside the transaction, and finalization compares the claim token. |
+| Retention and bounded cleanup | A separate 60-second maintenance worker deletes at most 500 rows per table per pass, using the documented session, token, rate-limit, outbox-lease, and 30-day audit retention rules. |
+
+### Follow-up verification
+
+- `pnpm --filter @dayforge/frontend typecheck` — passed.
+- `pnpm --filter @dayforge/frontend exec playwright test tests/auth-session.spec.ts` — passed, 13/13.
+- `pnpm --filter @dayforge/frontend exec playwright test --workers=4 --reporter=line` — passed, 156/156; the dev web server logs expected refused proxy connections because the backend is not running in this browser-only suite.
+- `pnpm build:web` — passed.
+- `python -m ruff check --no-cache backend/app backend/tests` — passed.
+- `python -m compileall -q backend/app backend/tests` — passed.
+- `python -m alembic upgrade head --sql` — passed; offline SQL generation includes migration 0003.
+- Backend pytest collection/integration could not run in this environment: the configured Python environment is missing `argon2` and `email_validator`. MySQL integration behavior therefore remains unverified here.
+- The final Black recheck did not complete in this Python 3.12 environment; Black reports the project formatter target is Python 3.14. The earlier pre-final-edit check passed, but this follow-up does not claim a final Black pass.
+
+The changes remain local to the `codex/pr9-review-fixes` worktree. They have not been pushed or posted to the PR.
+
 ## Handoffs
 
 - **T10:** protect sync endpoints with require_verified_owner; preserve the T09 owner ID and use the existing auth session boundary.

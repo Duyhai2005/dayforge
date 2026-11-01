@@ -57,6 +57,13 @@ async def _probe_readiness(database: Database, *, required_revision: str) -> boo
                     return False
                 await connection.execute(text("SELECT id FROM users LIMIT 0"))
                 await connection.execute(text("SELECT owner_id FROM workspace_settings LIMIT 0"))
+                await connection.execute(text("SELECT claim_token, claim_expires_at FROM email_delivery_jobs LIMIT 0"))
+                await connection.execute(
+                    text(
+                        "SELECT id, created_at, action, outcome, request_id, owner_id, email_digest, peer_digest "
+                        "FROM auth_audit_events LIMIT 0"
+                    )
+                )
                 return True
     except SQLAlchemyError, TimeoutError, OSError:
         return False

@@ -6,6 +6,7 @@ import logging
 import secrets
 import smtplib
 import struct
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from uuid import UUID, uuid4
@@ -13,17 +14,16 @@ from uuid import UUID, uuid4
 import anyio
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from sqlalchemy import and_, delete, or_, select
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import Settings
-from app.models.auth import AuthRateLimit, EmailDeliveryJob, EmailToken
+from app.models.auth import EmailDeliveryJob
 
 _LOGGER = logging.getLogger("dayforge.auth.email")
 _OUTBOX_VERSION = 1
 _OUTBOX_AAD = b"dayforge-auth-email-outbox-v1\0"
-_TOKEN_RETENTION = timedelta(days=7)
-_RATE_LIMIT_RETENTION = timedelta(hours=48)
+_DELIVERY_LEASE = timedelta(seconds=120)
 
 
 def encrypt_delivery_payload(job_id: UUID, payload: bytes, key: bytes, version: int = _OUTBOX_VERSION) -> bytes:
@@ -99,12 +99,14 @@ def make_delivery_job(
     )
 
 
-def _message(settings: Settings, payload: dict[str, str]) -> EmailMessage:
+def _message(settings: Settings, payload: dict[str, str], job_id: UUID | None = None) -> EmailMessage:
     kind = payload["kind"]
     recipient = payload["recipient"]
     message = EmailMessage()
     message["From"] = settings.email_from
     message["To"] = recipient
+    if job_id is not None:
+        message["Message-ID"] = f"<{job_id.hex}@dayforge.local>"
     if kind == "verify_email":
         message["Subject"] = "Xác minh địa chỉ email DAYFORGE"
         link = f"{settings.public_origin}/verify-email#token={payload['token']}"
@@ -140,6 +142,7 @@ async def deliver_pending_jobs(
     settings: Settings,
     *,
     now: datetime | None = None,
+    clock: Callable[[], datetime] | None = None,
     send_message=smtp_send_message,
     limit: int = 20,
 ) -> int:
@@ -148,26 +151,11 @@ async def deliver_pending_jobs(
         raise ValueError("email_clock_invalid")
     instant = instant.astimezone(timezone.utc)
     instant = instant.replace(microsecond=(instant.microsecond // 1000) * 1000)
+    limit = min(20, max(1, limit))
     key = settings.secret_key("auth_email_outbox_key_b64")
-    delivered = 0
+    claimed: list[tuple[UUID, bytes, int, int, datetime, UUID]] = []
     async with database.sessions() as db:
         async with db.begin():
-            await db.execute(delete(EmailDeliveryJob).where(EmailDeliveryJob.expires_at <= instant))
-            expired_before = instant - _TOKEN_RETENTION
-            await db.execute(
-                delete(EmailToken).where(
-                    or_(
-                        EmailToken.consumed_at <= expired_before,
-                        EmailToken.invalidated_at <= expired_before,
-                        and_(
-                            EmailToken.consumed_at.is_(None),
-                            EmailToken.invalidated_at.is_(None),
-                            EmailToken.expires_at <= expired_before,
-                        ),
-                    )
-                )
-            )
-            await db.execute(delete(AuthRateLimit).where(AuthRateLimit.expires_at <= instant))
             jobs = (
                 (
                     await db.execute(
@@ -176,6 +164,10 @@ async def deliver_pending_jobs(
                             EmailDeliveryJob.sent_at.is_(None),
                             EmailDeliveryJob.available_at <= instant,
                             EmailDeliveryJob.expires_at > instant,
+                            or_(
+                                EmailDeliveryJob.claim_token.is_(None),
+                                EmailDeliveryJob.claim_expires_at <= instant,
+                            ),
                         )
                         .order_by(EmailDeliveryJob.created_at, EmailDeliveryJob.id)
                         .limit(limit)
@@ -186,28 +178,66 @@ async def deliver_pending_jobs(
                 .all()
             )
             for job in jobs:
-                try:
-                    payload = decrypt_delivery_payload(
+                claim_token = uuid4()
+                job.claim_token = claim_token
+                job.claim_expires_at = instant + _DELIVERY_LEASE
+                claimed.append(
+                    (
                         job.id,
-                        job.payload_ciphertext,
-                        key,
+                        bytes(job.payload_ciphertext),
                         job.outbox_key_version,
+                        int(job.attempt_count),
+                        job.expires_at,
+                        claim_token,
                     )
-                    message = _message(settings, payload)
-                    await anyio.to_thread.run_sync(
-                        send_message,
-                        settings.email_smtp_host,
-                        settings.email_smtp_port,
-                        message,
+                )
+
+    delivered = 0
+    for job_id, ciphertext, key_version, attempt_count, expires_at, claim_token in claimed:
+        failed = False
+        try:
+            payload = decrypt_delivery_payload(job_id, ciphertext, key, key_version)
+            message = _message(settings, payload, job_id)
+            await anyio.to_thread.run_sync(
+                send_message,
+                settings.email_smtp_host,
+                settings.email_smtp_port,
+                message,
+            )
+        except Exception:
+            failed = True
+
+        async with database.sessions() as db:
+            async with db.begin():
+                predicate = and_(EmailDeliveryJob.id == job_id, EmailDeliveryJob.claim_token == claim_token)
+                finalized_at = instant
+                if clock is not None:
+                    finalized_at = clock()
+                    if finalized_at.tzinfo is None:
+                        raise ValueError("email_clock_invalid")
+                    finalized_at = finalized_at.astimezone(timezone.utc).replace(
+                        microsecond=(finalized_at.microsecond // 1000) * 1000
                     )
-                except Exception:
-                    job.attempt_count = min(255, int(job.attempt_count) + 1)
-                    job.last_error_code = "smtp_delivery_failed"
-                    delay = min(3600, 2 ** min(10, int(job.attempt_count)))
-                    job.available_at = min(instant + timedelta(seconds=delay), job.expires_at)
+                if not failed:
+                    result = await db.execute(delete(EmailDeliveryJob).where(predicate))
+                    if result.rowcount == 1:
+                        delivered += 1
+                elif finalized_at >= expires_at:
+                    await db.execute(delete(EmailDeliveryJob).where(predicate))
                 else:
-                    await db.delete(job)
-                    delivered += 1
+                    next_attempt = min(255, attempt_count + 1)
+                    delay = min(3600, 2 ** min(10, next_attempt))
+                    await db.execute(
+                        update(EmailDeliveryJob)
+                        .where(predicate)
+                        .values(
+                            attempt_count=next_attempt,
+                            last_error_code="smtp_delivery_failed",
+                            available_at=min(finalized_at + timedelta(seconds=delay), expires_at),
+                            claim_token=None,
+                            claim_expires_at=None,
+                        )
+                    )
     return delivered
 
 

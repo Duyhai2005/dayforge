@@ -22,6 +22,7 @@ from app.services.auth_crypto import (
     encode_base64url,
     verify_logout_ticket,
 )
+from app.services.email_address import EmailAddressError, canonicalize_email
 from app.services.sessions import (
     SessionContext,
     clear_session_cookie,
@@ -43,6 +44,13 @@ def get_auth_service(request: Request) -> AuthService:
 
 def _peer_ip(request: Request) -> str | None:
     return None if request.client is None else request.client.host
+
+
+def _set_email_audit_context(request: Request, email: str) -> None:
+    try:
+        request.state.auth_email_canonical = canonicalize_email(email).canonical
+    except EmailAddressError:
+        request.state.auth_email_canonical = None
 
 
 def _view(context: SessionContext, request: Request) -> SessionView:
@@ -115,10 +123,15 @@ async def logout(
         target_id = None if context is None else context.session.id
     else:
         target_id = verify_logout_ticket(body.logout_ticket, settings.logout_ticket_verification_keys())
-    if target_id is not None:
-        await revoke_session(request, target_id)
-        if context is not None and context.session.id == target_id:
-            clear_session_cookie(response)
+    await revoke_session(
+        request,
+        target_id,
+        request_id=getattr(request.state, "request_id", "unknown-request"),
+        peer_ip=_peer_ip(request),
+        fallback_owner_id=None if context is None or context.user is None else context.user.id,
+    )
+    if target_id is not None and context is not None and context.session.id == target_id:
+        clear_session_cookie(response)
     return response
 
 
@@ -130,7 +143,14 @@ async def register(
     service: AuthService = Depends(get_auth_service),
 ) -> AcceptedEmailRequest:
     validate_auth_post(request, None if context is None else context.csrf_token)
-    await service.request_email(body.email, "verify_email", _peer_ip(request))
+    _set_email_audit_context(request, body.email)
+    await service.request_email(
+        body.email,
+        "verify_email",
+        _peer_ip(request),
+        audit_action="register",
+        request_id=getattr(request.state, "request_id", "unknown-request"),
+    )
     return AcceptedEmailRequest()
 
 
@@ -142,7 +162,14 @@ async def resend_verification(
     service: AuthService = Depends(get_auth_service),
 ) -> AcceptedEmailRequest:
     validate_auth_post(request, None if context is None else context.csrf_token)
-    await service.request_email(body.email, "verify_email", _peer_ip(request))
+    _set_email_audit_context(request, body.email)
+    await service.request_email(
+        body.email,
+        "verify_email",
+        _peer_ip(request),
+        audit_action="verification_resend",
+        request_id=getattr(request.state, "request_id", "unknown-request"),
+    )
     return AcceptedEmailRequest()
 
 
@@ -154,7 +181,12 @@ async def confirm_verification(
     service: AuthService = Depends(get_auth_service),
 ) -> AuthActionResponse:
     validate_auth_post(request, None if context is None else context.csrf_token)
-    await service.confirm_email(body.token, body.password, _peer_ip(request))
+    await service.confirm_email(
+        body.token,
+        body.password,
+        _peer_ip(request),
+        request_id=getattr(request.state, "request_id", "unknown-request"),
+    )
     return AuthActionResponse(status="verified")
 
 
@@ -167,12 +199,14 @@ async def login(
     service: AuthService = Depends(get_auth_service),
 ) -> SessionView:
     validate_auth_post(request, None if context is None else context.csrf_token)
+    _set_email_audit_context(request, body.email)
     authenticated = await service.login(
         body.email,
         body.password,
         body.remember_me,
         context,
         _peer_ip(request),
+        request_id=getattr(request.state, "request_id", "unknown-request"),
     )
     set_session_cookie(response, authenticated)
     return _view(authenticated, request)
@@ -186,7 +220,14 @@ async def forgot_password(
     service: AuthService = Depends(get_auth_service),
 ) -> AcceptedEmailRequest:
     validate_auth_post(request, None if context is None else context.csrf_token)
-    await service.request_email(body.email, "password_reset", _peer_ip(request))
+    _set_email_audit_context(request, body.email)
+    await service.request_email(
+        body.email,
+        "password_reset",
+        _peer_ip(request),
+        audit_action="password_forgot",
+        request_id=getattr(request.state, "request_id", "unknown-request"),
+    )
     return AcceptedEmailRequest()
 
 
@@ -198,7 +239,12 @@ async def reset_password(
     service: AuthService = Depends(get_auth_service),
 ) -> AuthActionResponse:
     validate_auth_post(request, None if context is None else context.csrf_token)
-    await service.reset_password(body.token, body.password, _peer_ip(request))
+    await service.reset_password(
+        body.token,
+        body.password,
+        _peer_ip(request),
+        request_id=getattr(request.state, "request_id", "unknown-request"),
+    )
     return AuthActionResponse(status="password_reset")
 
 
@@ -208,7 +254,9 @@ async def local_key(
     context: SessionContext = Depends(require_verified_owner),
     service: AuthService = Depends(get_auth_service),
 ) -> LocalKeyResponse:
-    value = await service.local_key(context, _peer_ip(request))
+    value = await service.local_key(
+        context, _peer_ip(request), request_id=getattr(request.state, "request_id", "unknown-request")
+    )
     return LocalKeyResponse(
         owner_id=value["owner_id"],
         key_id=value["key_id"],

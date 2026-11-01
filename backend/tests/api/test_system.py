@@ -92,6 +92,7 @@ def test_production_hides_openapi(settings_factory, monkeypatch):
 
     monkeypatch.setattr(main, "validate_owner_email_binding", validate_owner_email_binding)
     monkeypatch.setattr(main, "run_delivery_worker", wait_for_shutdown)
+    monkeypatch.setattr(main, "run_auth_maintenance", wait_for_shutdown)
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore",

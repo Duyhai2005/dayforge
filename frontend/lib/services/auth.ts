@@ -48,6 +48,18 @@ export class AuthApiError extends Error {
   }
 }
 
+export class AuthRequestCancelled extends Error {
+  constructor() {
+    super("Authentication request was cancelled");
+    this.name = "AuthRequestCancelled";
+  }
+}
+
+export type AuthPostOptions = Readonly<{
+  onSessionRefresh?: (session: SessionView) => void;
+  isCurrent?: () => boolean;
+}>;
+
 async function problemCode(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as { code?: unknown };
@@ -85,7 +97,8 @@ export async function getSession(): Promise<SessionView> {
 export async function postAuth<T>(
   path: string,
   body: unknown,
-  csrfToken?: string
+  csrfToken?: string,
+  options: AuthPostOptions = {}
 ): Promise<T> {
   if (!/^[a-z]+(?:\/[a-z]+)*$/.test(path)) {
     throw new AuthApiError(400, "malformed_request");
@@ -93,21 +106,31 @@ export async function postAuth<T>(
   let csrf = csrfToken;
   if (!csrf) csrf = (await getSession()).csrf_token;
   if (!csrf || csrf.length > 128) throw new AuthApiError(503, "service_unavailable");
-  let response: Response;
-  try {
-    response = await fetch(`/api/v1/auth/${path}`, {
-      method: "POST",
-      credentials: "same-origin",
-      cache: "no-store",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        "X-CSRF-Token": csrf,
-      },
-      body: JSON.stringify(body),
-    });
-  } catch {
-    throw new AuthApiError(503, "service_unavailable");
+  const send = async (token: string): Promise<Response> => {
+    try {
+      return await fetch(`/api/v1/auth/${path}`, {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "X-CSRF-Token": token,
+        },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      throw new AuthApiError(503, "service_unavailable");
+    }
+  };
+
+  let response = await send(csrf);
+  if (response.status === 403 && await problemCode(response.clone()) === "csrf_failed") {
+    if (options.isCurrent && !options.isCurrent()) throw new AuthRequestCancelled();
+    const refreshed = await getSession();
+    if (options.isCurrent && !options.isCurrent()) throw new AuthRequestCancelled();
+    options.onSessionRefresh?.(refreshed);
+    response = await send(refreshed.csrf_token);
   }
   await expectSuccess(response);
   if (response.status === 204) return undefined as T;
@@ -160,6 +183,7 @@ export async function importLocalKey(keyBase64url: string): Promise<StorageResul
 }
 
 export function authErrorText(error: unknown): string {
+  if (error instanceof AuthRequestCancelled) return "";
   const code = error instanceof AuthApiError ? error.code : "service_unavailable";
   switch (code) {
     case "invalid_credentials": return "Email hoặc mật khẩu chưa đúng.";

@@ -85,6 +85,7 @@ def test_auth_migration_adds_auth_tables_and_preserves_existing_owner_schema(
         "owner_local_keys",
         "auth_rate_limits",
         "email_delivery_jobs",
+        "auth_audit_events",
     } <= tables
     after = asyncio.run(
         query(
@@ -94,3 +95,7 @@ def test_auth_migration_adds_auth_tables_and_preserves_existing_owner_schema(
     )
     assert after == before
     assert after[0][0] == owner["id"]
+    audit_columns = {row[0] for row in asyncio.run(query(settings, "SHOW COLUMNS FROM auth_audit_events"))}
+    assert {"action", "outcome", "request_id", "email_digest", "peer_digest"} <= audit_columns
+    outbox_columns = {row[0] for row in asyncio.run(query(settings, "SHOW COLUMNS FROM email_delivery_jobs"))}
+    assert {"claim_token", "claim_expires_at"} <= outbox_columns

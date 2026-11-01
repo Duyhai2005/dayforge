@@ -1,6 +1,7 @@
 """Import all mapped tables before configuring migrations."""
 
 from app.models.auth import (
+    AuthAuditEvent,
     AuthRateLimit,
     EmailDeliveryJob,
     EmailToken,
@@ -11,6 +12,7 @@ from app.models.base import Base
 from app.models.owner import User, WorkspaceSettings
 
 __all__ = [
+    "AuthAuditEvent",
     "AuthRateLimit",
     "Base",
     "EmailDeliveryJob",

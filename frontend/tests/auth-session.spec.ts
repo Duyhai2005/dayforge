@@ -32,6 +32,7 @@ type ApiMockState = {
   localKeyRequests: number;
   failLogout: boolean;
   failSession: boolean;
+  csrfFailures: Array<{ path: string; remaining: number; refreshedToken?: string }>;
 };
 
 function sessionView(authenticated = false): SessionView {
@@ -67,6 +68,7 @@ async function mockAuthApi(page: Page, initial = sessionView()): Promise<ApiMock
     localKeyRequests: 0,
     failLogout: false,
     failSession: false,
+    csrfFailures: [],
   };
   await page.route("**/api/v1/auth/**", async (route) => {
     const request = route.request();
@@ -78,6 +80,17 @@ async function mockAuthApi(page: Page, initial = sessionView()): Promise<ApiMock
       body: request.postData(),
       headers: request.headers(),
     });
+    if (method === "POST") {
+      const failure = state.csrfFailures.find(item => item.path === path && item.remaining > 0);
+      if (failure) {
+        failure.remaining -= 1;
+        if (failure.refreshedToken) {
+          state.currentSession = { ...state.currentSession, csrf_token: failure.refreshedToken };
+        }
+        await route.fulfill({ status: 403, json: { code: "csrf_failed" } });
+        return;
+      }
+    }
     if (path === "/api/v1/auth/session" && method === "GET") {
       if (state.failSession) {
         await route.abort();
@@ -196,6 +209,54 @@ export async function readEncryptedOutbox(page: Page): Promise<unknown[]> {
   }), APP_DB);
 }
 
+async function seedLegacyPendingLogoutTicket(page: Page): Promise<void> {
+  await page.evaluate(async ({ dbName, sessionId }) => {
+    const request = indexedDB.open(dbName);
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = db.transaction(["auth_state"], "readwrite");
+    transaction.objectStore("auth_state").put({
+      key: `logout:${sessionId}`,
+      kind: "logout",
+      session_id: sessionId,
+      ticket: "test-logout-ticket",
+      created_at: "2026-11-01T00:00:00.000Z",
+    });
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+    db.close();
+  }, { dbName: APP_DB, sessionId: SESSION_ID });
+}
+
+async function readPendingLogoutRows(page: Page): Promise<Array<{ owner_id?: string; session_id: string }>> {
+  return await page.evaluate(async (dbName) => {
+    const request = indexedDB.open(dbName);
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = db.transaction(["auth_state"], "readonly");
+    const read = transaction.objectStore("auth_state").getAll();
+    const rows = await new Promise<unknown[]>((resolve, reject) => {
+      read.onsuccess = () => resolve(read.result as unknown[]);
+      read.onerror = () => reject(read.error);
+    });
+    db.close();
+    return rows
+      .filter((value): value is { kind?: unknown; owner_id?: unknown; session_id?: unknown } => Boolean(value && typeof value === "object"))
+      .filter(value => value.kind === "logout" && typeof value.session_id === "string")
+      .map(value => ({
+        owner_id: typeof value.owner_id === "string" ? value.owner_id : undefined,
+        session_id: value.session_id as string,
+      }));
+  }, APP_DB);
+}
+
 export async function prepareUnlockedOwnerWithPendingOperation(page: Page): Promise<ApiMockState> {
   const api = await mockAuthApi(page);
   await page.goto("/account");
@@ -312,6 +373,55 @@ test("accountLoginDefaultsRememberMeAndUnlocksOwner", async ({ page }) => {
     active_key_id: KEY_ID,
     locked: false,
   });
+});
+
+test("loginRecoversFromExpiredCsrfByRefreshingAndRetryingOnce", async ({ page }) => {
+  const api = await mockAuthApi(page);
+  await page.goto("/account");
+  const refreshedToken = "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI";
+  api.csrfFailures.push({ path: "/api/v1/auth/login", remaining: 1, refreshedToken });
+
+  await page.getByLabel("Email").fill("owner@example.test");
+  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
+  await page.getByRole("button", { name: "Đăng nhập" }).click();
+
+  await expect.poll(() => api.requests.filter(request => request.path === "/api/v1/auth/login").length).toBe(2);
+  const loginRequests = api.requests.filter(request => request.path === "/api/v1/auth/login");
+  expect(loginRequests).toHaveLength(2);
+  expect(loginRequests[0].headers["x-csrf-token"]).toBe(CSRF_TOKEN);
+  expect(loginRequests[1].headers["x-csrf-token"]).toBe(refreshedToken);
+  await expect(page.getByRole("status")).toContainText("đã mở khóa");
+});
+
+test("emailRequestRecoversFromExpiredCsrfByRefreshingAndRetryingOnce", async ({ page }) => {
+  const api = await mockAuthApi(page);
+  await page.goto("/account");
+  const refreshedToken = "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI";
+  api.csrfFailures.push({ path: "/api/v1/auth/register", remaining: 1, refreshedToken });
+
+  await page.getByLabel("Email").fill("owner@example.test");
+  await page.getByRole("button", { name: "Thiết lập ban đầu" }).click();
+  await page.getByRole("button", { name: "Gửi email xác minh" }).click();
+
+  await expect.poll(() => api.requests.filter(request => request.path === "/api/v1/auth/register").length).toBe(2);
+  const registerRequests = api.requests.filter(request => request.path === "/api/v1/auth/register");
+  expect(registerRequests).toHaveLength(2);
+  expect(registerRequests[0].headers["x-csrf-token"]).toBe(CSRF_TOKEN);
+  expect(registerRequests[1].headers["x-csrf-token"]).toBe(refreshedToken);
+  await expect(page.getByRole("status")).toContainText("Nếu email phù hợp");
+});
+
+test("legacyPendingLogoutTicketLocksVaultBeforeReplayAndAfterLaterReload", async ({ page }) => {
+  const api = await prepareUnlockedOwnerWithPendingOperation(page);
+  await seedLegacyPendingLogoutTicket(page);
+
+  await page.reload();
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
+  await expect.poll(() => api.requests.filter(request => request.path === "/api/v1/auth/logout").length).toBe(1);
+  expect(await readPendingLogoutRows(page)).toEqual([]);
+
+  await page.reload();
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
 });
 
 test("unicodeEmailReachesServerCanonicalization", async ({ page }) => {
@@ -466,6 +576,7 @@ test("logoutOfflineLocksAllTabsAndPreservesPendingData", async ({ page, context 
   }), APP_DB);
   expect(authState).toHaveLength(1);
   expect(JSON.stringify(authState)).toContain("test-logout-ticket");
+  expect(await readPendingLogoutRows(page)).toEqual([{ owner_id: OWNER_ID, session_id: SESSION_ID }]);
 });
 
 test("loginDoesNotAutoUnlockFromRestoredCookie", async ({ page }) => {

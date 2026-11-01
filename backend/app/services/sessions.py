@@ -10,9 +10,11 @@ from fastapi import Depends, Request, Response
 from sqlalchemy import select, update
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.core.config import Settings
 from app.core.errors import ProblemHTTPException
 from app.models.auth import Session as AuthSession
 from app.models.owner import User
+from app.services.auth_audit import make_auth_audit_event
 from app.services.auth_crypto import encode_base64url
 
 SESSION_COOKIE_NAME = "__Host-dayforge-session"
@@ -80,6 +82,7 @@ async def get_session_context(request: Request) -> SessionContext | None:
                 or record.password_authenticated_at is None
             ):
                 return None
+            request.state.auth_owner_id = user.id
             return SessionContext(record, user, record.csrf_token, encode_base64url(raw_token))
     except SQLAlchemyError:
         raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
@@ -110,6 +113,16 @@ async def create_anonymous_session(request: Request) -> SessionContext:
         async with database.sessions() as db:
             async with db.begin():
                 db.add(record)
+                db.add(
+                    make_auth_audit_event(
+                        request.app.state.settings,
+                        action="session_created",
+                        outcome="success",
+                        request_id=getattr(request.state, "request_id", "anonymous-session"),
+                        peer_ip=None if request.client is None else request.client.host,
+                        now=now,
+                    )
+                )
     except SQLAlchemyError:
         raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
     return SessionContext(record, None, csrf_token, encode_base64url(raw_token))
@@ -178,6 +191,13 @@ async def create_authenticated_session(
     remember_me: bool,
     previous: SessionContext | None,
     *,
+    settings: Settings,
+    request_id: str,
+    peer_ip: str | None,
+    email_canonical: bytes,
+    expected_auth_version: int,
+    verified_password_hash: str,
+    replacement_password_hash: str | None = None,
     now: datetime | None = None,
 ) -> SessionContext:
     instant = now or utc_now()
@@ -186,24 +206,21 @@ async def create_authenticated_session(
     idle_duration = SESSION_IDLE_REMEMBERED if remember_me else SESSION_IDLE_STANDARD
     absolute_duration = SESSION_ABSOLUTE_REMEMBERED if remember_me else SESSION_ABSOLUTE_STANDARD
     absolute_expires_at = instant + absolute_duration
-    record = AuthSession(
-        id=uuid4(),
-        kind="authenticated",
-        token_hash=hashlib.sha256(raw_token).digest(),
-        owner_id=user.id,
-        csrf_token=csrf_token,
-        auth_version=user.auth_version,
-        password_authenticated_at=instant,
-        remember_me=remember_me,
-        created_at=instant,
-        last_activity_at=instant,
-        idle_expires_at=min(instant + idle_duration, absolute_expires_at),
-        absolute_expires_at=absolute_expires_at,
-        revoked_at=None,
-    )
+    locked_user: User | None = None
+    record: AuthSession | None = None
     try:
         async with database.sessions() as db:
             async with db.begin():
+                locked_user = await db.get(User, user.id, with_for_update=True)
+                if (
+                    locked_user is None
+                    or locked_user.email_verified_at is None
+                    or locked_user.auth_version != expected_auth_version
+                ):
+                    raise ProblemHTTPException(status_code=401, code="invalid_credentials")
+                if replacement_password_hash is not None and locked_user.password_hash == verified_password_hash:
+                    locked_user.password_hash = replacement_password_hash
+                    locked_user.updated_at = instant
                 if previous is not None:
                     await db.execute(
                         update(AuthSession)
@@ -213,22 +230,88 @@ async def create_authenticated_session(
                         )
                         .values(revoked_at=instant)
                     )
+                record = AuthSession(
+                    id=uuid4(),
+                    kind="authenticated",
+                    token_hash=hashlib.sha256(raw_token).digest(),
+                    owner_id=locked_user.id,
+                    csrf_token=csrf_token,
+                    auth_version=locked_user.auth_version,
+                    password_authenticated_at=instant,
+                    remember_me=remember_me,
+                    created_at=instant,
+                    last_activity_at=instant,
+                    idle_expires_at=min(instant + idle_duration, absolute_expires_at),
+                    absolute_expires_at=absolute_expires_at,
+                    revoked_at=None,
+                )
                 db.add(record)
+                db.add(
+                    make_auth_audit_event(
+                        settings,
+                        action="login",
+                        outcome="success",
+                        request_id=request_id,
+                        owner_id=locked_user.id,
+                        email_canonical=email_canonical,
+                        peer_ip=peer_ip,
+                        now=instant,
+                    )
+                )
+                db.add(
+                    make_auth_audit_event(
+                        settings,
+                        action="session_created",
+                        outcome="success",
+                        request_id=request_id,
+                        owner_id=locked_user.id,
+                        peer_ip=peer_ip,
+                        now=instant,
+                    )
+                )
+    except ProblemHTTPException:
+        raise
     except SQLAlchemyError:
         raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
-    return SessionContext(record, user, csrf_token, encode_base64url(raw_token))
+    if locked_user is None or record is None:
+        raise ProblemHTTPException(status_code=503, code="service_unavailable")
+    return SessionContext(record, locked_user, csrf_token, encode_base64url(raw_token))
 
 
-async def revoke_session(request: Request, session_id: UUID) -> None:
+async def revoke_session(
+    request: Request,
+    session_id: UUID | None,
+    *,
+    request_id: str,
+    peer_ip: str | None,
+    fallback_owner_id: UUID | None = None,
+) -> None:
     database = request.app.state.database
     now = utc_now()
     try:
         async with database.sessions() as db:
             async with db.begin():
-                await db.execute(
-                    update(AuthSession)
-                    .where(AuthSession.id == session_id, AuthSession.revoked_at.is_(None))
-                    .values(revoked_at=now)
+                record = None if session_id is None else await db.get(AuthSession, session_id, with_for_update=True)
+                if record is not None and record.revoked_at is None:
+                    record.revoked_at = now
+                    outcome = "success"
+                    owner_id = record.owner_id
+                else:
+                    outcome = "noop"
+                    if record is None:
+                        owner_id = fallback_owner_id if session_id is None else None
+                    else:
+                        owner_id = record.owner_id
+                db.add(
+                    make_auth_audit_event(
+                        request.app.state.settings,
+                        action="logout",
+                        outcome=outcome,
+                        request_id=request_id,
+                        owner_id=owner_id,
+                        peer_ip=peer_ip,
+                        now=now,
+                    )
                 )
     except SQLAlchemyError:
         raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
