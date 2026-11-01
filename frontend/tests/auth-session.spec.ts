@@ -394,6 +394,7 @@ test("delayedLocalKeyCannotReopenOwnerAfterRemoteLogout", async ({ page, context
   await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
 
   releaseLocalKey();
+  await expect(page.getByRole("button", { name: "Đăng nhập" })).toBeEnabled();
   await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
 });
 test("expiredSessionKeepsLocalVaultAvailable", async ({ page }) => {
