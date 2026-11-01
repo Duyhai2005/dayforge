@@ -362,8 +362,13 @@ async def record_operation(
                     if _recorded_order(dependency) >= _operation_order(operation):
                         raise SyncOperationError("invalid_causality", 422)
 
-                if now is None and not SERVER_CLOCK_MONITOR.observe(wall_ms=unix_milliseconds(instant)):
-                    raise ProblemHTTPException(status_code=503, code="clock_unhealthy")
+                if now is None:
+                    # Sample wall time after the owner lock and dependency reads. Sampling before
+                    # waiting for this transaction can make concurrent writes report stale or
+                    # out-of-order wall times to the process-wide monitor.
+                    instant = _utc_now()
+                    if not SERVER_CLOCK_MONITOR.observe(wall_ms=unix_milliseconds(instant)):
+                        raise ProblemHTTPException(status_code=503, code="clock_unhealthy")
 
                 owner = await session.get(User, owner_id)
                 if owner is None:

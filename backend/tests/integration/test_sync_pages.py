@@ -115,7 +115,9 @@ def test_bootstrap_keeps_fixed_prefix_when_new_event_commits_during_pagination(m
                         )
                     )
                     session.add_all(events)
+                    await session.flush()
                     session.add_all(receipts)
+                    await session.flush()
                     session.add_all(changes)
 
             first = await read_sync_page(
@@ -247,6 +249,7 @@ def test_page_byte_cap_stops_before_splitting_a_large_event(migrated, user_facto
                         )
                     )
                     session.add_all(events)
+                    await session.flush()
                     session.add_all(changes)
 
             page = await read_sync_page(

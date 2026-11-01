@@ -8,10 +8,11 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import func, select, text
+from sqlalchemy import delete, func, select, text
 
 from app.core.database import create_database
-from app.models.sync import OwnerSyncState, RecordedOperation
+from app.models.owner import User
+from app.models.sync import ChangeLog, OperationReceipt, OwnerSyncState, RecordedOperation
 from app.services.sync import SyncOperationError, read_owner_sync_head, read_sync_page, record_operation
 from app.services.sync_wire import validate_operation
 
@@ -60,25 +61,34 @@ def operation_for(owner_id, *, operation_id=None, sequence=1):
 
 
 async def add_test_owners(database, owner_a, owner_b):
+    async with database.engine.begin() as connection:
+        # MySQL 8.4 has no session variable for disabling CHECK constraints. Temporarily
+        # remove the owner-slot unique index so the test can create one synthetic second owner.
+        await connection.execute(text("ALTER TABLE users DROP INDEX uq_users_owner_slot"))
     async with database.sessions() as session:
         async with session.begin():
             session.add(owner_a)
+            session.add(owner_b)
             await session.flush()
-            # The product reserves owner_slot=1. Disable CHECK enforcement for this synthetic
-            # second row so owner-scoped sync queries can be tested on the real schema.
-            await session.execute(text("SET SESSION check_constraint_checks = OFF"))
-            try:
-                session.add(owner_b)
-                await session.flush()
-            finally:
-                await session.execute(text("SET SESSION check_constraint_checks = ON"))
+
+
+async def remove_test_owner_and_restore_slot_index(database, owner_id):
+    async with database.sessions() as session:
+        async with session.begin():
+            await session.execute(delete(ChangeLog).where(ChangeLog.owner_id == owner_id))
+            await session.execute(delete(OperationReceipt).where(OperationReceipt.owner_id == owner_id))
+            await session.execute(delete(RecordedOperation).where(RecordedOperation.owner_id == owner_id))
+            await session.execute(delete(OwnerSyncState).where(OwnerSyncState.owner_id == owner_id))
+            await session.execute(delete(User).where(User.id == owner_id))
+    async with database.engine.begin() as connection:
+        await connection.execute(text("ALTER TABLE users ADD CONSTRAINT uq_users_owner_slot UNIQUE (owner_slot)"))
 
 
 def test_sync_reads_dependencies_and_operation_ids_are_owner_scoped(migrated, user_factory):
     async def run():
         database = create_database(migrated)
         owner_a = user_factory()
-        owner_b = user_factory(owner_slot=2)
+        owner_b = user_factory()
         shared_operation_id = uuid4()
         try:
             await add_test_owners(database, owner_a, owner_b)
@@ -150,6 +160,7 @@ def test_sync_reads_dependencies_and_operation_ids_are_owner_scoped(migrated, us
                 state_b = await session.get(OwnerSyncState, owner_b.id)
                 assert state_b is not None and state_b.head_cursor == 1
         finally:
+            await remove_test_owner_and_restore_slot_index(database, owner_b.id)
             await database.engine.dispose()
 
     asyncio.run(run())
