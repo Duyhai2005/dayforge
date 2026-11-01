@@ -599,7 +599,7 @@ test("loginCompletesAfterRecoveringPendingLogoutInSameTab", async ({ page, conte
   await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
   await page.getByRole("button", { name: "Đăng nhập" }).click();
 
-  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.locator(".account-error")).toBeVisible();
   expect(api.requests.filter(request => request.path === "/api/v1/auth/login")).toHaveLength(loginCount);
   await expect.poll(async () => readPendingLogoutRows(page)).toHaveLength(1);
 
