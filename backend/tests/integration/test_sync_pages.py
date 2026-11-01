@@ -54,6 +54,8 @@ def operation_for(owner_id, *, sequence=1):
     operation["owner_id"] = str(owner_id)
     operation["operation_id"] = str(uuid4())
     operation["device_sequence"] = str(sequence)
+    operation["edit_time"]["physical_ms"] = int(INSTANT.timestamp() * 1000)
+    operation["edit_time"]["raw_wall_ms"] = int(INSTANT.timestamp() * 1000)
     return operation
 
 

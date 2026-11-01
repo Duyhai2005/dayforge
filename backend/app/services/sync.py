@@ -16,8 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ProblemHTTPException
 from app.core.values import format_utc_timestamp
+from app.models.owner import User
 from app.models.sync import ChangeLog, OperationReceipt, OwnerSyncState, RecordedOperation
 from app.schemas.sync import SyncPage
+from app.services.sync_clock import SERVER_CLOCK_MONITOR, validate_operation_time
 from app.services.sync_tokens import PageToken, create_page_token
 from app.services.sync_wire import ValidatedOperation
 
@@ -351,8 +353,19 @@ async def record_operation(
                     if _recorded_order(dependency) >= _operation_order(operation):
                         raise SyncOperationError("invalid_causality", 422)
 
-                if operation.quality == "untrusted":
-                    raise SyncOperationError("time_invalid", 422)
+                if now is None and not SERVER_CLOCK_MONITOR.observe(wall_ms=unix_milliseconds(instant)):
+                    raise ProblemHTTPException(status_code=503, code="clock_unhealthy")
+
+                owner = await session.get(User, owner_id)
+                if owner is None:
+                    raise ProblemHTTPException(status_code=503, code="service_unavailable")
+                clock_error = validate_operation_time(
+                    operation,
+                    account_created_ms=unix_milliseconds(owner.created_at),
+                    server_now_ms=unix_milliseconds(instant),
+                )
+                if clock_error is not None:
+                    raise SyncOperationError(clock_error, 422)
 
                 cursor = state.head_cursor + 1
                 event = RecordedOperation(

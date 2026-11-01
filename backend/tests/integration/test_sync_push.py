@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -17,6 +18,8 @@ from app.services.sync_wire import validate_operation
 pytestmark = pytest.mark.mysql
 BACKEND = Path(__file__).resolve().parents[2]
 EXAMPLES = BACKEND.parent / "docs" / "tasks" / "t03" / "contract-examples.json"
+TEST_NOW = datetime.now(timezone.utc).replace(microsecond=0)
+EDIT_TIME = int(TEST_NOW.timestamp() * 1000)
 
 
 def alembic(*arguments):
@@ -49,6 +52,8 @@ def operation_for(owner_id):
     )
     operation["owner_id"] = str(owner_id)
     operation["operation_id"] = str(uuid4())
+    operation["edit_time"]["physical_ms"] = EDIT_TIME
+    operation["edit_time"]["raw_wall_ms"] = EDIT_TIME
     return operation
 
 
@@ -63,8 +68,8 @@ def test_push_retry_returns_original_receipt_and_different_hash_is_rejected(migr
 
             envelope = operation_for(owner.id)
             validated = validate_operation(envelope)
-            first = await record_operation(database, owner.id, validated)
-            duplicate = await record_operation(database, owner.id, validated)
+            first = await record_operation(database, owner.id, validated, now=TEST_NOW)
+            duplicate = await record_operation(database, owner.id, validated, now=TEST_NOW + timedelta(days=60))
 
             assert first.status == "recorded"
             assert duplicate.status == "duplicate"
@@ -82,6 +87,87 @@ def test_push_retry_returns_original_receipt_and_different_hash_is_rejected(migr
                 assert await session.scalar(select(func.count()).select_from(RecordedOperation)) == 1
                 assert await session.scalar(select(func.count()).select_from(OperationReceipt)) == 1
                 assert await session.scalar(select(func.count()).select_from(ChangeLog)) == 1
+                state = await session.get(OwnerSyncState, owner.id)
+                assert state is not None and state.head_cursor == 1
+        finally:
+            await database.engine.dispose()
+
+    asyncio.run(run())
+
+
+def test_push_accepts_dependency_in_edit_order_and_rejects_time_invalid_without_recording(migrated, user_factory):
+    async def run():
+        database = create_database(migrated)
+        owner = user_factory()
+        try:
+            async with database.sessions() as session:
+                async with session.begin():
+                    session.add(owner)
+
+            dependency = operation_for(owner.id)
+            await record_operation(database, owner.id, validate_operation(dependency))
+
+            dependent = operation_for(owner.id)
+            dependent["dependencies"] = [dependency["operation_id"]]
+            dependent["edit_time"]["physical_ms"] += 1
+            dependent["edit_time"]["raw_wall_ms"] += 1
+            accepted = await record_operation(database, owner.id, validate_operation(dependent))
+            assert accepted.status == "recorded"
+            assert accepted.head_cursor == 2
+
+            future = operation_for(owner.id)
+            future["edit_time"]["physical_ms"] += 300_001
+            future["edit_time"]["raw_wall_ms"] += 300_001
+            with pytest.raises(SyncOperationError) as invalid_time:
+                await record_operation(database, owner.id, validate_operation(future), now=TEST_NOW)
+            assert invalid_time.value.code == "time_invalid"
+
+            async with database.sessions() as session:
+                assert await session.scalar(select(func.count()).select_from(RecordedOperation)) == 2
+                state = await session.get(OwnerSyncState, owner.id)
+                assert state is not None and state.head_cursor == 2
+        finally:
+            await database.engine.dispose()
+
+    asyncio.run(run())
+
+
+def test_push_returns_duplicate_receipt_when_server_clock_is_unhealthy(migrated, user_factory, monkeypatch):
+    from app.core.errors import ProblemHTTPException
+    from app.services import sync as sync_service
+
+    class UnhealthyClock:
+        def observe(self, **_kwargs):
+            return False
+
+    async def run():
+        database = create_database(migrated)
+        owner = user_factory()
+        try:
+            async with database.sessions() as session:
+                async with session.begin():
+                    session.add(owner)
+
+            envelope = validate_operation(operation_for(owner.id))
+            recorded = await record_operation(
+                database,
+                owner.id,
+                envelope,
+                now=TEST_NOW,
+            )
+            monkeypatch.setattr(sync_service, "SERVER_CLOCK_MONITOR", UnhealthyClock())
+
+            duplicate = await record_operation(database, owner.id, envelope)
+            assert duplicate.status == "duplicate"
+            assert duplicate.receipt == recorded.receipt
+
+            new_operation = validate_operation(operation_for(owner.id))
+            with pytest.raises(ProblemHTTPException) as unhealthy:
+                await record_operation(database, owner.id, new_operation)
+            assert unhealthy.value.status_code == 503
+            assert unhealthy.value.code == "clock_unhealthy"
+            async with database.sessions() as session:
+                assert await session.scalar(select(func.count()).select_from(RecordedOperation)) == 1
                 state = await session.get(OwnerSyncState, owner.id)
                 assert state is not None and state.head_cursor == 1
         finally:
@@ -131,6 +217,13 @@ def test_push_rejects_owner_assertion_and_nonincreasing_dependency_order(migrate
             assert mismatch.value.code == "owner_mismatch"
 
             await record_operation(database, owner.id, valid)
+            cross_owner = operation_for(other_owner.id)
+            cross_owner["dependencies"] = [envelope["operation_id"]]
+            with pytest.raises(SyncOperationError) as unavailable:
+                await record_operation(database, other_owner.id, validate_operation(cross_owner))
+            assert unavailable.value.code == "dependency_missing"
+            assert unavailable.value.deferred is True
+
             dependent = operation_for(owner.id)
             dependent["dependencies"] = [envelope["operation_id"]]
             dependent["edit_time"]["physical_ms"] -= 1
