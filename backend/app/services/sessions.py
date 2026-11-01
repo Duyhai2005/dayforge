@@ -265,6 +265,7 @@ async def create_authenticated_session(
                         outcome="success",
                         request_id=request_id,
                         owner_id=locked_user.id,
+                        email_canonical=email_canonical,
                         peer_ip=peer_ip,
                         now=instant,
                     )

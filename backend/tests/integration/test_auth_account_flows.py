@@ -3,6 +3,7 @@ import hashlib
 import re
 import subprocess
 import sys
+import time
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -342,7 +343,10 @@ def test_expired_token_digest_is_pruned_after_7_days(auth_database):
                 db.add(token)
 
     _run_with_database(auth_database, insert)
-    _capture_pending_email(auth_database)
+    _run_with_database(
+        auth_database,
+        lambda database: cleanup_auth_storage(database, now=now),
+    )
 
     assert _query_one(auth_database, select(EmailToken).where(EmailToken.id == token.id)) is None
 
@@ -572,6 +576,62 @@ def test_email_delivery_claim_prevents_two_workers_from_sending_same_job(auth_da
     assert _query_one(auth_database, select(EmailDeliveryJob).where(EmailDeliveryJob.id == job.id)) is None
 
 
+def test_email_delivery_renews_active_job_lease_while_batch_crosses_lease_boundary(auth_database, monkeypatch):
+    import app.services.email_delivery as email_delivery
+
+    monkeypatch.setattr(email_delivery, "_DELIVERY_LEASE", timedelta(seconds=1))
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    jobs = [
+        make_delivery_job(
+            auth_database,
+            recipient="owner@example.test",
+            kind="verify_email",
+            token=token,
+            now=now,
+            expires_at=now + timedelta(minutes=10),
+        )
+        for token in ("F" * 43, "G" * 43)
+    ]
+    for job in jobs:
+        _run_with_database(auth_database, lambda database, job=job: _insert_delivery_job(database, job))
+    send_started = Event()
+    release_first = Event()
+    calls: list[str] = []
+    calls_lock = Lock()
+
+    def sender(_host, _port, message):
+        with calls_lock:
+            calls.append(message["Message-ID"])
+            is_first = len(calls) == 1
+        if is_first:
+            send_started.set()
+            assert release_first.wait(8)
+
+    def worker(database):
+        return deliver_pending_jobs(
+            database,
+            auth_database,
+            clock=lambda: datetime.now(timezone.utc),
+            send_message=sender,
+            limit=2,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(_run_with_database, auth_database, worker)
+        assert send_started.wait(5)
+        time.sleep(1.4)
+        second = executor.submit(_run_with_database, auth_database, worker)
+        assert second.result(timeout=10) == 1
+        release_first.set()
+        assert first.result(timeout=10) == 1
+
+    assert sorted(calls) == sorted(f"<{job.id.hex}@dayforge.local>" for job in jobs)
+    assert all(
+        _query_one(auth_database, select(EmailDeliveryJob).where(EmailDeliveryJob.id == job.id)) is None
+        for job in jobs
+    )
+
+
 def test_stale_email_worker_cannot_finalize_reclaimed_lease(auth_database):
     now = datetime.now(timezone.utc).replace(microsecond=0)
     job = make_delivery_job(
@@ -596,7 +656,6 @@ def test_stale_email_worker_cannot_finalize_reclaimed_lease(auth_database):
             database,
             auth_database,
             now=now,
-            clock=lambda: now + timedelta(seconds=122),
             send_message=stale_sender,
         )
 
@@ -631,13 +690,19 @@ def test_email_job_expiring_during_smtp_send_is_discarded(auth_database):
     )
     _run_with_database(auth_database, lambda database: _insert_delivery_job(database, job))
 
+    current = [now]
+
+    def expire_during_send(_host, _port, _message):
+        current[0] = job.expires_at
+        raise TimeoutError("simulated SMTP timeout")
+
     async def deliver(database):
         return await deliver_pending_jobs(
             database,
             auth_database,
             now=now,
-            clock=lambda: job.expires_at,
-            send_message=lambda *_args: (_ for _ in ()).throw(TimeoutError("simulated SMTP timeout")),
+            clock=lambda: current[0],
+            send_message=expire_during_send,
         )
 
     assert _run_with_database(auth_database, deliver) == 0
@@ -766,7 +831,7 @@ def test_auth_cleanup_is_bounded_and_observes_retention_leases(auth_database):
 
     assert counts == {
         "sessions": 1,
-        "email_tokens": 0,
+        "email_tokens": 1,
         "email_delivery_jobs": 1,
         "auth_audit_events": 1,
         "auth_rate_limits": 1,

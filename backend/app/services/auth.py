@@ -571,8 +571,13 @@ class AuthService:
             user.password_hash if user is not None and user.email_verified_at is not None else DUMMY_PASSWORD_HASH
         )
         valid = await _password_work(verify_password, password, password_hash)
-        allowed_owner = canonical is not None and canonical.canonical == self.owner_email.canonical
-        if not valid or user is None or user.email_verified_at is None or not allowed_owner:
+        if (
+            not valid
+            or user is None
+            or user.email_verified_at is None
+            or canonical is None
+            or canonical.canonical != self.owner_email.canonical
+        ):
             await _apply_limits(self.database, limits, now, record_event=True)
             raise ProblemHTTPException(status_code=401, code="invalid_credentials")
         replacement_password_hash = None

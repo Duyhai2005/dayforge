@@ -303,16 +303,21 @@ export function AuthSessionProvider({ children }: Readonly<{ children: ReactNode
     password: string,
     rememberMe: boolean
   ): Promise<void> => {
-    const attempt = ++loginAttemptRef.current;
-    const isCurrentAttempt = () => loginAttemptRef.current === attempt;
+    const recoveryAttempt = ++loginAttemptRef.current;
+    const isCurrentRecovery = () => loginAttemptRef.current === recoveryAttempt;
     setError("");
     setNotice("");
     let current = sessionRef.current ?? await getSession();
-    if (!isCurrentAttempt()) return;
+    if (!isCurrentRecovery()) return;
     const db = await ensureDatabase();
+    if (!isCurrentRecovery()) return;
     const retry = await retryQueuedLogouts(db, current);
+    if (!isCurrentRecovery()) return;
     applyRecoveredOwnerLocks(retry.lockedOwnerIds);
-    if (!isCurrentAttempt()) return;
+    // Recovery publishes a local lock event synchronously. Start the actual
+    // login attempt after that event so this recovery does not cancel itself.
+    const attempt = ++loginAttemptRef.current;
+    const isCurrentAttempt = () => loginAttemptRef.current === attempt;
     if (retry.remaining > 0) {
       throw new AuthApiError(503, "service_unavailable");
     }

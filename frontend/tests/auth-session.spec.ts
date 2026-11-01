@@ -579,6 +579,40 @@ test("logoutOfflineLocksAllTabsAndPreservesPendingData", async ({ page, context 
   expect(await readPendingLogoutRows(page)).toEqual([{ owner_id: OWNER_ID, session_id: SESSION_ID }]);
 });
 
+test("loginCompletesAfterRecoveringPendingLogoutInSameTab", async ({ page, context }) => {
+  const api = await prepareUnlockedOwnerWithPendingOperation(page);
+  await page.goto("/work");
+  await expect(page.getByRole("button", { name: "Đăng xuất" })).toBeVisible();
+  api.failLogout = true;
+  await context.setOffline(true);
+  await page.getByRole("button", { name: "Đăng xuất" }).click();
+  await expect(page.getByRole("dialog")).toContainText("đang chờ đồng bộ");
+  await page.getByRole("button", { name: "Vẫn đăng xuất" }).click();
+  await expect(page.getByRole("status")).toContainText("chưa thu hồi trên máy chủ");
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
+
+  await context.setOffline(false);
+  const loginCount = api.requests.filter(request => request.path === "/api/v1/auth/login").length;
+  await page.goto("/account");
+  await expect(page.getByRole("status")).toContainText("Có yêu cầu đăng xuất đang chờ kết nối");
+  await page.getByLabel("Email").fill("owner@example.test");
+  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
+  await page.getByRole("button", { name: "Đăng nhập" }).click();
+
+  await expect(page.getByRole("alert")).toBeVisible();
+  expect(api.requests.filter(request => request.path === "/api/v1/auth/login")).toHaveLength(loginCount);
+  await expect.poll(async () => readPendingLogoutRows(page)).toHaveLength(1);
+
+  api.failLogout = false;
+  await page.getByRole("button", { name: "Đăng nhập" }).click();
+
+  await expect.poll(() => api.requests.filter(request => request.path === "/api/v1/auth/login").length)
+    .toBe(loginCount + 1);
+  await expect(page.getByRole("status")).toContainText("đã mở khóa");
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
+  await expect.poll(async () => readPendingLogoutRows(page)).toEqual([]);
+});
+
 test("loginDoesNotAutoUnlockFromRestoredCookie", async ({ page }) => {
   const api = await mockAuthApi(page, sessionView(true));
   await page.goto("/account");

@@ -151,6 +151,13 @@ async def deliver_pending_jobs(
         raise ValueError("email_clock_invalid")
     instant = instant.astimezone(timezone.utc)
     instant = instant.replace(microsecond=(instant.microsecond // 1000) * 1000)
+
+    def current_time() -> datetime:
+        value = clock() if clock is not None else (datetime.now(timezone.utc) if now is None else instant)
+        if value.tzinfo is None:
+            raise ValueError("email_clock_invalid")
+        return value.astimezone(timezone.utc).replace(microsecond=(value.microsecond // 1000) * 1000)
+
     limit = min(20, max(1, limit))
     key = settings.secret_key("auth_email_outbox_key_b64")
     claimed: list[tuple[UUID, bytes, int, int, datetime, UUID]] = []
@@ -198,26 +205,29 @@ async def deliver_pending_jobs(
         try:
             payload = decrypt_delivery_payload(job_id, ciphertext, key, key_version)
             message = _message(settings, payload, job_id)
-            await anyio.to_thread.run_sync(
-                send_message,
-                settings.email_smtp_host,
-                settings.email_smtp_port,
-                message,
-            )
         except Exception:
             failed = True
+        else:
+            if not await _renew_delivery_claim(database, job_id, claim_token, current_time()):
+                continue
+            try:
+                await _send_with_delivery_lease(
+                    database,
+                    job_id,
+                    claim_token,
+                    current_time,
+                    send_message,
+                    settings.email_smtp_host,
+                    settings.email_smtp_port,
+                    message,
+                )
+            except Exception:
+                failed = True
 
         async with database.sessions() as db:
             async with db.begin():
                 predicate = and_(EmailDeliveryJob.id == job_id, EmailDeliveryJob.claim_token == claim_token)
-                finalized_at = instant
-                if clock is not None:
-                    finalized_at = clock()
-                    if finalized_at.tzinfo is None:
-                        raise ValueError("email_clock_invalid")
-                    finalized_at = finalized_at.astimezone(timezone.utc).replace(
-                        microsecond=(finalized_at.microsecond // 1000) * 1000
-                    )
+                finalized_at = current_time()
                 if not failed:
                     result = await db.execute(delete(EmailDeliveryJob).where(predicate))
                     if result.rowcount == 1:
@@ -239,6 +249,59 @@ async def deliver_pending_jobs(
                         )
                     )
     return delivered
+
+
+async def _renew_delivery_claim(database, job_id: UUID, claim_token: UUID, now: datetime) -> bool:
+    async with database.sessions() as db:
+        async with db.begin():
+            result = await db.execute(
+                update(EmailDeliveryJob)
+                .where(
+                    EmailDeliveryJob.id == job_id,
+                    EmailDeliveryJob.claim_token == claim_token,
+                    EmailDeliveryJob.claim_expires_at > now,
+                    EmailDeliveryJob.expires_at > now,
+                    EmailDeliveryJob.sent_at.is_(None),
+                )
+                .values(claim_expires_at=now + _DELIVERY_LEASE)
+            )
+            return result.rowcount == 1
+
+
+async def _send_with_delivery_lease(
+    database,
+    job_id: UUID,
+    claim_token: UUID,
+    current_time: Callable[[], datetime],
+    send_message: Callable[[str, int, EmailMessage], None],
+    host: str,
+    port: int,
+    message: EmailMessage,
+) -> None:
+    stop_heartbeat = asyncio.Event()
+    interval = max(0.05, _DELIVERY_LEASE.total_seconds() / 3)
+
+    async def heartbeat() -> None:
+        while True:
+            try:
+                await asyncio.wait_for(stop_heartbeat.wait(), timeout=interval)
+                return
+            except TimeoutError:
+                pass
+            try:
+                renewed = await _renew_delivery_claim(database, job_id, claim_token, current_time())
+            except SQLAlchemyError:
+                _LOGGER.warning("email_delivery_lease_renewal_failed")
+                continue
+            if not renewed:
+                return
+
+    heartbeat_task = asyncio.create_task(heartbeat())
+    try:
+        await anyio.to_thread.run_sync(send_message, host, port, message)
+    finally:
+        stop_heartbeat.set()
+        await heartbeat_task
 
 
 async def run_delivery_worker(database, settings: Settings) -> None:

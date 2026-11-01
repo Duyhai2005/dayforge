@@ -78,7 +78,16 @@ The follow-up changes address the PR #9 lifecycle and concurrency findings:
 - Backend pytest collection/integration could not run in this environment: the configured Python environment is missing `argon2` and `email_validator`. MySQL integration behavior therefore remains unverified here.
 - The final Black recheck did not complete in this Python 3.12 environment; Black reports the project formatter target is Python 3.14. The earlier pre-final-edit check passed, but this follow-up does not claim a final Black pass.
 
-The changes remain local to the `codex/pr9-review-fixes` worktree. They have not been pushed or posted to the PR.
+The follow-up changes are tracked on PR #9.
+
+## PR #9 review corrections after `76736e0`
+
+Date: 2026-11-02
+
+- Login now captures its active attempt after synchronously publishing locks recovered from pending logout tickets. A recovery event from the current login no longer cancels that same login; a ticket that still cannot be replayed remains visible as an error. The browser regression covers both the failed replay and subsequent successful login in the same tab.
+- Email delivery renews the active claim immediately before SMTP and keeps renewing it while that message is in flight. A worker skips a claim whose token was replaced, and the finalizer still uses token compare-and-set. A two-worker regression crosses the lease boundary with multiple queued messages.
+- The login owner check now narrows `canonical` explicitly for mypy. Authenticated `session_created` audit events now include the owner email pseudonym, matching the auth-event assertions.
+- The seven-day token-pruning test now calls `cleanup_auth_storage()`, and the bounded-cleanup result expects the one eligible stale token deleted in its one-row pass.
 
 ## Handoffs
 
