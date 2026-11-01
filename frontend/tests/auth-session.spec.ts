@@ -233,6 +233,46 @@ async function seedLegacyPendingLogoutTicket(page: Page): Promise<void> {
   }, { dbName: APP_DB, sessionId: SESSION_ID });
 }
 
+async function seedCommittedLogoutWithoutBroadcast(page: Page): Promise<void> {
+  // Reproduce a tab that committed logout, then crashed before broadcasting its lock.
+  await page.evaluate(async ({ dbName, ownerId, keyId, sessionId }) => {
+    const request = indexedDB.open(dbName);
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const transaction = db.transaction(["auth_state", "owner_meta", "crypto_keys"], "readwrite");
+      const owners = transaction.objectStore("owner_meta");
+      const ownerRequest = owners.get(ownerId);
+      ownerRequest.onsuccess = () => {
+        const owner = ownerRequest.result as { lock_epoch: number } | undefined;
+        if (!owner) {
+          transaction.abort();
+          return;
+        }
+        owners.put({ ...owner, owner_id: ownerId, locked: true, lock_epoch: owner.lock_epoch + 1 });
+      };
+      transaction.objectStore("crypto_keys").delete([ownerId, keyId]);
+      transaction.objectStore("auth_state").put({
+        key: "logout:" + sessionId,
+        kind: "logout",
+        session_id: sessionId,
+        owner_id: ownerId,
+        ticket: "test-logout-ticket",
+        created_at: "2026-11-01T00:00:00.000Z",
+      });
+      await new Promise<void>((resolve, reject) => {
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error);
+      });
+    } finally {
+      db.close();
+    }
+  }, { dbName: APP_DB, ownerId: OWNER_ID, keyId: KEY_ID, sessionId: SESSION_ID });
+}
+
 async function readPendingLogoutRows(page: Page): Promise<Array<{ owner_id?: string; session_id: string }>> {
   return await page.evaluate(async (dbName) => {
     const request = indexedDB.open(dbName);
@@ -507,6 +547,118 @@ test("delayedLocalKeyCannotReopenOwnerAfterRemoteLogout", async ({ page, context
   await expect(page.getByRole("button", { name: "Đăng nhập" })).toBeEnabled();
   await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
 });
+for (const releaseTiming of ["duringReplay", "afterReplay"] as const) {
+  test("delayedLocalKeyCannotReopenOwnerAfterCrashRecoveredLogout_" + releaseTiming, async ({ page }) => {
+    const api = await mockAuthApi(page);
+    await page.goto("/account");
+    await page.getByLabel("Email").fill("owner@example.test");
+    await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
+    await page.getByRole("button", { name: "Đăng nhập" }).click();
+    await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
+
+    let releaseLocalKey!: () => void;
+    let signalLocalKeyStarted!: () => void;
+    const localKeyGate = new Promise<void>(resolve => { releaseLocalKey = resolve; });
+    const localKeyStarted = new Promise<void>(resolve => { signalLocalKeyStarted = resolve; });
+    await page.route("**/api/v1/auth/local-key", async route => {
+      signalLocalKeyStarted();
+      await localKeyGate;
+      await route.fulfill({
+        json: {
+          owner_id: OWNER_ID,
+          key_id: KEY_ID,
+          algorithm: "A256GCM",
+          key_base64url: LOCAL_KEY,
+        },
+      });
+    });
+
+    let releaseLogout!: () => void;
+    let signalLogoutStarted!: () => void;
+    const logoutGate = new Promise<void>(resolve => { releaseLogout = resolve; });
+    const logoutStarted = new Promise<void>(resolve => { signalLogoutStarted = resolve; });
+    await page.route("**/api/v1/auth/logout", async route => {
+      signalLogoutStarted();
+      await logoutGate;
+      await route.fallback();
+    });
+
+    await page.getByRole("button", { name: "Đăng nhập" }).click();
+    await localKeyStarted;
+
+    try {
+      await seedCommittedLogoutWithoutBroadcast(page);
+      expect(await readPendingLogoutRows(page)).toEqual([{ owner_id: OWNER_ID, session_id: SESSION_ID }]);
+      await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
+
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+      await logoutStarted;
+      if (releaseTiming === "afterReplay") {
+        releaseLogout();
+        await expect.poll(async () => readPendingLogoutRows(page)).toEqual([]);
+        await expect(page.getByRole("status")).toContainText("Phiên đã hết hạn");
+      }
+
+      releaseLocalKey();
+      await expect(page.getByRole("button", { name: "Đăng nhập" })).toBeEnabled();
+      await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
+      await expect(page.getByRole("status")).not.toContainText("Dữ liệu cục bộ đã mở khóa.");
+
+      if (releaseTiming === "duringReplay") {
+        expect(await readPendingLogoutRows(page)).toEqual([{ owner_id: OWNER_ID, session_id: SESSION_ID }]);
+        releaseLogout();
+        await expect.poll(async () => readPendingLogoutRows(page)).toEqual([]);
+        await expect(page.getByRole("status")).toContainText("Phiên đã hết hạn");
+        await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
+      }
+      expect(api.requests.filter(request => request.path === "/api/v1/auth/logout")).toHaveLength(1);
+    } finally {
+      releaseLocalKey();
+      releaseLogout();
+    }
+  });
+}
+
+test("loginCompletesOnceWhenJoiningSlowBackgroundLogoutRecovery", async ({ page }) => {
+  const api = await mockAuthApi(page);
+  await page.goto("/account");
+  await page.getByLabel("Email").fill("owner@example.test");
+  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
+  await page.getByRole("button", { name: "Đăng nhập" }).click();
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
+  await seedCommittedLogoutWithoutBroadcast(page);
+
+  let releaseLogout!: () => void;
+  let signalLogoutStarted!: () => void;
+  const logoutGate = new Promise<void>(resolve => { releaseLogout = resolve; });
+  const logoutStarted = new Promise<void>(resolve => { signalLogoutStarted = resolve; });
+  await page.route("**/api/v1/auth/logout", async route => {
+    signalLogoutStarted();
+    await logoutGate;
+    await route.fallback();
+  });
+
+  try {
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await logoutStarted;
+    const loginCount = api.requests.filter(request => request.path === "/api/v1/auth/login").length;
+    await page.getByRole("button", { name: "Đăng nhập" }).click();
+    await expect(page.locator(".account-submit")).toBeDisabled();
+    expect(api.requests.filter(request => request.path === "/api/v1/auth/login")).toHaveLength(loginCount);
+
+    releaseLogout();
+
+    await expect.poll(() => api.requests.filter(request => request.path === "/api/v1/auth/login").length)
+      .toBe(loginCount + 1);
+    await expect(page.getByRole("status")).toContainText("Dữ liệu cục bộ đã mở khóa.");
+    await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
+    await expect.poll(async () => readPendingLogoutRows(page)).toEqual([]);
+    expect(api.requests.filter(request => request.path === "/api/v1/auth/login")).toHaveLength(loginCount + 1);
+  } finally {
+    releaseLogout();
+  }
+});
+
 test("expiredSessionKeepsLocalVaultAvailable", async ({ page }) => {
   const api = await prepareUnlockedOwnerWithPendingOperation(page);
   api.currentSession = sessionView();

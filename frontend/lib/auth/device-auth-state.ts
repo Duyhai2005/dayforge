@@ -1,5 +1,5 @@
 import type { OwnerAccessContext } from "../storage/owner-gate";
-export type OwnerLockNotice = Readonly<{ ownerId: string }>;
+export type OwnerLockNotice = Readonly<{ ownerId: string; source?: "recovery" }>;
 
 type LockMessage = Readonly<{
   type: "owner-locked";
@@ -9,10 +9,10 @@ type LockMessage = Readonly<{
 export const OWNER_LOCK_EVENT = "dayforge:owner-locked";
 const CHANNEL_NAME = "dayforge-owner-auth-v1";
 
-function notifyOwnerLockLocally(ownerId: string): void {
+export function notifyOwnerLockLocally(ownerId: string, source?: "recovery"): void {
   if (typeof window === "undefined" || !ownerId) return;
   window.dispatchEvent(
-    new CustomEvent<OwnerLockNotice>(OWNER_LOCK_EVENT, { detail: { ownerId } })
+    new CustomEvent<OwnerLockNotice>(OWNER_LOCK_EVENT, { detail: source ? { ownerId, source } : { ownerId } })
   );
 }
 

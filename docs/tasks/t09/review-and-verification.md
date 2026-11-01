@@ -89,6 +89,16 @@ Date: 2026-11-02
 - The login owner check now narrows `canonical` explicitly for mypy. Authenticated `session_created` audit events now include the owner email pseudonym, matching the auth-event assertions.
 - The seven-day token-pruning test now calls `cleanup_auth_storage()`, and the bounded-cleanup result expects the one eligible stale token deleted in its one-row pass.
 
+## Recovered logout and delayed unlock callbacks
+
+Recovery now emits a local lock notice immediately after the durable lock is recovered, before server replay. This cancels older password/key callbacks even if the originating tab closed before broadcasting. Only the login generation still waiting for its own pending-logout recovery is preserved; the subsequent password attempt gets a fresh generation. Shared focus/login replay emits no late duplicate notice.
+
+- The crash-recovery regression first failed on `3bd3182`: the delayed key persisted `locked: false` after recovery.
+- Auth session suite after the fix: 17/17 passed, including key completion during replay, key completion after replay, and explicit login joining slow background recovery.
+- Full frontend Playwright suite: 160/160 passed with `--workers=4 --reporter=line`.
+- Frontend ESLint and TypeScript checks passed.
+- Browser-only runs log expected refused backend proxy connections when the API is not running; all browser tests passed.
+
 ## Handoffs
 
 - **T10:** protect sync endpoints with require_verified_owner; preserve the T09 owner ID and use the existing auth session boundary.

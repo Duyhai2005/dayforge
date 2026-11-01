@@ -26,9 +26,11 @@ import {
   broadcastOwnerLocked,
   getActiveOwnerContext,
   listenForRemoteOwnerLock,
+  notifyOwnerLockLocally,
   publishOwnerLocked,
   setActiveOwnerContext,
   subscribeOwnerLock,
+  type OwnerLockNotice,
 } from "./device-auth-state";
 import {
   countOwnerChanges,
@@ -36,6 +38,7 @@ import {
   removePendingLogoutTicket,
   queueLogoutAndLockOwner,
   type OwnerChangeSummary,
+  type PendingLogoutRecovery,
 } from "../storage/auth-state";
 import { openDatabase } from "../storage/db";
 import { restoreUnlockedOwnerContext, lockOwner, unlockOwner, type OwnerAccessContext } from "../storage/owner-gate";
@@ -67,6 +70,16 @@ async function openOrThrow(): Promise<IDBDatabase> {
 type LogoutRetryResult = { remaining: number; revoked: number; lockedOwnerIds: readonly string[] };
 let logoutRetryInFlight: Promise<LogoutRetryResult> | null = null;
 
+function notifyRecoveredOwnerLocks(recovery: PendingLogoutRecovery): void {
+  for (const ownerId of recovery.lockedOwnerIds) {
+    clearActiveOwnerContext(ownerId);
+    notifyOwnerLockLocally(ownerId, "recovery");
+  }
+  for (const ownerId of recovery.newlyLockedOwnerIds) {
+    broadcastOwnerLocked(ownerId);
+  }
+}
+
 function retryQueuedLogouts(
   db: IDBDatabase,
   session: SessionView,
@@ -76,9 +89,7 @@ function retryQueuedLogouts(
   const retry = (async (): Promise<LogoutRetryResult> => {
     const recovery = await ensureQueuedLogoutOwnersLocked(db);
     if (!recovery.ok) return { remaining: 1, revoked: 0, lockedOwnerIds: [] };
-    for (const ownerId of recovery.value.newlyLockedOwnerIds) {
-      broadcastOwnerLocked(ownerId);
-    }
+    notifyRecoveredOwnerLocks(recovery.value);
     let revoked = 0;
     let remaining = 0;
     for (const item of recovery.value.tickets) {
@@ -115,6 +126,7 @@ export function AuthSessionProvider({ children }: Readonly<{ children: ReactNode
   const sessionRef = useRef<SessionView | null>(null);
   const ownerAccessRef = useRef<OwnerAccessContext | null>(null);
   const loginAttemptRef = useRef(0);
+  const recoveringLoginAttemptRef = useRef<number | null>(null);
 
   const updateSession = useCallback((value: SessionView | null) => {
     sessionRef.current = value;
@@ -170,8 +182,12 @@ export function AuthSessionProvider({ children }: Readonly<{ children: ReactNode
 
   useEffect(() => {
     let active = true;
-    const handleLocalLock = (noticeValue: { ownerId: string }) => {
-      loginAttemptRef.current += 1;
+    const handleLocalLock = (noticeValue: OwnerLockNotice) => {
+      const preparingLogin = noticeValue.source === "recovery" &&
+        recoveringLoginAttemptRef.current === loginAttemptRef.current;
+      if (!preparingLogin) {
+        loginAttemptRef.current += 1;
+      }
       if (ownerAccessRef.current?.ownerId === noticeValue.ownerId) {
         updateOwnerAccess(null);
       }
@@ -212,10 +228,8 @@ export function AuthSessionProvider({ children }: Readonly<{ children: ReactNode
           recoverySucceeded = true;
           queuedLogoutCount = recovery.value.tickets.length;
           recoveredOwnerIds = recovery.value.lockedOwnerIds;
+          notifyRecoveredOwnerLocks(recovery.value);
           applyRecoveredOwnerLocks(recoveredOwnerIds);
-          for (const ownerId of recovery.value.newlyLockedOwnerIds) {
-            broadcastOwnerLocked(ownerId);
-          }
         } else {
           setNotice("Không thể kiểm tra yêu cầu đăng xuất đang chờ.");
         }
@@ -310,18 +324,27 @@ export function AuthSessionProvider({ children }: Readonly<{ children: ReactNode
     rememberMe: boolean
   ): Promise<void> => {
     const recoveryAttempt = ++loginAttemptRef.current;
+    recoveringLoginAttemptRef.current = recoveryAttempt;
     const isCurrentRecovery = () => loginAttemptRef.current === recoveryAttempt;
     setError("");
     setNotice("");
-    let current = sessionRef.current ?? await getSession();
-    if (!isCurrentRecovery()) return;
-    const db = await ensureDatabase();
-    if (!isCurrentRecovery()) return;
-    const retry = await retryQueuedLogouts(db, current);
-    if (!isCurrentRecovery()) return;
-    applyRecoveredOwnerLocks(retry.lockedOwnerIds);
-    // Recovery publishes a local lock event synchronously. Start the actual
-    // login attempt after that event so this recovery does not cancel itself.
+    let current: SessionView;
+    let db: IDBDatabase;
+    let retry: LogoutRetryResult;
+    try {
+      current = sessionRef.current ?? await getSession();
+      if (!isCurrentRecovery()) return;
+      db = await ensureDatabase();
+      if (!isCurrentRecovery()) return;
+      retry = await retryQueuedLogouts(db, current);
+      if (!isCurrentRecovery()) return;
+      applyRecoveredOwnerLocks(retry.lockedOwnerIds);
+    } finally {
+      if (recoveringLoginAttemptRef.current === recoveryAttempt) {
+        recoveringLoginAttemptRef.current = null;
+      }
+    }
+    // The new password attempt starts only after pending logout recovery.
     const attempt = ++loginAttemptRef.current;
     const isCurrentAttempt = () => loginAttemptRef.current === attempt;
     if (retry.remaining > 0) {
