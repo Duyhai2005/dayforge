@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from app.core.database import create_database
+from app.core.errors import ProblemHTTPException
 from app.main import create_app
 from app.models.auth import (
     AuthRateLimit,
@@ -26,6 +27,7 @@ from app.models.auth import (
     Session as AuthSession,
 )
 from app.models.owner import User, WorkspaceSettings
+from app.services.auth import _apply_limits, _Limit
 from app.services.auth_crypto import (
     WrappedKey,
     decode_base64url,
@@ -640,6 +642,49 @@ def test_auth_limits_are_atomic_across_email_and_ip_buckets(auth_database, auth_
     assert denied.status_code == 429
     assert denied.headers["retry-after"]
     assert _query_one(auth_database, select(func.count()).select_from(AuthRateLimit)) >= 7
+
+
+def test_rate_limit_keeps_newer_committed_event_for_older_request(auth_database):
+    request_started = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(seconds=2)
+    newer_event_ms = int((request_started + timedelta(seconds=1)).timestamp() * 1000)
+    action = "test-ordering"
+    subject_kind = "email"
+    subject_digest = hashlib.sha256(b"rate-limit-ordering").digest()
+    limit = _Limit(action, subject_kind, subject_digest, 60, 1)
+
+    async def exercise(database):
+        async with database.sessions() as db:
+            async with db.begin():
+                db.add(
+                    AuthRateLimit(
+                        action=action,
+                        subject_kind=subject_kind,
+                        subject_digest=subject_digest,
+                        window_seconds=60,
+                        request_count=1,
+                        event_timestamps=[newer_event_ms],
+                        updated_at=request_started + timedelta(seconds=1),
+                        expires_at=request_started + timedelta(hours=48),
+                    )
+                )
+
+        with pytest.raises(ProblemHTTPException) as error:
+            await _apply_limits(database, (limit,), request_started, record_event=True)
+        assert error.value.code == "rate_limited"
+
+        async with database.sessions() as db:
+            row = (
+                await db.execute(
+                    select(AuthRateLimit).where(
+                        AuthRateLimit.action == action,
+                        AuthRateLimit.subject_kind == subject_kind,
+                        AuthRateLimit.subject_digest == subject_digest,
+                    )
+                )
+            ).scalar_one()
+            return row.event_timestamps
+
+    assert _run_with_database(auth_database, exercise) == [newer_event_ms]
 
 
 def test_session_and_local_key_share_a_session_rate_limit(auth_database, auth_client):

@@ -221,6 +221,11 @@ async def _apply_limits_once(
                 .all()
             )
             row_by_key = {(row.action, row.subject_kind, row.subject_digest): row for row in rows}
+            newest_committed_event = max(
+                (event for row in rows for event in _event_datetimes(row.event_timestamps)),
+                default=now,
+            )
+            decision_now = max(now, utc_now(), newest_committed_event)
             decisions = []
             for limit in ordered:
                 row = row_by_key.get((limit.action, limit.subject_kind, limit.subject_digest))
@@ -228,7 +233,7 @@ async def _apply_limits_once(
                     raise SQLAlchemyError("rate_limit_row_missing")
                 decision = evaluate_rolling_limit(
                     _event_datetimes(row.event_timestamps),
-                    now,
+                    decision_now,
                     window_seconds=limit.window_seconds,
                     maximum=limit.maximum,
                 )
@@ -239,12 +244,12 @@ async def _apply_limits_once(
             for limit, row, decision in decisions:
                 events = [int(event.timestamp() * 1000) for event in decision.retained_events]
                 if record_event:
-                    events.append(int(now.timestamp() * 1000))
+                    events.append(int(decision_now.timestamp() * 1000))
                 row.window_seconds = limit.window_seconds
                 row.event_timestamps = events
                 row.request_count = len(events)
-                row.updated_at = now
-                row.expires_at = now + _RATE_BUCKET_TTL
+                row.updated_at = decision_now
+                row.expires_at = decision_now + _RATE_BUCKET_TTL
 
 
 async def _apply_limits(
