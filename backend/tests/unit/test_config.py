@@ -107,8 +107,47 @@ def test_unrelated_environment_variables_are_ignored():
             "DB_NAME": "dayforge_t05_test",
             "DB_USER": "dayforge_test",
             "DB_PASSWORD": "test-only-password",
+            "OWNER_EMAIL": "owner@example.test",
+            "LOCAL_KEY_KEK_B64": "A" * 43,
+            "LOCAL_KEY_KEK_VERSION": "1",
+            "LOGOUT_TICKET_KEY_B64": "A" * 43,
+            "AUTH_RATE_LIMIT_KEY_B64": "A" * 43,
+            "AUTH_EMAIL_OUTBOX_KEY_B64": "A" * 43,
+            "EMAIL_SMTP_HOST": "127.0.0.1",
+            "EMAIL_SMTP_PORT": "1025",
+            "EMAIL_FROM": "dayforge@example.test",
             "UNKNOWN_OPTION": "unrelated-process-value",
         }
     )
     assert settings.app_env == "test"
     assert not hasattr(settings, "unknown_option")
+
+
+def test_auth_secret_keys_decode_to_32_bytes_and_remain_hidden(settings_factory):
+    settings = settings_factory()
+    for field in (
+        "local_key_kek_b64",
+        "logout_ticket_key_b64",
+        "auth_rate_limit_key_b64",
+        "auth_email_outbox_key_b64",
+    ):
+        assert len(settings.secret_key(field)) == 32
+    assert settings.local_key_kek_b64.get_secret_value() not in repr(settings)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("local_key_kek_b64", "too-short"),
+        ("logout_ticket_key_b64", "!" * 43),
+        ("auth_rate_limit_key_b64", "A" * 42),
+        ("auth_email_outbox_key_b64", "__GENERATE_OUTBOX_KEY__"),
+    ],
+)
+def test_auth_secret_keys_reject_malformed_values_without_echo(
+    settings_factory, field, value
+):
+    with pytest.raises(SettingsError) as caught:
+        settings_factory(**{field: value})
+    assert field.upper() in str(caught.value)
+    assert value not in str(caught.value)

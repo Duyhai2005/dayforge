@@ -1,3 +1,4 @@
+import base64
 import os
 import re
 from datetime import datetime, timezone
@@ -148,6 +149,23 @@ def settings_factory():
             db_name="dayforge_test",
             db_user="dayforge_test",
             db_password="test-only-password",
+            owner_email="owner@example.test",
+            local_key_kek_b64=base64.urlsafe_b64encode(bytes(range(32)))
+            .decode("ascii")
+            .rstrip("="),
+            local_key_kek_version=1,
+            logout_ticket_key_b64=base64.urlsafe_b64encode(bytes(range(1, 33)))
+            .decode("ascii")
+            .rstrip("="),
+            auth_rate_limit_key_b64=base64.urlsafe_b64encode(bytes(range(2, 34)))
+            .decode("ascii")
+            .rstrip("="),
+            auth_email_outbox_key_b64=base64.urlsafe_b64encode(bytes(range(3, 35)))
+            .decode("ascii")
+            .rstrip("="),
+            email_smtp_host="127.0.0.1",
+            email_smtp_port=1025,
+            email_from="dayforge@example.test",
         )
         values.update(overrides)
         return Settings(**values)

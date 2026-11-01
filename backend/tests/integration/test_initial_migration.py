@@ -59,11 +59,16 @@ def test_upgrade_from_empty_and_repeat_upgrade(migrated):
         "alembic_version",
         "users",
         "workspace_settings",
+        "sessions",
+        "email_tokens",
+        "owner_local_keys",
+        "auth_rate_limits",
+        "email_delivery_jobs",
     }
     assert asyncio.run(query(migrated, "SELECT version_num FROM alembic_version")) == [
-        ("0001_owner_workspace",)
+        ("0002_authentication",)
     ]
-    assert "0001_owner_workspace" in alembic("current")
+    assert "0002_authentication" in alembic("current")
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM users")) == [(0,)]
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM workspace_settings")) == [
         (0,)
@@ -73,6 +78,11 @@ def test_upgrade_from_empty_and_repeat_upgrade(migrated):
         "alembic_version",
         "users",
         "workspace_settings",
+        "sessions",
+        "email_tokens",
+        "owner_local_keys",
+        "auth_rate_limits",
+        "email_delivery_jobs",
     }
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM users")) == [(0,)]
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM workspace_settings")) == [
@@ -231,6 +241,11 @@ def test_downgrade_upgrade_on_disposable_db(migrated):
         "alembic_version",
         "users",
         "workspace_settings",
+        "sessions",
+        "email_tokens",
+        "owner_local_keys",
+        "auth_rate_limits",
+        "email_delivery_jobs",
     }
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM users")) == [(0,)]
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM workspace_settings")) == [
