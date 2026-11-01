@@ -735,6 +735,7 @@ test.describe("Storage Security Specifications", () => {
       });
 
       expect(result.setup).toBe(true);
+      if (!result.setup) return;
       expect(result.storedExtraOk).toBe(true);
       expect(result.extraBeforeOk).toBe(true);
       expect(result.lockOk).toBe(true);
