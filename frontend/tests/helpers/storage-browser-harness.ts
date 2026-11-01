@@ -6,13 +6,24 @@ export function buildStorageBrowserHarness(globalName: string): string {
   const storageDir = path.resolve(__dirname, "../../lib/storage");
   const testsDir = path.resolve(__dirname, "..");
   const moduleSources: Record<string, string> = {};
-  for (const file of fs.readdirSync(storageDir).filter((entry) => entry.endsWith(".ts"))) {
-    const id = `lib/storage/${file.slice(0, -3)}`;
-    const source = fs.readFileSync(path.join(storageDir, file), "utf-8");
-    moduleSources[id] = ts.transpileModule(source, {
-      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
-    }).outputText;
-  }
+  const addStorageModules = (directory: string): void => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const filePath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        addStorageModules(filePath);
+        continue;
+      }
+      if (!entry.isFile() || !entry.name.endsWith(".ts")) continue;
+
+      const relativePath = path.relative(storageDir, filePath).split(path.sep).join("/");
+      const id = `lib/storage/${relativePath.slice(0, -3)}`;
+      const source = fs.readFileSync(filePath, "utf-8");
+      moduleSources[id] = ts.transpileModule(source, {
+        compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+      }).outputText;
+    }
+  };
+  addStorageModules(storageDir);
   const adapterPath = path.join(testsDir, "storage-api.ts");
   moduleSources["tests/storage-api"] = ts.transpileModule(fs.readFileSync(adapterPath, "utf-8"), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },

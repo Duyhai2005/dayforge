@@ -40,3 +40,13 @@ export {
 export {
   type StoredViewPreference,
 } from "./view-preferences";
+
+// Authentication device state
+export {
+  type PendingLogoutTicket,
+  type OwnerChangeSummary,
+  storePendingLogoutTicket,
+  listPendingLogoutTickets,
+  removePendingLogoutTicket,
+  countOwnerChanges,
+} from "./auth-state";

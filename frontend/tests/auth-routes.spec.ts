@@ -32,12 +32,22 @@ async function expectNeutralCallback(page: Page, route: string): Promise<void> {
   expect(errors.join("\n")).not.toContain(token);
 }
 
-test("accountRouteIsAnExplicitPlaceholder", async ({ page }) => {
+test("accountRouteRendersLoginAndAccountActions", async ({ page }) => {
+  await page.route("**/api/v1/auth/session", route => route.fulfill({ json: {
+    authenticated: false,
+    owner: null,
+    session: null,
+    csrf_token: "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+    server_time: "2026-11-01T00:00:00.000Z",
+    logout_ticket: null,
+  } }));
   const response = await page.goto("/account");
   expect(response?.status()).toBe(200);
   await expect(page.getByRole("heading", { name: "Tài khoản", exact: true, level: 1 })).toBeVisible();
-  await expect(page.getByRole("status")).toHaveText(incompleteStatus);
-  await expect(page.locator("form, input[type=password]")).toHaveCount(0);
+  await expect(page.getByLabel("Email")).toBeVisible();
+  await expect(page.getByLabel("Mật khẩu")).toBeVisible();
+  await expect(page.getByLabel("Ghi nhớ đăng nhập")).toBeChecked();
+  await expect(page.getByRole("button", { name: "Thiết lập ban đầu" })).toBeVisible();
 });
 
 test("callbackRoutesCarryNoStoreHeaders", async ({ request }) => {

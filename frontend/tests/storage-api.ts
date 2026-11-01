@@ -15,6 +15,7 @@ export * from "../lib/storage/owner-gate";
 export * from "../lib/storage/clock-state";
 export * from "../lib/storage/outbox";
 export * from "../lib/storage/view-preferences";
+export * from "../lib/storage/migrations/auth-state-v2";
 export { type EncryptedRecord, createAad, encryptPayload, decryptPayload, importRawKey, storeCryptoKey, getCryptoKey, removeCryptoKey } from "../lib/storage/crypto";
 export { type ClockInputParams, type PersistOperationInput, type PersistOperationResult, type RecordOverlayInput, type DeviceMetadata } from "../lib/storage/unit-of-work";
 export { confirmPulledOperationInTx, getRecord, listOutboxForReplay, listSendableOperations, markOperationAcked, persistOperationAtomic };

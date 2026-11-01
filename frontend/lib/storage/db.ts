@@ -1,3 +1,4 @@
+import "./migrations/auth-state-v2";
 import { type StorageResult, StorageError, storageErr, storageOk } from "./errors";
 import { CURRENT_SCHEMA_VERSION, DB_NAME, upgradeDatabase } from "./schema";
 
