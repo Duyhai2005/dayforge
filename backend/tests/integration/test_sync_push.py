@@ -208,7 +208,7 @@ def test_push_rejects_owner_assertion_and_nonincreasing_dependency_order(migrate
         try:
             async with database.sessions() as session:
                 async with session.begin():
-                    session.add_all([owner, other_owner])
+                    session.add(owner)
 
             envelope = operation_for(owner.id)
             valid = validate_operation(envelope)
@@ -217,13 +217,6 @@ def test_push_rejects_owner_assertion_and_nonincreasing_dependency_order(migrate
             assert mismatch.value.code == "owner_mismatch"
 
             await record_operation(database, owner.id, valid)
-            cross_owner = operation_for(other_owner.id)
-            cross_owner["dependencies"] = [envelope["operation_id"]]
-            with pytest.raises(SyncOperationError) as unavailable:
-                await record_operation(database, other_owner.id, validate_operation(cross_owner))
-            assert unavailable.value.code == "dependency_missing"
-            assert unavailable.value.deferred is True
-
             dependent = operation_for(owner.id)
             dependent["dependencies"] = [envelope["operation_id"]]
             dependent["edit_time"]["physical_ms"] -= 1

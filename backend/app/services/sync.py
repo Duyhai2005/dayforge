@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hmac
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -25,6 +26,14 @@ from app.services.sync_wire import ValidatedOperation
 
 if TYPE_CHECKING:
     from app.core.database import Database
+
+_SYNC_WRITE_FAILPOINT: Callable[[str], None] | None = None
+
+
+def _sync_write_failpoint(stage: str) -> None:
+    """Private no-op hook that lets MySQL tests inject transactional failures."""
+    if _SYNC_WRITE_FAILPOINT is not None:
+        _SYNC_WRITE_FAILPOINT(stage)
 
 
 class SyncOperationError(ValueError):
@@ -386,6 +395,7 @@ async def record_operation(
                 )
                 session.add(event)
                 await session.flush()
+                _sync_write_failpoint("after_event_flush")
                 receipt = OperationReceipt(
                     owner_id=owner_id,
                     operation_id=operation.operation_id,
@@ -408,6 +418,7 @@ async def record_operation(
                 state.head_cursor = cursor
                 state.updated_at = instant
                 await session.flush()
+                _sync_write_failpoint("before_commit")
                 return OperationWriteResult(
                     status="recorded",
                     epoch=state.epoch,
