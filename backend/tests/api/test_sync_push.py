@@ -35,6 +35,8 @@ def test_sync_push_rejects_untrusted_origin_before_database_access(settings_fact
 
     assert response.status_code == 403
     assert response.json()["code"] == "csrf_failed"
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_sync_push_rejects_batch_over_100_before_database_access(settings_factory):
@@ -55,6 +57,8 @@ def test_sync_push_rejects_batch_over_100_before_database_access(settings_factor
 
     assert response.status_code == 413
     assert response.json()["code"] == "payload_too_large"
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_sync_push_rejects_single_operation_over_2_mib_before_database_access(settings_factory):
@@ -76,6 +80,8 @@ def test_sync_push_rejects_single_operation_over_2_mib_before_database_access(se
 
     assert response.status_code == 413
     assert response.json()["code"] == "payload_too_large"
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_sync_push_owner_assertion_rejects_entire_batch_before_any_write(settings_factory, monkeypatch):
@@ -109,3 +115,5 @@ def test_sync_push_owner_assertion_rejects_entire_batch_before_any_write(setting
 
     assert response.status_code == 403
     assert response.json()["code"] == "owner_mismatch"
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.headers["cache-control"] == "no-store"

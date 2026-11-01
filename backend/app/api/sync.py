@@ -191,7 +191,7 @@ def _assert_owner_scope(operations: list, owner_id: UUID) -> None:
             raise ProblemHTTPException(status_code=403, code="owner_mismatch")
 
 
-@router.post("/push", response_model=PushResponse)
+@router.post("/push", response_model=PushResponse, response_model_exclude_unset=True)
 async def push_operations(
     request: Request,
     response: Response,

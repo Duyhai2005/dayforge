@@ -57,3 +57,32 @@ def test_push_response_limits_results_and_requires_receipts_for_acknowledged_ite
                 "results": [rejected] * 101,
             }
         )
+
+
+def test_recorded_push_wire_omits_unset_problem_but_keeps_null_receipt_reason(contract_validator):
+    operation_id = "22222222-2222-4222-8222-222222222222"
+    response = PushResponse.model_validate(
+        {
+            "epoch": "11111111-1111-4111-8111-111111111111",
+            "head_cursor": "1",
+            "results": [
+                {
+                    "operation_id": operation_id,
+                    "status": "recorded",
+                    "receipt": {
+                        "operation_id": operation_id,
+                        "request_hash": "a" * 64,
+                        "recorded": True,
+                        "commit_cursor": "1",
+                        "effect_at_commit": "applied",
+                        "reason_at_commit": None,
+                    },
+                }
+            ],
+        }
+    )
+
+    wire = response.model_dump(mode="json", exclude_unset=True)
+    contract_validator("PushResponse").validate(wire)
+    assert "problem" not in wire["results"][0]
+    assert wire["results"][0]["receipt"]["reason_at_commit"] is None

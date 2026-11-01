@@ -75,6 +75,10 @@ def test_development_openapi_contains_valid_system_routes(system_client):
         "/api/v1/auth/password/forgot",
         "/api/v1/auth/password/reset",
         "/api/v1/auth/local-key",
+        "/api/v1/sync/clock",
+        "/api/v1/sync/push",
+        "/api/v1/sync/bootstrap",
+        "/api/v1/sync/pull",
     }
 
 
