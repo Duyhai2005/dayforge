@@ -80,3 +80,32 @@ class PushResponse(ContractModel):
     epoch: WireUUID
     head_cursor: Cursor
     results: Annotated[list[PushResult], Field(min_length=1, max_length=100)]
+
+
+class SyncPageGroup(ContractModel):
+    cursor: DeviceSequence
+    committed_at: WireTimestamp
+    operation: OperationEnvelope
+
+
+class SyncPage(ContractModel):
+    epoch: WireUUID
+    through_cursor: Cursor
+    next_cursor: Cursor
+    has_more: bool
+    next_page_token: Annotated[str, Field(min_length=1, max_length=2048)] | None
+    groups: Annotated[list[SyncPageGroup], Field(max_length=200)]
+
+    @model_validator(mode="after")
+    def page_progress_matches_token(self):
+        if self.has_more:
+            if (
+                self.next_page_token is None
+                or not self.groups
+                or self.next_cursor != self.groups[-1].cursor
+                or int(self.next_cursor) >= int(self.through_cursor)
+            ):
+                raise ValueError("invalid_sync_page_progress")
+        elif self.next_page_token is not None or self.next_cursor != self.through_cursor:
+            raise ValueError("invalid_sync_page_progress")
+        return self

@@ -3,20 +3,22 @@
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 
 from app.core.auth_security import validate_auth_post
 from app.core.errors import ProblemHTTPException, build_problem
 from app.core.values import format_utc_timestamp, parse_wire_uuid
-from app.schemas.common import WireUUID
-from app.schemas.sync import PushResponse, SyncClockResponse
+from app.schemas.common import Cursor, WireUUID
+from app.schemas.sync import PushResponse, SyncClockResponse, SyncPage
 from app.services.sessions import SessionContext, require_verified_owner
 from app.services.sync import (
     SyncOperationError,
     read_owner_sync_head,
+    read_sync_page,
     record_operation,
     unix_milliseconds,
 )
+from app.services.sync_tokens import PageToken, PageTokenError, verify_page_token
 from app.services.sync_wire import SyncWireError, validate_operation
 
 router = APIRouter(prefix="/api/v1/sync")
@@ -73,6 +75,108 @@ def _request_operations(payload) -> list:
     if len(operations) > 100:
         raise ProblemHTTPException(status_code=413, code="payload_too_large")
     return operations
+
+
+def _require_query_shape(request: Request, expected_keys: set[str]) -> None:
+    pairs = list(request.query_params.multi_items())
+    keys = [key for key, _ in pairs]
+    if set(keys) != expected_keys or len(keys) != len(expected_keys):
+        raise ProblemHTTPException(status_code=400, code="malformed_request")
+
+
+def _verified_page_token(
+    request: Request,
+    *,
+    token: str,
+    endpoint: str,
+    owner_id: UUID,
+    now: datetime,
+) -> PageToken:
+    try:
+        return verify_page_token(
+            request.app.state.settings.secret_key("sync_page_token_key_b64"),
+            token,
+            endpoint=endpoint,
+            owner_id=owner_id,
+            now=int(now.timestamp()),
+        )
+    except PageTokenError as error:
+        raise ProblemHTTPException(status_code=error.status_code, code=error.code) from None
+
+
+@router.get("/bootstrap", response_model=SyncPage)
+async def sync_bootstrap(
+    request: Request,
+    response: Response,
+    page_token: str | None = Query(default=None, max_length=2048),
+    context: SessionContext = Depends(require_verified_owner),
+) -> SyncPage:
+    pairs = list(request.query_params.multi_items())
+    expected_keys = {"page_token"} if page_token is not None or pairs else set()
+    _require_query_shape(request, expected_keys)
+    if context.user is None:
+        raise ProblemHTTPException(status_code=401, code="authentication_required")
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    continuation = (
+        None
+        if page_token is None
+        else _verified_page_token(
+            request,
+            token=page_token,
+            endpoint="bootstrap",
+            owner_id=context.user.id,
+            now=now,
+        )
+    )
+    page = await read_sync_page(
+        request.app.state.database,
+        context.user.id,
+        endpoint="bootstrap",
+        token_key=request.app.state.settings.secret_key("sync_page_token_key_b64"),
+        page_token=continuation,
+        now=now,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return page
+
+
+@router.get("/pull", response_model=SyncPage)
+async def sync_pull(
+    request: Request,
+    response: Response,
+    after: Cursor | None = None,
+    epoch: WireUUID | None = None,
+    page_token: str | None = Query(default=None, max_length=2048),
+    context: SessionContext = Depends(require_verified_owner),
+) -> SyncPage:
+    expected_keys = {"page_token"} if page_token is not None else {"after", "epoch"}
+    _require_query_shape(request, expected_keys)
+    if context.user is None:
+        raise ProblemHTTPException(status_code=401, code="authentication_required")
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    continuation = (
+        None
+        if page_token is None
+        else _verified_page_token(
+            request,
+            token=page_token,
+            endpoint="pull",
+            owner_id=context.user.id,
+            now=now,
+        )
+    )
+    page = await read_sync_page(
+        request.app.state.database,
+        context.user.id,
+        endpoint="pull",
+        token_key=request.app.state.settings.secret_key("sync_page_token_key_b64"),
+        after_cursor=None if after is None else int(after),
+        request_epoch=None if epoch is None else UUID(epoch),
+        page_token=continuation,
+        now=now,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return page
 
 
 def _assert_owner_scope(operations: list, owner_id: UUID) -> None:

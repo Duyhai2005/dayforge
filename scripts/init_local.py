@@ -13,9 +13,16 @@ TEMPLATE_OUTPUTS = (
 
 
 def _encoded_key() -> str:
-    return (
-        base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode("ascii")
-    )
+    return base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode("ascii")
+
+
+def _upgrade_existing_backend_env(path: Path) -> None:
+    contents = path.read_text(encoding="utf-8")
+    if any(line.partition("=")[0] == "SYNC_PAGE_TOKEN_KEY_B64" for line in contents.splitlines()):
+        return
+    prefix = "" if not contents or contents.endswith(("\n", "\r")) else "\n"
+    with path.open("a", encoding="utf-8", newline="\n") as local_file:
+        local_file.write(f"{prefix}SYNC_PAGE_TOKEN_KEY_B64={_encoded_key()}\n")
 
 
 def initialize_local(repo_root: Path) -> tuple[Path, Path, Path]:
@@ -24,23 +31,16 @@ def initialize_local(repo_root: Path) -> tuple[Path, Path, Path]:
     existing = tuple(path.exists() for path in outputs)
 
     if all(existing):
+        _upgrade_existing_backend_env(outputs[1])
         return outputs
 
     if any(existing):
         missing = [
-            output.as_posix()
-            for (_, output), exists in zip(TEMPLATE_OUTPUTS, existing, strict=True)
-            if not exists
+            output.as_posix() for (_, output), exists in zip(TEMPLATE_OUTPUTS, existing, strict=True) if not exists
         ]
-        raise FileExistsError(
-            "Refusing to replace partial local configuration; missing files: "
-            + ", ".join(missing)
-        )
+        raise FileExistsError("Refusing to replace partial local configuration; missing files: " + ", ".join(missing))
 
-    templates = tuple(
-        (root / template).read_text(encoding="utf-8")
-        for template, _ in TEMPLATE_OUTPUTS
-    )
+    templates = tuple((root / template).read_text(encoding="utf-8") for template, _ in TEMPLATE_OUTPUTS)
     app_password = secrets.token_urlsafe(32)
     root_password = secrets.token_urlsafe(32)
     backend_replacements = {
@@ -49,6 +49,7 @@ def initialize_local(repo_root: Path) -> tuple[Path, Path, Path]:
         "__GENERATE_LOGOUT_TICKET_KEY_B64__": _encoded_key(),
         "__GENERATE_AUTH_RATE_LIMIT_KEY_B64__": _encoded_key(),
         "__GENERATE_AUTH_EMAIL_OUTBOX_KEY_B64__": _encoded_key(),
+        "__GENERATE_SYNC_PAGE_TOKEN_KEY_B64__": _encoded_key(),
     }
     replacements = (
         {
@@ -64,9 +65,7 @@ def initialize_local(repo_root: Path) -> tuple[Path, Path, Path]:
         output = template
         for placeholder, value in mapping.items():
             if output.count(placeholder) != 1:
-                raise ValueError(
-                    f"Expected exactly one {placeholder} marker in its template."
-                )
+                raise ValueError(f"Expected exactly one {placeholder} marker in its template.")
             output = output.replace(placeholder, value)
         if "__GENERATE_" in output:
             raise ValueError("A template contains an unsupported generation marker.")
@@ -79,11 +78,7 @@ def initialize_local(repo_root: Path) -> tuple[Path, Path, Path]:
                 local_file.write(contents)
             created.append(path)
     except OSError as exc:
-        missing = [
-            output.relative_to(root).as_posix()
-            for output in outputs
-            if not output.exists()
-        ]
+        missing = [output.relative_to(root).as_posix() for output in outputs if not output.exists()]
         raise OSError(
             f"Could not finish local configuration ({exc.__class__.__name__}); "
             f"created {len(created)} file(s); still missing: {', '.join(missing)}"

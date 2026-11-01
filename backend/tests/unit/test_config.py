@@ -110,6 +110,7 @@ def test_unrelated_environment_variables_are_ignored():
             "LOGOUT_TICKET_KEY_B64": "A" * 43,
             "AUTH_RATE_LIMIT_KEY_B64": "A" * 43,
             "AUTH_EMAIL_OUTBOX_KEY_B64": "A" * 43,
+            "SYNC_PAGE_TOKEN_KEY_B64": base64.urlsafe_b64encode(bytes(range(4, 36))).decode("ascii").rstrip("="),
             "EMAIL_SMTP_HOST": "127.0.0.1",
             "EMAIL_SMTP_PORT": "1025",
             "EMAIL_FROM": "dayforge@example.test",
@@ -127,9 +128,31 @@ def test_auth_secret_keys_decode_to_32_bytes_and_remain_hidden(settings_factory)
         "logout_ticket_key_b64",
         "auth_rate_limit_key_b64",
         "auth_email_outbox_key_b64",
+        "sync_page_token_key_b64",
     ):
         assert len(settings.secret_key(field)) == 32
     assert settings.local_key_kek_b64.get_secret_value() not in repr(settings)
+
+
+def test_sync_page_token_secret_is_distinct_from_auth_secrets(settings_factory):
+    settings = settings_factory()
+    token_key = settings.secret_key("sync_page_token_key_b64")
+    auth_keys = [
+        settings.secret_key("local_key_kek_b64"),
+        settings.secret_key("logout_ticket_key_b64"),
+        settings.secret_key("auth_rate_limit_key_b64"),
+        settings.secret_key("auth_email_outbox_key_b64"),
+    ]
+    assert len(token_key) == 32
+    assert token_key not in auth_keys
+
+    same_as_auth = base64.urlsafe_b64encode(auth_keys[0]).decode("ascii").rstrip("=")
+    with pytest.raises(SettingsError, match="SYNC_PAGE_TOKEN_KEY_B64"):
+        settings_factory(sync_page_token_key_b64=same_as_auth)
+
+    same_as_previous_auth = base64.urlsafe_b64encode(token_key).decode("ascii").rstrip("=")
+    with pytest.raises(SettingsError, match="SYNC_PAGE_TOKEN_KEY_B64"):
+        settings_factory(logout_ticket_previous_keys_b64=same_as_previous_auth)
 
 
 def test_logout_ticket_previous_keys_are_optional_and_available_for_verification(
@@ -156,6 +179,7 @@ def test_logout_ticket_previous_keys_are_optional_and_available_for_verification
         ("logout_ticket_key_b64", "!" * 43),
         ("auth_rate_limit_key_b64", "A" * 42),
         ("auth_email_outbox_key_b64", "__GENERATE_OUTBOX_KEY__"),
+        ("sync_page_token_key_b64", "__GENERATE_SYNC_PAGE_TOKEN_KEY_B64__"),
     ],
 )
 def test_auth_secret_keys_reject_malformed_values_without_echo(settings_factory, field, value):

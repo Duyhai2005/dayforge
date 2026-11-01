@@ -33,6 +33,7 @@ ENV_FIELDS = {
     "logout_ticket_previous_keys_b64": "LOGOUT_TICKET_PREVIOUS_KEYS_B64",
     "auth_rate_limit_key_b64": "AUTH_RATE_LIMIT_KEY_B64",
     "auth_email_outbox_key_b64": "AUTH_EMAIL_OUTBOX_KEY_B64",
+    "sync_page_token_key_b64": "SYNC_PAGE_TOKEN_KEY_B64",
     "email_smtp_host": "EMAIL_SMTP_HOST",
     "email_smtp_port": "EMAIL_SMTP_PORT",
     "email_from": "EMAIL_FROM",
@@ -42,6 +43,7 @@ _SECRET_FIELDS = (
     "logout_ticket_key_b64",
     "auth_rate_limit_key_b64",
     "auth_email_outbox_key_b64",
+    "sync_page_token_key_b64",
 )
 
 
@@ -74,6 +76,7 @@ class Settings(BaseModel):
     logout_ticket_previous_keys_b64: SecretStr | None = None
     auth_rate_limit_key_b64: SecretStr
     auth_email_outbox_key_b64: SecretStr
+    sync_page_token_key_b64: SecretStr
     email_smtp_host: str
     email_smtp_port: int
     email_from: str
@@ -112,15 +115,37 @@ class Settings(BaseModel):
                 invalid.add(field)
         if values.get("app_env") not in ("development", "test", "production"):
             invalid.add("app_env")
+        decoded_secrets = {}
         for field in _SECRET_FIELDS:
             value = values.get(field)
             if isinstance(value, SecretStr):
                 value = value.get_secret_value()
             if isinstance(value, str):
                 try:
-                    _decode_key(value)
+                    decoded_secrets[field] = _decode_key(value)
                 except ValueError:
                     invalid.add(field)
+        sync_key = decoded_secrets.get("sync_page_token_key_b64")
+        if sync_key is not None:
+            auth_keys = [
+                decoded_secrets.get(field)
+                for field in (
+                    "local_key_kek_b64",
+                    "logout_ticket_key_b64",
+                    "auth_rate_limit_key_b64",
+                    "auth_email_outbox_key_b64",
+                )
+            ]
+            previous_logout_keys = values.get("logout_ticket_previous_keys_b64")
+            if isinstance(previous_logout_keys, SecretStr):
+                previous_logout_keys = previous_logout_keys.get_secret_value()
+            if isinstance(previous_logout_keys, str) and previous_logout_keys:
+                try:
+                    auth_keys.extend(_decode_key(item) for item in previous_logout_keys.split(","))
+                except ValueError:
+                    pass
+            if sync_key in auth_keys:
+                invalid.add("sync_page_token_key_b64")
         for field in ("owner_email", "email_from"):
             value = values.get(field)
             if field not in invalid and isinstance(value, str):
@@ -166,6 +191,7 @@ class Settings(BaseModel):
             "logout_ticket_key_b64",
             "auth_rate_limit_key_b64",
             "auth_email_outbox_key_b64",
+            "sync_page_token_key_b64",
         ],
     ) -> bytes:
         return _decode_key(getattr(self, field).get_secret_value())

@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 import hmac
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, select
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ProblemHTTPException
+from app.core.values import format_utc_timestamp
 from app.models.sync import ChangeLog, OperationReceipt, OwnerSyncState, RecordedOperation
+from app.schemas.sync import SyncPage
+from app.services.sync_tokens import PageToken, create_page_token
 from app.services.sync_wire import ValidatedOperation
 
 if TYPE_CHECKING:
@@ -64,6 +68,13 @@ class OwnerSyncHead:
     head_cursor: int
 
 
+@dataclass(frozen=True)
+class _PageCandidate:
+    cursor: int
+    committed_at: datetime
+    envelope_bytes: int
+
+
 def _utc_now() -> datetime:
     value = datetime.now(timezone.utc)
     return value.replace(microsecond=(value.microsecond // 1000) * 1000)
@@ -74,6 +85,175 @@ def unix_milliseconds(value: datetime) -> int:
     epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
     delta = utc_value - epoch
     return delta.days * 86_400_000 + delta.seconds * 1_000 + delta.microseconds // 1_000
+
+
+def _group_json_overhead(cursor: int, committed_at: str) -> int:
+    prefix = (
+        b'{"cursor":'
+        + json.dumps(str(cursor), separators=(",", ":")).encode("ascii")
+        + b',"committed_at":'
+        + json.dumps(committed_at, separators=(",", ":")).encode("ascii")
+        + b',"operation":'
+    )
+    return len(prefix) + 1
+
+
+async def read_sync_page(
+    database: Database,
+    owner_id: UUID,
+    *,
+    endpoint: str,
+    token_key: bytes,
+    after_cursor: int | None = None,
+    request_epoch: UUID | None = None,
+    page_token: PageToken | None = None,
+    now: datetime | None = None,
+) -> SyncPage:
+    """Read one immutable owner prefix page without holding the head lock while serializing."""
+    instant = _utc_now() if now is None else now.astimezone(timezone.utc).replace(microsecond=0)
+    now_seconds = int(instant.timestamp())
+    if endpoint not in ("bootstrap", "pull"):
+        raise ProblemHTTPException(status_code=400, code="malformed_request")
+
+    head = await read_owner_sync_head(database, owner_id)
+    if page_token is None:
+        if endpoint == "bootstrap":
+            if after_cursor is not None or request_epoch is not None:
+                raise ProblemHTTPException(status_code=400, code="malformed_request")
+            start_cursor = 0
+        else:
+            if after_cursor is None or request_epoch is None:
+                raise ProblemHTTPException(status_code=400, code="malformed_request")
+            if request_epoch != head.epoch:
+                raise ProblemHTTPException(status_code=409, code="cursor_epoch_mismatch")
+            if not 0 <= after_cursor <= head.head_cursor:
+                raise ProblemHTTPException(status_code=400, code="malformed_request")
+            start_cursor = after_cursor
+        epoch = head.epoch
+        through_cursor = head.head_cursor
+        position = start_cursor
+        expires_at = now_seconds + 1800
+    else:
+        if page_token.endpoint != endpoint or page_token.owner_id != owner_id or page_token.epoch != head.epoch:
+            raise ProblemHTTPException(status_code=409, code="cursor_epoch_mismatch")
+        epoch = page_token.epoch
+        start_cursor = page_token.after_cursor
+        through_cursor = page_token.through_cursor
+        position = page_token.position
+        expires_at = page_token.expires_at
+        if through_cursor > head.head_cursor:
+            raise ProblemHTTPException(status_code=409, code="cursor_epoch_mismatch")
+
+    try:
+        async with database.sessions() as session:
+            candidates_result = await session.execute(
+                select(
+                    ChangeLog.cursor,
+                    ChangeLog.committed_at,
+                    func.length(RecordedOperation.envelope),
+                )
+                .select_from(ChangeLog)
+                .join(
+                    RecordedOperation,
+                    and_(
+                        RecordedOperation.owner_id == ChangeLog.owner_id,
+                        RecordedOperation.epoch == ChangeLog.epoch,
+                        RecordedOperation.commit_cursor == ChangeLog.cursor,
+                    ),
+                )
+                .where(
+                    ChangeLog.owner_id == owner_id,
+                    ChangeLog.epoch == epoch,
+                    ChangeLog.cursor > position,
+                    ChangeLog.cursor <= through_cursor,
+                )
+                .order_by(ChangeLog.cursor)
+                .limit(201)
+            )
+            candidates = [
+                _PageCandidate(cursor=cursor, committed_at=committed_at, envelope_bytes=envelope_bytes)
+                for cursor, committed_at, envelope_bytes in candidates_result.all()
+            ]
+
+            selected: list[_PageCandidate] = []
+            estimated_page_bytes = 4096
+            for candidate in candidates:
+                if len(selected) >= 200:
+                    break
+                committed_at_text = format_utc_timestamp(candidate.committed_at)
+                group_size = _group_json_overhead(candidate.cursor, committed_at_text) + candidate.envelope_bytes
+                group_size += 1 if selected else 0
+                if estimated_page_bytes + group_size > 8_388_608:
+                    break
+                selected.append(candidate)
+                estimated_page_bytes += group_size
+
+            if candidates and not selected:
+                raise ProblemHTTPException(status_code=503, code="service_unavailable")
+
+            envelopes_by_cursor: dict[int, tuple[datetime, dict]] = {}
+            if selected:
+                selected_cursors = [candidate.cursor for candidate in selected]
+                operation_result = await session.execute(
+                    select(
+                        ChangeLog.cursor,
+                        ChangeLog.committed_at,
+                        RecordedOperation.envelope,
+                    )
+                    .select_from(ChangeLog)
+                    .join(
+                        RecordedOperation,
+                        and_(
+                            RecordedOperation.owner_id == ChangeLog.owner_id,
+                            RecordedOperation.epoch == ChangeLog.epoch,
+                            RecordedOperation.commit_cursor == ChangeLog.cursor,
+                        ),
+                    )
+                    .where(
+                        ChangeLog.owner_id == owner_id,
+                        ChangeLog.epoch == epoch,
+                        ChangeLog.cursor.in_(selected_cursors),
+                    )
+                )
+                for cursor, committed_at, envelope in operation_result.all():
+                    envelopes_by_cursor[cursor] = (committed_at, json.loads(bytes(envelope)))
+    except SQLAlchemyError:
+        raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
+
+    has_more = len(selected) < len(candidates)
+    groups = [
+        {
+            "cursor": str(candidate.cursor),
+            "committed_at": format_utc_timestamp(envelopes_by_cursor[candidate.cursor][0]),
+            "operation": envelopes_by_cursor[candidate.cursor][1],
+        }
+        for candidate in selected
+    ]
+    if has_more:
+        next_cursor = selected[-1].cursor
+        next_page_token = create_page_token(
+            token_key,
+            endpoint=endpoint,
+            owner_id=owner_id,
+            epoch=epoch,
+            after_cursor=start_cursor,
+            through_cursor=through_cursor,
+            position=next_cursor,
+            now=now_seconds,
+            expires_at=expires_at,
+        )
+    else:
+        next_cursor = through_cursor
+        next_page_token = None
+
+    return SyncPage(
+        epoch=str(epoch),
+        through_cursor=str(through_cursor),
+        next_cursor=str(next_cursor),
+        has_more=has_more,
+        next_page_token=next_page_token,
+        groups=groups,
+    )
 
 
 async def ensure_owner_sync_state(

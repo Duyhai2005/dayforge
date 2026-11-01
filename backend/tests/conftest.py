@@ -149,6 +149,7 @@ def settings_factory():
             logout_ticket_key_b64=base64.urlsafe_b64encode(bytes(range(1, 33))).decode("ascii").rstrip("="),
             auth_rate_limit_key_b64=base64.urlsafe_b64encode(bytes(range(2, 34))).decode("ascii").rstrip("="),
             auth_email_outbox_key_b64=base64.urlsafe_b64encode(bytes(range(3, 35))).decode("ascii").rstrip("="),
+            sync_page_token_key_b64=base64.urlsafe_b64encode(bytes(range(4, 36))).decode("ascii").rstrip("="),
             email_smtp_host="127.0.0.1",
             email_smtp_port=1025,
             email_from="dayforge@example.test",
