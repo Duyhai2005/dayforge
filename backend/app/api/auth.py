@@ -4,7 +4,19 @@ from fastapi import APIRouter, Depends, Request, Response
 
 from app.core.auth_security import validate_auth_post
 from app.core.values import format_utc_timestamp
-from app.schemas.auth import LogoutRequest, SessionInfo, SessionOwner, SessionView
+from app.schemas.auth import (
+    AcceptedEmailRequest,
+    AuthActionResponse,
+    EmailRequest,
+    EmailTokenPasswordRequest,
+    LocalKeyResponse,
+    LoginRequest,
+    LogoutRequest,
+    SessionInfo,
+    SessionOwner,
+    SessionView,
+)
+from app.services.auth import AuthService
 from app.services.auth_crypto import (
     create_logout_ticket,
     encode_base64url,
@@ -15,6 +27,7 @@ from app.services.sessions import (
     clear_session_cookie,
     create_anonymous_session,
     get_session_context,
+    require_verified_owner,
     revoke_session,
     set_session_cookie,
     touch_session,
@@ -22,6 +35,14 @@ from app.services.sessions import (
 )
 
 router = APIRouter(prefix="/api/v1/auth")
+
+
+def get_auth_service(request: Request) -> AuthService:
+    return AuthService(request.app.state.database, request.app.state.settings)
+
+
+def _peer_ip(request: Request) -> str | None:
+    return None if request.client is None else request.client.host
 
 
 def _view(context: SessionContext, request: Request) -> SessionView:
@@ -66,7 +87,9 @@ async def session_view(
     request: Request,
     response: Response,
     context: SessionContext | None = Depends(get_session_context),
+    service: AuthService = Depends(get_auth_service),
 ) -> SessionView:
+    await service.session_request_limit(context, _peer_ip(request))
     if context is None:
         context = await create_anonymous_session(request)
         set_session_cookie(response, context)
@@ -101,3 +124,100 @@ async def logout(
         if context is not None and context.session.id == target_id:
             clear_session_cookie(response)
     return response
+
+
+@router.post("/register", status_code=202, response_model=AcceptedEmailRequest)
+async def register(
+    body: EmailRequest,
+    request: Request,
+    context: SessionContext | None = Depends(get_session_context),
+    service: AuthService = Depends(get_auth_service),
+) -> AcceptedEmailRequest:
+    validate_auth_post(request, None if context is None else context.csrf_token)
+    await service.request_email(body.email, "verify_email", _peer_ip(request))
+    return AcceptedEmailRequest()
+
+
+@router.post(
+    "/verification/resend", status_code=202, response_model=AcceptedEmailRequest
+)
+async def resend_verification(
+    body: EmailRequest,
+    request: Request,
+    context: SessionContext | None = Depends(get_session_context),
+    service: AuthService = Depends(get_auth_service),
+) -> AcceptedEmailRequest:
+    validate_auth_post(request, None if context is None else context.csrf_token)
+    await service.request_email(body.email, "verify_email", _peer_ip(request))
+    return AcceptedEmailRequest()
+
+
+@router.post("/verification/confirm", response_model=AuthActionResponse)
+async def confirm_verification(
+    body: EmailTokenPasswordRequest,
+    request: Request,
+    context: SessionContext | None = Depends(get_session_context),
+    service: AuthService = Depends(get_auth_service),
+) -> AuthActionResponse:
+    validate_auth_post(request, None if context is None else context.csrf_token)
+    await service.confirm_email(body.token, body.password, _peer_ip(request))
+    return AuthActionResponse(status="verified")
+
+
+@router.post("/login", response_model=SessionView)
+async def login(
+    body: LoginRequest,
+    request: Request,
+    response: Response,
+    context: SessionContext | None = Depends(get_session_context),
+    service: AuthService = Depends(get_auth_service),
+) -> SessionView:
+    validate_auth_post(request, None if context is None else context.csrf_token)
+    authenticated = await service.login(
+        body.email,
+        body.password,
+        body.remember_me,
+        context,
+        _peer_ip(request),
+    )
+    set_session_cookie(response, authenticated)
+    return _view(authenticated, request)
+
+
+@router.post("/password/forgot", status_code=202, response_model=AcceptedEmailRequest)
+async def forgot_password(
+    body: EmailRequest,
+    request: Request,
+    context: SessionContext | None = Depends(get_session_context),
+    service: AuthService = Depends(get_auth_service),
+) -> AcceptedEmailRequest:
+    validate_auth_post(request, None if context is None else context.csrf_token)
+    await service.request_email(body.email, "password_reset", _peer_ip(request))
+    return AcceptedEmailRequest()
+
+
+@router.post("/password/reset", response_model=AuthActionResponse)
+async def reset_password(
+    body: EmailTokenPasswordRequest,
+    request: Request,
+    context: SessionContext | None = Depends(get_session_context),
+    service: AuthService = Depends(get_auth_service),
+) -> AuthActionResponse:
+    validate_auth_post(request, None if context is None else context.csrf_token)
+    await service.reset_password(body.token, body.password, _peer_ip(request))
+    return AuthActionResponse(status="password_reset")
+
+
+@router.get("/local-key", response_model=LocalKeyResponse)
+async def local_key(
+    request: Request,
+    context: SessionContext = Depends(require_verified_owner),
+    service: AuthService = Depends(get_auth_service),
+) -> LocalKeyResponse:
+    value = await service.local_key(context, _peer_ip(request))
+    return LocalKeyResponse(
+        owner_id=value["owner_id"],
+        key_id=value["key_id"],
+        algorithm="A256GCM",
+        key_base64url=value["key_base64url"],
+    )

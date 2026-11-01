@@ -23,6 +23,7 @@ SESSION_IDLE_STANDARD = timedelta(minutes=30)
 SESSION_IDLE_REMEMBERED = timedelta(days=7)
 SESSION_ABSOLUTE_STANDARD = timedelta(hours=12)
 SESSION_ABSOLUTE_REMEMBERED = timedelta(days=30)
+RECENT_PASSWORD_WINDOW = timedelta(minutes=5)
 
 
 def utc_now() -> datetime:
@@ -197,6 +198,57 @@ def clear_session_cookie(response: Response) -> None:
         httponly=True,
         samesite="lax",
     )
+
+
+async def create_authenticated_session(
+    database,
+    user: User,
+    remember_me: bool,
+    previous: SessionContext | None,
+    *,
+    now: datetime | None = None,
+) -> SessionContext:
+    instant = now or utc_now()
+    raw_token = secrets.token_bytes(SESSION_TOKEN_BYTES)
+    csrf_token = secrets.token_bytes(CSRF_TOKEN_BYTES)
+    idle_duration = SESSION_IDLE_REMEMBERED if remember_me else SESSION_IDLE_STANDARD
+    absolute_duration = (
+        SESSION_ABSOLUTE_REMEMBERED if remember_me else SESSION_ABSOLUTE_STANDARD
+    )
+    absolute_expires_at = instant + absolute_duration
+    record = AuthSession(
+        id=uuid4(),
+        kind="authenticated",
+        token_hash=hashlib.sha256(raw_token).digest(),
+        owner_id=user.id,
+        csrf_token=csrf_token,
+        auth_version=user.auth_version,
+        password_authenticated_at=instant,
+        remember_me=remember_me,
+        created_at=instant,
+        last_activity_at=instant,
+        idle_expires_at=min(instant + idle_duration, absolute_expires_at),
+        absolute_expires_at=absolute_expires_at,
+        revoked_at=None,
+    )
+    try:
+        async with database.sessions() as db:
+            async with db.begin():
+                if previous is not None:
+                    await db.execute(
+                        update(AuthSession)
+                        .where(
+                            AuthSession.id == previous.session.id,
+                            AuthSession.revoked_at.is_(None),
+                        )
+                        .values(revoked_at=instant)
+                    )
+                db.add(record)
+    except SQLAlchemyError:
+        raise ProblemHTTPException(
+            status_code=503, code="service_unavailable"
+        ) from None
+    return SessionContext(record, user, csrf_token, encode_base64url(raw_token))
 
 
 async def revoke_session(request: Request, session_id: UUID) -> None:

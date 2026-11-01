@@ -70,12 +70,32 @@ def test_development_openapi_contains_valid_system_routes(system_client):
         "/api/v1/version",
         "/api/v1/auth/session",
         "/api/v1/auth/logout",
+        "/api/v1/auth/register",
+        "/api/v1/auth/verification/resend",
+        "/api/v1/auth/verification/confirm",
+        "/api/v1/auth/login",
+        "/api/v1/auth/password/forgot",
+        "/api/v1/auth/password/reset",
+        "/api/v1/auth/local-key",
     }
 
 
-def test_production_hides_openapi(settings_factory):
+def test_production_hides_openapi(settings_factory, monkeypatch):
+    import asyncio
     import warnings
 
+    import app.main as main
+
+    async def validate_owner_email_binding(*args, **kwargs):
+        return None
+
+    async def wait_for_shutdown(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        main, "validate_owner_email_binding", validate_owner_email_binding
+    )
+    monkeypatch.setattr(main, "run_delivery_worker", wait_for_shutdown)
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore",

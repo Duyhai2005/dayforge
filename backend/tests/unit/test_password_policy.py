@@ -28,6 +28,8 @@ def test_password_rejects_blocklist_and_email_derived_values():
     with pytest.raises(PasswordPolicyError, match="password_blocklisted"):
         validate_new_password("password123456789", "owner@example.test")
     with pytest.raises(PasswordPolicyError, match="password_blocklisted"):
+        validate_new_password("correct horse battery staple", "owner@example.test")
+    with pytest.raises(PasswordPolicyError, match="password_blocklisted"):
         validate_new_password("OwnerAccountName", "OwnerAccountName@example.test")
 
 

@@ -7,7 +7,7 @@ from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatc
 
 from app.services.email_address import EmailAddressError, canonicalize_email
 
-PASSWORD_BLOCKLIST_VERSION = "dayforge-passwords-2026-01"
+PASSWORD_BLOCKLIST_VERSION = "dayforge-passwords-2026-11"
 _PASSWORD_BLOCKLIST = frozenset(
     {
         "password123456789",
@@ -19,6 +19,27 @@ _PASSWORD_BLOCKLIST = frozenset(
         "dayforgeplanner",
         "changemechangeme",
         "iloveyouiloveyou",
+        "correcthorsebatterystaple",
+        "correct horse battery staple",
+        "password12345678",
+        "passwordpassword123",
+        "1234567890123456",
+        "qwertyuiopqwerty",
+        "qwerty1234567890",
+        "adminadminadmin1",
+        "administrator1234",
+        "welcome123456789",
+        "welcomehome12345",
+        "changeme123456789",
+        "letmein123456789",
+        "iloveyou123456789",
+        "abc123abc123abc123",
+        "baseballbaseball",
+        "footballfootball",
+        "sunshine12345678",
+        "princessprincess",
+        "monkeymonkeymonkey",
+        "passw0rdpassw0rd",
     }
 )
 _PASSWORD_HASHER = PasswordHasher(
@@ -28,6 +49,10 @@ _PASSWORD_HASHER = PasswordHasher(
     hash_len=32,
     salt_len=16,
     type=Type.ID,
+)
+DUMMY_PASSWORD_HASH = (
+    "$argon2id$v=19$m=65536,t=3,p=1$kBvIFFyeBVP14QrH1obrFA$"
+    "9wchBP85PZYgqtWeVw6VrDNZOdGCOYXGFj1UWAPYyKE"
 )
 
 

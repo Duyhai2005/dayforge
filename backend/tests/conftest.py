@@ -174,6 +174,110 @@ def settings_factory():
 
 
 @pytest.fixture
+def auth_repository():
+    from types import SimpleNamespace
+
+    return SimpleNamespace(users=[], email_requests=[])
+
+
+@pytest.fixture
+def auth_mailbox():
+    from types import SimpleNamespace
+
+    return SimpleNamespace(messages=[])
+
+
+@pytest.fixture
+def auth_client(settings_factory, auth_repository, auth_mailbox):
+    import warnings
+    from datetime import datetime, timedelta, timezone
+    from uuid import uuid4
+
+    from fastapi.testclient import TestClient
+
+    from app.api.auth import get_auth_service
+    from app.main import create_app
+    from app.models.auth import Session as AuthSession
+    from app.services.auth_crypto import encode_base64url
+    from app.services.email_address import EmailAddressError, canonicalize_email
+    from app.services.sessions import SessionContext, get_session_context
+
+    settings = settings_factory()
+    now = datetime(2026, 11, 1, 12, 0, tzinfo=timezone.utc)
+    csrf = bytes(range(32))
+    cookie_token = bytes(range(32, 64))
+    session = AuthSession(
+        id=uuid4(),
+        kind="anonymous",
+        token_hash=b"x" * 32,
+        owner_id=None,
+        csrf_token=csrf,
+        auth_version=None,
+        password_authenticated_at=None,
+        remember_me=False,
+        created_at=now,
+        last_activity_at=now,
+        idle_expires_at=now + timedelta(minutes=30),
+        absolute_expires_at=now + timedelta(minutes=30),
+        revoked_at=None,
+    )
+    context = SessionContext(session, None, csrf, encode_base64url(cookie_token))
+
+    class CapturedAuthService:
+        def __init__(self):
+            self.calls = []
+
+        async def request_email(self, email, purpose, peer_ip):
+            self.calls.append((email, purpose, peer_ip))
+            auth_repository.email_requests.append((email, purpose))
+            try:
+                canonical = canonicalize_email(email).canonical
+                allowed = canonicalize_email(settings.owner_email).canonical
+            except EmailAddressError:
+                return
+            if canonical != allowed:
+                return
+            if purpose == "verify_email" and not auth_repository.users:
+                auth_mailbox.messages.append((email, purpose))
+            elif purpose == "password_reset" and auth_repository.users:
+                auth_mailbox.messages.append((email, purpose))
+
+        async def session_request_limit(self, context, peer_ip):
+            return None
+
+        async def confirm_email(self, token, password, peer_ip):
+            raise AssertionError("confirm_email must be covered by MySQL tests")
+
+        async def login(self, email, password, remember_me, previous, peer_ip):
+            raise AssertionError("login must be covered by MySQL tests")
+
+        async def reset_password(self, token, password, peer_ip):
+            raise AssertionError("reset_password must be covered by MySQL tests")
+
+        async def local_key(self, context, peer_ip):
+            raise AssertionError("local_key must be covered by MySQL tests")
+
+    service = CapturedAuthService()
+    application = create_app(settings)
+    application.dependency_overrides[get_session_context] = lambda: context
+    application.dependency_overrides[get_auth_service] = lambda: service
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Using `httpx` with `starlette.testclient` is deprecated.*",
+        )
+        with TestClient(application, base_url=settings.public_origin) as client:
+            client.headers.update(
+                {
+                    "Origin": settings.public_origin,
+                    "X-CSRF-Token": encode_base64url(csrf),
+                }
+            )
+            client.auth_service = service
+            yield client
+
+
+@pytest.fixture
 def mysql_test_settings():
     from app.core.config import load_settings
 

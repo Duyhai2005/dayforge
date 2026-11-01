@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -10,6 +11,8 @@ from app.core.database import close_database, create_database
 from app.core.errors import register_exception_handlers
 from app.core.request_logging import RequestLoggingMiddleware
 from app.core.strict_json import StrictJSONMiddleware
+from app.services.auth import validate_owner_email_binding
+from app.services.email_delivery import run_delivery_worker
 from app.services.readiness import required_schema_revision
 
 
@@ -29,9 +32,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.settings = configured
         application.state.database = database
         application.state.required_schema_revision = revision
+        worker = None
         try:
+            if configured.app_env != "test":
+                await validate_owner_email_binding(database, configured)
+                worker = asyncio.create_task(run_delivery_worker(database, configured))
             yield
         finally:
+            if worker is not None:
+                worker.cancel()
+                try:
+                    await worker
+                except asyncio.CancelledError:
+                    pass
             await close_database(database)
 
     application = FastAPI(

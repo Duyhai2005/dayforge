@@ -1,6 +1,6 @@
 """Strict DTOs for server-side authentication sessions."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import Field
 
@@ -45,3 +45,39 @@ class LogoutRequest(ContractModel):
         ]
         | None
     ) = None
+
+
+class EmailRequest(ContractModel):
+    email: Annotated[str, Field(strict=True, min_length=1, max_length=1024)]
+
+
+class EmailTokenPasswordRequest(ContractModel):
+    token: Annotated[
+        str,
+        Field(
+            strict=True, min_length=43, max_length=43, pattern=r"^[A-Za-z0-9_-]{43}$"
+        ),
+    ]
+    password: Annotated[str, Field(strict=True, max_length=1024)]
+
+
+class LoginRequest(ContractModel):
+    email: Annotated[str, Field(strict=True, min_length=1, max_length=1024)]
+    password: Annotated[str, Field(strict=True, max_length=1024)]
+    remember_me: bool
+
+
+class AcceptedEmailRequest(ContractModel):
+    status: Literal["accepted"] = "accepted"
+    resend_after_seconds: Literal[60] = 60
+
+
+class AuthActionResponse(ContractModel):
+    status: Literal["verified", "password_reset"]
+
+
+class LocalKeyResponse(ContractModel):
+    owner_id: WireUUID
+    key_id: WireUUID
+    algorithm: Literal["A256GCM"]
+    key_base64url: Annotated[str, Field(strict=True, pattern=r"^[A-Za-z0-9_-]{43}$")]

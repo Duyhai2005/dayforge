@@ -49,6 +49,22 @@ _TEXT = {
         "Reauthentication required",
         "Enter the password again to continue.",
     ),
+    "invalid_credentials": (
+        "Invalid credentials",
+        "The email or password is incorrect.",
+    ),
+    "email_token_invalid": ("Invalid link", "The email link is invalid."),
+    "email_token_used": ("Link already used", "This email link has already been used."),
+    "email_token_expired": ("Link expired", "This email link has expired."),
+    "password_policy_violation": (
+        "Password not accepted",
+        "Choose a password that meets the password policy.",
+    ),
+    "password_blocklisted": ("Password not accepted", "Choose a less common password."),
+    "owner_forbidden": (
+        "Owner access required",
+        "This action requires a verified owner session.",
+    ),
 }
 
 _STATUS_CODES = {

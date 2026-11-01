@@ -97,7 +97,7 @@ pnpm db:migrate
 pnpm db:current
 ```
 
-MySQL is published only at `127.0.0.1:3307`, uses the `dayforge_app` database user for the health probe, and persists development data in the Compose named volume. The root password is read by Compose and is not passed to the backend or frontend. `db:migrate` explicitly upgrades to the bundled Alembic head; `db:current` should show `0001_owner_workspace (head)` at this revision. Migration creates empty `users` and `workspace_settings` tables. API startup does not migrate, seed an owner or repair a schema. An empty, stale or unavailable schema makes health return 503.
+MySQL is published only at `127.0.0.1:3307`, uses the `dayforge_app` database user for the health probe, and persists development data in the Compose named volume. The root password is read by Compose and is not passed to the backend or frontend. `db:migrate` explicitly upgrades to the bundled Alembic head; for T09 it should show `0002_authentication (head)`. The migration creates empty owner, session, email-token, local-key, rate-limit and encrypted email-outbox tables. API startup does not migrate or seed an owner. An empty, stale or unavailable schema makes health return 503.
 
 Open two PowerShell terminals in the repository root. Keep each running:
 
@@ -112,6 +112,26 @@ pnpm dev:web
 ```
 
 The API listens on `127.0.0.1:8000`. Next.js listens on HTTPS `localhost:3000`; it checks `API_INTERNAL_ORIGIN` before startup and proxies `/api/v1/*` to FastAPI without changing the prefix. If port `3000`, `8000` or `3307` is occupied, identify and stop the process that owns it. Do not change the ports or origin to work around the conflict.
+
+### Development email sink (T09)
+
+Set `OWNER_EMAIL` in `backend/.env` to the one address allowed to initialize this installation. The server canonicalizes that value and the incoming address before comparison. Once an owner exists, changing `OWNER_EMAIL` makes API startup fail; it does not transfer ownership. The SMTP defaults in `backend/.env.example` point to the local sink.
+
+In another terminal, start the development-only Mailpit service:
+
+```powershell
+docker compose -f compose.auth-mailpit.yaml up -d --wait
+```
+
+Mailpit accepts SMTP only on `127.0.0.1:1025`; inspect captured messages at `http://127.0.0.1:8025`. The API worker reads only encrypted outbox rows, sends the message, and removes the row after delivery. Failed SMTP attempts remain queued for retry until expiry. Verification and reset URLs are built from `PUBLIC_ORIGIN` and place the one-time token after `#`; never copy a token into a ticket or log. A GET of the callback page does not consume a token; the account UI asks for explicit confirmation before POSTing it.
+
+Stop the sink when finished:
+
+```powershell
+docker compose -f compose.auth-mailpit.yaml down
+```
+
+This sink is for local development. It is not enabled in the MySQL test runner and does not represent delivery to a real inbox; production mail delivery is selected and verified in T29/T30.
 
 In a third terminal, run the HTTPS web/API smoke check:
 
