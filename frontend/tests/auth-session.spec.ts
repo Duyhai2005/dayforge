@@ -606,6 +606,7 @@ test("loginCompletesAfterRecoveringPendingLogoutInSameTab", async ({ page, conte
   api.failLogout = false;
   await page.getByRole("button", { name: "Đăng nhập" }).click();
 
+  await expect.poll(async () => readPendingLogoutRows(page)).toEqual([]);
   await expect.poll(() => api.requests.filter(request => request.path === "/api/v1/auth/login").length)
     .toBe(loginCount + 1);
   await expect(page.getByRole("status")).toContainText("đã mở khóa");

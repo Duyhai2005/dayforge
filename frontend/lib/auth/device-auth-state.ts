@@ -19,6 +19,12 @@ function notifyOwnerLockLocally(ownerId: string): void {
 export function publishOwnerLocked(ownerId: string): void {
   if (typeof window === "undefined" || !ownerId) return;
   notifyOwnerLockLocally(ownerId);
+  broadcastOwnerLocked(ownerId);
+}
+
+/** Notify other tabs when recovery newly locks an owner, without cancelling work in this tab. */
+export function broadcastOwnerLocked(ownerId: string): void {
+  if (typeof window === "undefined" || !ownerId) return;
   if (typeof BroadcastChannel !== "undefined") {
     const channel = new BroadcastChannel(CHANNEL_NAME);
     channel.postMessage({ type: "owner-locked", ownerId } satisfies LockMessage);

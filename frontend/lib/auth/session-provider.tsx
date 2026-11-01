@@ -23,6 +23,7 @@ import {
 } from "../services/auth";
 import {
   clearActiveOwnerContext,
+  broadcastOwnerLocked,
   getActiveOwnerContext,
   listenForRemoteOwnerLock,
   publishOwnerLocked,
@@ -75,6 +76,9 @@ function retryQueuedLogouts(
   const retry = (async (): Promise<LogoutRetryResult> => {
     const recovery = await ensureQueuedLogoutOwnersLocked(db);
     if (!recovery.ok) return { remaining: 1, revoked: 0, lockedOwnerIds: [] };
+    for (const ownerId of recovery.value.newlyLockedOwnerIds) {
+      broadcastOwnerLocked(ownerId);
+    }
     let revoked = 0;
     let remaining = 0;
     for (const item of recovery.value.tickets) {
@@ -126,7 +130,6 @@ export function AuthSessionProvider({ children }: Readonly<{ children: ReactNode
   const applyRecoveredOwnerLocks = useCallback((ownerIds: readonly string[]) => {
     for (const ownerId of ownerIds) {
       clearActiveOwnerContext(ownerId);
-      publishOwnerLocked(ownerId);
     }
     if (ownerAccessRef.current && ownerIds.includes(ownerAccessRef.current.ownerId)) {
       updateOwnerAccess(null);
@@ -210,6 +213,9 @@ export function AuthSessionProvider({ children }: Readonly<{ children: ReactNode
           queuedLogoutCount = recovery.value.tickets.length;
           recoveredOwnerIds = recovery.value.lockedOwnerIds;
           applyRecoveredOwnerLocks(recoveredOwnerIds);
+          for (const ownerId of recovery.value.newlyLockedOwnerIds) {
+            broadcastOwnerLocked(ownerId);
+          }
         } else {
           setNotice("Không thể kiểm tra yêu cầu đăng xuất đang chờ.");
         }

@@ -15,6 +15,7 @@ export type PendingLogoutTicket = Readonly<{
 export type PendingLogoutRecovery = Readonly<{
   tickets: readonly PendingLogoutTicket[];
   lockedOwnerIds: readonly string[];
+  newlyLockedOwnerIds: readonly string[];
 }>;
 
 function isPendingLogoutTicket(value: unknown): value is PendingLogoutTicket {
@@ -91,6 +92,7 @@ export async function ensureQueuedLogoutOwnersLocked(
       const ownersRequest = tx.objectStore(STORAGE_STORES.owner_meta).getAll();
       let tickets: PendingLogoutTicket[] = [];
       let lockedOwnerIds: string[] = [];
+      let newlyLockedOwnerIds: string[] = [];
 
       ticketsRequest.onsuccess = () => {
         tickets = (ticketsRequest.result as unknown[]).filter(isPendingLogoutTicket);
@@ -105,17 +107,19 @@ export async function ensureQueuedLogoutOwnersLocked(
           : tickets.flatMap(ticket => ticket.owner_id ? [ticket.owner_id] : []));
         for (const owner of owners) {
           if (!targetIds.has(owner.owner_id)) continue;
+          if (owner.locked !== true) newlyLockedOwnerIds.push(owner.owner_id);
           lockOwnerInTransaction(tx, owner.owner_id, { incrementEpoch: owner.locked !== true });
         }
         for (const ownerId of targetIds) {
           if (!owners.some(owner => owner.owner_id === ownerId)) {
             lockOwnerInTransaction(tx, ownerId);
+            newlyLockedOwnerIds.push(ownerId);
           }
         }
         lockedOwnerIds = [...targetIds];
       };
 
-      tx.oncomplete = () => resolve(storageOk({ tickets, lockedOwnerIds }));
+      tx.oncomplete = () => resolve(storageOk({ tickets, lockedOwnerIds, newlyLockedOwnerIds }));
       const fail = (message: string, error?: DOMException | null) =>
         resolve(storageErr("transaction_aborted", message, error));
       tx.onerror = () => fail(tx.error?.message ?? "Could not recover pending logout locks", tx.error);
