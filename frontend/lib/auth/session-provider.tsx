@@ -34,7 +34,7 @@ import {
   removePendingLogoutTicket,
   storePendingLogoutTicket,
   type OwnerChangeSummary,
-} from "../storage";
+} from "../storage/auth-state";
 import { openDatabase } from "../storage/db";
 import { restoreUnlockedOwnerContext, lockOwner, unlockOwner, type OwnerAccessContext } from "../storage/owner-gate";
 

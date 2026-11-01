@@ -222,20 +222,43 @@ export async function prepareUnlockedOwnerWithPendingOperation(page: Page): Prom
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const aad = new TextEncoder().encode(`${ownerId}:${keyId}:operations:${operationId}`);
     const envelopePayload = {
-      protocol_version: 1,
-      reducer_version: 1,
-      operation_id: operationId,
-      owner_id: ownerId,
+      commands: [{
+        root: { kind: "plan", id: "66666666-6666-4666-8666-666666666666" },
+        action: "plan.create",
+        payload: { data: { name: "Pending Plan", color_id: "green" } },
+        precondition: null,
+      }],
+      dependencies: [],
       device_id: deviceId,
       device_sequence: "1",
-      edit_time: { physical_ms: 1793500000000, logical: 0 },
-      dependencies: [],
-      commands: [],
+      edit_time: {
+        physical_ms: 1793500000000,
+        logical: 0,
+        calibration_id: deviceId,
+        raw_wall_ms: 1793500000000,
+        quality: "calibrated",
+      },
+      operation_id: operationId,
+      owner_id: ownerId,
+      protocol_version: 1,
+      reducer_version: 1,
     };
+    const canonicalize = (value: unknown): string => {
+      if (value === null || typeof value !== "object") return JSON.stringify(value);
+      if (Array.isArray(value)) return `[${value.map(canonicalize).join(",")}]`;
+      const record = value as Record<string, unknown>;
+      return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalize(record[key])}`).join(",")}}`;
+    };
+    const canonicalEnvelope = canonicalize(envelopePayload);
+    const requestHashBytes = new Uint8Array(await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(canonicalEnvelope)
+    ));
+    const requestHash = Array.from(requestHashBytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
     const ciphertext = new Uint8Array(await crypto.subtle.encrypt(
       { name: "AES-GCM", iv, additionalData: aad, tagLength: 128 },
       cryptoKey,
-      new TextEncoder().encode(JSON.stringify(envelopePayload))
+      new TextEncoder().encode(canonicalEnvelope)
     ));
     const transaction = db.transaction(["operations", "drafts"], "readwrite");
     transaction.objectStore("operations").put({
@@ -243,7 +266,7 @@ export async function prepareUnlockedOwnerWithPendingOperation(page: Page): Prom
       operation_id: operationId,
       device_sequence: "1",
       status: "pending",
-      request_hash: "0".repeat(64),
+      request_hash: requestHash,
       encrypted_envelope: {
         owner_id: ownerId,
         store: "operations",
