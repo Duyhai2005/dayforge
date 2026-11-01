@@ -3,7 +3,8 @@
 **Cập nhật:** 01/11/2026
 **PR:** [#8 Implement persistent local storage engine with encrypted outbox](https://github.com/Duyhai2005/dayforge/pull/8) → `develop`
 **Nhánh:** `feature/local-persistent-storage` (worktree `codex/t08-integrity-api`)
-**Mốc CI gần nhất đã xác minh:** [`bc63108`](https://github.com/Duyhai2005/dayforge/commit/bc6310890f0c91dda3feef705e0f08bc2be3f6e7), [run 41277992819](https://github.com/Duyhai2005/dayforge/actions/runs/41277992819) — `quality`, `frontend`, `backend-mysql` đều xanh. Run này áp dụng cho `bc63108`; chưa có CI cho commit `29bada5` vì commit đó chưa push.
+**CI trên head mới nhất:** [`49cddd4`](https://github.com/Duyhai2005/dayforge/commit/49cddd47edf34d750f4fb0c40e7ea630418288de), [run 41282435255](https://github.com/Duyhai2005/dayforge/actions/runs/41282435255) — `quality`, `frontend`, `backend-mysql` đang chạy.
+**Mốc CI xanh gần nhất:** [`bc63108`](https://github.com/Duyhai2005/dayforge/commit/bc6310890f0c91dda3feef705e0f08bc2be3f6e7), [run 41277992819](https://github.com/Duyhai2005/dayforge/actions/runs/41277992819) — cả ba job xanh trên commit nền này.
 
 Phần bên dưới là trạng thái hiện tại của API và kiểm chứng. Các mục review cũ được giữ làm lịch sử; không dùng các API trong chúng làm hướng dẫn tích hợp.
 
@@ -19,16 +20,16 @@ Phần bên dưới là trạng thái hiện tại của API và kiểm chứng.
 
 ## 2. Quality gates đã quan sát
 
-Các kết quả frontend dưới đây thuộc mã cục bộ sau N07–N10. CI link ở đầu trang xác nhận commit nền `bc63108`, không đại diện cho diff chưa push.
+Các kết quả frontend dưới đây thuộc mã sau N07–N10 và final review follow-up trên head `49cddd4`. CI link đầu trang áp dụng đúng head mới nhất.
 
 | Gate | Lệnh | Kết quả |
 |---|---|---|
 | Frontend lint | `pnpm lint:web` | PASS, `eslint . --max-warnings=0` |
 | Frontend typecheck | `pnpm typecheck:web` | PASS, `tsc --noEmit` |
-| Dev browser suite | `pnpm --filter @dayforge/frontend exec playwright test --workers=4` | PASS, 139/139 |
+| Dev browser suite | `pnpm --filter @dayforge/frontend exec playwright test --workers=4` | PASS, 141/141 |
 | Production build | `pnpm build:web` | PASS, optimized Next.js build |
-| Production browser suite | `pnpm test:web:prod` | PASS, 139/139 |
-| Backend local gates | `pnpm verify:fast` | Chưa chạy: thiếu `uv`; CI trên commit nền xanh như link đầu trang |
+| Production browser suite | `pnpm test:web:prod` | PASS, 141/141 |
+| Backend local gates | `pnpm verify:fast` | Chưa chạy: thiếu `uv`; CI trên head mới nhất đang chạy |
 
 `pnpm test:web` và `pnpm test:web:prod` trong các mục lịch sử phía dưới là số liệu tại thời điểm cũ, không phải số hiện tại.
 
@@ -424,23 +425,27 @@ Bản ghi cũ nhắc tới `markOperationSynced()` như API tạm thời. API pr
 
 > Kết quả CI phải được kiểm tra trên GitHub Actions; mục 2 chỉ ghi những run và SHA đã quan sát.
 
-## 15. PR #8 follow-up hiện tại — R01–R04 và N07–N10
+## 15. PR #8 follow-up hiện tại — R01–R05, N07–N10 và M07
 
 **Cập nhật:** 01/11/2026
-**Implementation commit:** `29bada5`, dựa trên `bc63108`. CI ở đầu tài liệu hiện xác nhận SHA nền; CI cho implementation commit sẽ được cập nhật sau khi push.
+**Head đã push:** `49cddd4`, dựa trên `bc63108`. Run 41282435255 đang xác minh head này.
 
 - **R01–R04:** input persist được snapshot trước validate/hash/encrypt; sequence metadata lỗi fail-closed; HLC validation strict và quality không còn mặc định; close trong lúc read trả lỗi typed.
 - **N07:** `listOutboxForReplay(ctx)` trả `{ envelope, status, requestHash }`; ACK-waiting tiếp tục replay-visible nhưng không sendable.
 - **N08:** mục 7 là handoff hiện hành với chữ ký thật và transaction ownership cho pull; các mục review cũ đã được đánh dấu lịch sử.
 - **N09:** `ClockInputParams.quality` bắt buộc; thiếu, `undefined`, `null` hoặc sai enum không thể được diễn giải thành `calibrated`.
 - **N10:** mọi owner-scoped row được kiểm tra status, UUID, sequence uint64, hash và encrypted context trước khi lọc; row được giải mã còn được đối chiếu envelope và canonical hash. Lỗi trả `integrity_failed`, không xóa row.
+- **R05:** guard `expected_root_hash`/`expected_bucket` hiện diện nhưng có giá trị `undefined` bị từ chối trước khi commit, tránh lưu precondition rỗng sau canonicalization.
+- **N10 follow-up:** truy vấn outbox và quét legacy unlock dùng cursor theo owner-key prefix, nên vẫn phát hiện operation ID dạng số, mảng hoặc lớn hơn `\uffff`; test cô lập từng corruption case và kiểm tra baseline sạch.
+- **M07:** legacy unlock fail-closed khi có operation row với key owner-scoped sai dạng; không cài sentinel và không xóa row.
+- **Deferred:** mô tả AAD còn nói có `schema_version`, trong khi `createAad` hiện chỉ bind owner, key ID, store và record ID; ciphertext compatibility được giữ nguyên trong follow-up này.
 
 | Check cục bộ | Kết quả |
 |---|---|
 | `pnpm lint:web` | PASS |
 | `pnpm typecheck:web` | PASS |
-| Dev Playwright suite (`--workers=4`) | PASS, 139/139 |
+| Dev Playwright suite (`--workers=4`) | PASS, 141/141 |
 | `pnpm build:web` | PASS, optimized Next.js build |
-| Production Playwright suite (`--workers=4`) | PASS, 139/139 |
-| Backend `pnpm verify:fast` | Chưa chạy tại local vì thiếu `uv`; CI xanh trên SHA nền theo link đầu trang |
+| Production Playwright suite (`pnpm test:web:prod`) | PASS, 141/141 |
+| Backend `pnpm verify:fast` | Chưa chạy tại local vì thiếu `uv`; CI trên head `49cddd4` đang chạy |
 

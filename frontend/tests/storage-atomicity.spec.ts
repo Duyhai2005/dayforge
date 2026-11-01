@@ -3229,7 +3229,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
       expect(result.nullQualityCode).toBe("invalid_data");
     });
 
-    test("R04: undefined precondition guards are rejected before commit", async ({ page }) => {
+    test("R05: undefined precondition guards are rejected before commit", async ({ page }) => {
       await page.goto("/work");
       await page.addScriptTag({ content: buildStorageScript() });
       const result = await page.evaluate(async () => {
