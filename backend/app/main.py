@@ -2,7 +2,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.api.auth import router as auth_router
 from app.api.system import router as system_router
+from app.core.auth_security import AuthNoStoreMiddleware
 from app.core.config import Settings, load_settings
 from app.core.database import close_database, create_database
 from app.core.errors import register_exception_handlers
@@ -42,7 +44,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     register_exception_handlers(application)
     application.include_router(system_router)
+    application.include_router(auth_router)
     application.add_middleware(StrictJSONMiddleware)
+    application.add_middleware(AuthNoStoreMiddleware)
     # Register context last so it remains outside downstream parsing middleware.
     application.add_middleware(RequestLoggingMiddleware)
     return application

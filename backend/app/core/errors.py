@@ -36,6 +36,19 @@ _TEXT = {
         "Authentication is required.",
     ),
     "forbidden": ("Forbidden", "The request is not permitted."),
+    "csrf_failed": (
+        "Request verification failed",
+        "The request could not be verified.",
+    ),
+    "owner_mismatch": ("Owner mismatch", "The session does not match this owner."),
+    "email_not_verified": (
+        "Email not verified",
+        "Verify the owner email before continuing.",
+    ),
+    "reauthentication_required": (
+        "Reauthentication required",
+        "Enter the password again to continue.",
+    ),
 }
 
 _STATUS_CODES = {

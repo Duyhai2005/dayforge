@@ -6,7 +6,10 @@ import pytest
 
 from app.services.auth_crypto import (
     CryptoEnvelopeError,
+    create_logout_ticket,
+    decode_base64url,
     unwrap_owner_key,
+    verify_logout_ticket,
     wrap_owner_key,
 )
 from app.services.auth_rate_limits import evaluate_rolling_limit, pseudonymize
@@ -85,3 +88,18 @@ def test_rate_limit_uses_a_rolling_window_and_returns_retry_after():
     )
     assert allowed.allowed
     assert allowed.retry_after_seconds == 0
+
+
+def test_logout_ticket_is_target_bound_and_has_contract_encoding():
+    session_id = uuid4()
+    key = bytes([9]) * 32
+    ticket = create_logout_ticket(session_id, key)
+
+    assert len(ticket) == 64
+    assert decode_base64url(ticket, 48) is not None
+    assert verify_logout_ticket(ticket, key) == session_id
+    assert verify_logout_ticket(ticket, bytes([8]) * 32) is None
+    assert (
+        verify_logout_ticket(ticket[:-1] + ("A" if ticket[-1] != "A" else "B"), key)
+        is None
+    )

@@ -1,5 +1,10 @@
 """Cryptographic primitives for token verifiers and wrapped local owner keys."""
 
+import base64
+import binascii
+import hashlib
+import hmac
+import re
 import secrets
 import struct
 from dataclasses import dataclass
@@ -69,3 +74,47 @@ def unwrap_owner_key(
     if len(raw_key) != 32:
         raise CryptoEnvelopeError("wrapped_key_invalid")
     return raw_key
+
+
+def encode_base64url(value: bytes) -> str:
+    if not isinstance(value, bytes):
+        raise ValueError("token_invalid")
+    return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+
+
+def decode_base64url(value: str | None, expected_bytes: int) -> bytes | None:
+    if not isinstance(value, str) or expected_bytes <= 0:
+        return None
+    expected_chars = (expected_bytes * 8 + 5) // 6
+    if not re.fullmatch(rf"[A-Za-z0-9_-]{{{expected_chars}}}", value):
+        return None
+    try:
+        decoded = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+    except (ValueError, binascii.Error):
+        return None
+    if len(decoded) != expected_bytes or encode_base64url(decoded) != value:
+        return None
+    return decoded
+
+
+def create_logout_ticket(session_id: UUID, key: bytes) -> str:
+    if not isinstance(session_id, UUID) or not isinstance(key, bytes) or len(key) != 32:
+        raise CryptoEnvelopeError("logout_ticket_invalid")
+    identifier = session_id.bytes
+    signature = hmac.new(key, b"logout-v1" + identifier, hashlib.sha256).digest()
+    return encode_base64url(identifier + signature)
+
+
+def verify_logout_ticket(ticket: str | None, key: bytes) -> UUID | None:
+    if not isinstance(key, bytes) or len(key) != 32:
+        return None
+    payload = decode_base64url(ticket, 48)
+    if payload is None:
+        return None
+    identifier, supplied_signature = payload[:16], payload[16:]
+    expected_signature = hmac.new(
+        key, b"logout-v1" + identifier, hashlib.sha256
+    ).digest()
+    if not hmac.compare_digest(supplied_signature, expected_signature):
+        return None
+    return UUID(bytes=identifier)

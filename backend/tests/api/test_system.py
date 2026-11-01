@@ -65,7 +65,12 @@ def test_health_unavailable_is_problem(system_client, contract_validator, monkey
 def test_development_openapi_contains_valid_system_routes(system_client):
     response = system_client.get("/api/v1/openapi.json")
     assert response.status_code == 200
-    assert set(response.json()["paths"]) == {"/api/v1/health", "/api/v1/version"}
+    assert set(response.json()["paths"]) == {
+        "/api/v1/health",
+        "/api/v1/version",
+        "/api/v1/auth/session",
+        "/api/v1/auth/logout",
+    }
 
 
 def test_production_hides_openapi(settings_factory):
