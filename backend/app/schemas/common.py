@@ -43,9 +43,5 @@ DeviceSequence = Annotated[
 OrderKey = Annotated[
     str,
     Field(strict=True),
-    AfterValidator(
-        partial(
-            validate_decimal, minimum=-9223372036854775808, maximum=9223372036854775807
-        )
-    ),
+    AfterValidator(partial(validate_decimal, minimum=-9223372036854775808, maximum=9223372036854775807)),
 ]

@@ -39,9 +39,7 @@ class Session(Base):
     )
 
     id: Mapped[UUID] = mapped_column(UUIDBytes(), primary_key=True, autoincrement=False)
-    kind: Mapped[str] = mapped_column(
-        VARCHAR(16, charset="ascii", collation="ascii_bin")
-    )
+    kind: Mapped[str] = mapped_column(VARCHAR(16, charset="ascii", collation="ascii_bin"))
     token_hash: Mapped[bytes] = mapped_column(BINARY(32))
     owner_id: Mapped[UUID | None] = mapped_column(
         UUIDBytes(),
@@ -49,12 +47,8 @@ class Session(Base):
     )
     csrf_token: Mapped[bytes] = mapped_column(BINARY(32))
     auth_version: Mapped[int | None] = mapped_column(BIGINT(unsigned=True))
-    password_authenticated_at: Mapped[datetime | None] = mapped_column(
-        UTCMilliseconds()
-    )
-    remember_me: Mapped[bool] = mapped_column(
-        TINYINT(unsigned=True), server_default=text("0")
-    )
+    password_authenticated_at: Mapped[datetime | None] = mapped_column(UTCMilliseconds())
+    remember_me: Mapped[bool] = mapped_column(TINYINT(unsigned=True), server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(UTCMilliseconds())
     last_activity_at: Mapped[datetime] = mapped_column(UTCMilliseconds())
     idle_expires_at: Mapped[datetime] = mapped_column(UTCMilliseconds())
@@ -66,29 +60,21 @@ class EmailToken(Base):
     __tablename__ = "email_tokens"
     __table_args__ = (
         UniqueConstraint("token_hash", name="uq_email_tokens_token_hash"),
-        CheckConstraint(
-            "purpose IN ('verify_email', 'password_reset')", name="purpose_valid"
-        ),
+        CheckConstraint("purpose IN ('verify_email', 'password_reset')", name="purpose_valid"),
         CheckConstraint("expires_at > created_at", name="expiry_order"),
-        CheckConstraint(
-            "consumed_at IS NULL OR consumed_at >= created_at", name="consume_order"
-        ),
+        CheckConstraint("consumed_at IS NULL OR consumed_at >= created_at", name="consume_order"),
         Index("ix_email_tokens_email_purpose", "email_canonical", "purpose"),
         Index("ix_email_tokens_owner_purpose", "owner_id", "purpose"),
         {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"},
     )
 
     id: Mapped[UUID] = mapped_column(UUIDBytes(), primary_key=True, autoincrement=False)
-    purpose: Mapped[str] = mapped_column(
-        VARCHAR(24, charset="ascii", collation="ascii_bin")
-    )
+    purpose: Mapped[str] = mapped_column(VARCHAR(24, charset="ascii", collation="ascii_bin"))
     token_hash: Mapped[bytes] = mapped_column(BINARY(32))
     email_canonical: Mapped[bytes] = mapped_column(VARBINARY(254))
     owner_id: Mapped[UUID | None] = mapped_column(
         UUIDBytes(),
-        ForeignKey(
-            "users.id", name="fk_email_tokens_owner_id_users", ondelete="RESTRICT"
-        ),
+        ForeignKey("users.id", name="fk_email_tokens_owner_id_users", ondelete="RESTRICT"),
     )
     created_at: Mapped[datetime] = mapped_column(UTCMilliseconds())
     expires_at: Mapped[datetime] = mapped_column(UTCMilliseconds())
@@ -107,9 +93,7 @@ class OwnerLocalKey(Base):
 
     owner_id: Mapped[UUID] = mapped_column(
         UUIDBytes(),
-        ForeignKey(
-            "users.id", name="fk_owner_local_keys_owner_id_users", ondelete="RESTRICT"
-        ),
+        ForeignKey("users.id", name="fk_owner_local_keys_owner_id_users", ondelete="RESTRICT"),
         primary_key=True,
         autoincrement=False,
     )
@@ -132,17 +116,11 @@ class AuthRateLimit(Base):
         {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"},
     )
 
-    action: Mapped[str] = mapped_column(
-        VARCHAR(32, charset="ascii", collation="ascii_bin"), primary_key=True
-    )
-    subject_kind: Mapped[str] = mapped_column(
-        VARCHAR(16, charset="ascii", collation="ascii_bin"), primary_key=True
-    )
+    action: Mapped[str] = mapped_column(VARCHAR(32, charset="ascii", collation="ascii_bin"), primary_key=True)
+    subject_kind: Mapped[str] = mapped_column(VARCHAR(16, charset="ascii", collation="ascii_bin"), primary_key=True)
     subject_digest: Mapped[bytes] = mapped_column(BINARY(32), primary_key=True)
     window_seconds: Mapped[int] = mapped_column(BIGINT(unsigned=True))
-    request_count: Mapped[int] = mapped_column(
-        BIGINT(unsigned=True), server_default=text("0")
-    )
+    request_count: Mapped[int] = mapped_column(BIGINT(unsigned=True), server_default=text("0"))
     event_timestamps: Mapped[list[int]] = mapped_column(JSON)
     updated_at: Mapped[datetime] = mapped_column(UTCMilliseconds())
     expires_at: Mapped[datetime] = mapped_column(UTCMilliseconds())
@@ -164,10 +142,6 @@ class EmailDeliveryJob(Base):
     created_at: Mapped[datetime] = mapped_column(UTCMilliseconds())
     available_at: Mapped[datetime] = mapped_column(UTCMilliseconds())
     expires_at: Mapped[datetime] = mapped_column(UTCMilliseconds())
-    attempt_count: Mapped[int] = mapped_column(
-        TINYINT(unsigned=True), server_default=text("0")
-    )
+    attempt_count: Mapped[int] = mapped_column(TINYINT(unsigned=True), server_default=text("0"))
     sent_at: Mapped[datetime | None] = mapped_column(UTCMilliseconds())
-    last_error_code: Mapped[str | None] = mapped_column(
-        VARCHAR(64, charset="ascii", collation="ascii_bin")
-    )
+    last_error_code: Mapped[str | None] = mapped_column(VARCHAR(64, charset="ascii", collation="ascii_bin"))

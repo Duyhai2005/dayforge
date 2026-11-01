@@ -27,9 +27,7 @@ async def round_trip(settings, sql_type, value):
             await connection.run_sync(table.create)
             await connection.execute(insert(table).values(value=value))
             result = (await connection.execute(select(table.c.value))).scalar_one()
-            raw = (
-                await connection.execute(text(f"SELECT HEX(value) FROM {table.name}"))
-            ).scalar_one()
+            raw = (await connection.execute(text(f"SELECT HEX(value) FROM {table.name}"))).scalar_one()
             return result, raw
     finally:
         try:
@@ -43,9 +41,7 @@ async def round_trip_local_date(settings: Settings, value: str) -> str:
     return (await round_trip(settings, LocalDateSQL(), value))[0]
 
 
-@pytest.mark.parametrize(
-    "value", ["0001-01-01", "0999-12-31", "2000-02-29", "9999-12-31"]
-)
+@pytest.mark.parametrize("value", ["0001-01-01", "0999-12-31", "2000-02-29", "9999-12-31"])
 def test_local_date_round_trip_has_no_year_1000_floor(mysql_test_settings, value):
     assert asyncio.run(round_trip_local_date(mysql_test_settings, value)) == value
 

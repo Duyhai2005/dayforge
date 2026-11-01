@@ -68,9 +68,9 @@ class _PasswordWorkLimiter:
         self.waiters = 0
 
 
-_PASSWORD_LIMITERS: weakref.WeakKeyDictionary[
-    asyncio.AbstractEventLoop, _PasswordWorkLimiter
-] = weakref.WeakKeyDictionary()
+_PASSWORD_LIMITERS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, _PasswordWorkLimiter] = (
+    weakref.WeakKeyDictionary()
+)
 
 
 @dataclass(frozen=True)
@@ -121,9 +121,7 @@ def _bucket(
     )
 
 
-def _email_request_limits(
-    settings: Settings, email: bytes, peer_ip: str | None
-) -> tuple[_Limit, ...]:
+def _email_request_limits(settings: Settings, email: bytes, peer_ip: str | None) -> tuple[_Limit, ...]:
     peer = _ip_bytes(peer_ip)
     return (
         _bucket(settings, "email-cooldown", "email", email, 60, 1),
@@ -134,9 +132,7 @@ def _email_request_limits(
     )
 
 
-def _login_limits(
-    settings: Settings, email_subject: bytes, peer_ip: str | None
-) -> tuple[_Limit, ...]:
+def _login_limits(settings: Settings, email_subject: bytes, peer_ip: str | None) -> tuple[_Limit, ...]:
     return (
         _bucket(settings, "login-email", "email", email_subject, 900, 5),
         _bucket(settings, "login-ip", "ip", _ip_bytes(peer_ip), 900, 30),
@@ -156,14 +152,10 @@ def _token_limits(
     )
 
 
-def _session_limits(
-    settings: Settings, session_id: UUID | None, peer_ip: str | None
-) -> tuple[_Limit, ...]:
+def _session_limits(settings: Settings, session_id: UUID | None, peer_ip: str | None) -> tuple[_Limit, ...]:
     limits = [_bucket(settings, "session-ip", "ip", _ip_bytes(peer_ip), 60, 120)]
     if session_id is not None:
-        limits.append(
-            _bucket(settings, "session-device", "session", session_id.bytes, 60, 60)
-        )
+        limits.append(_bucket(settings, "session-device", "session", session_id.bytes, 60, 60))
     return tuple(limits)
 
 
@@ -211,8 +203,7 @@ async def _apply_limits_once(
                                     and_(
                                         AuthRateLimit.action == item.action,
                                         AuthRateLimit.subject_kind == item.subject_kind,
-                                        AuthRateLimit.subject_digest
-                                        == item.subject_digest,
+                                        AuthRateLimit.subject_digest == item.subject_digest,
                                     )
                                     for item in ordered
                                 )
@@ -229,14 +220,10 @@ async def _apply_limits_once(
                 .scalars()
                 .all()
             )
-            row_by_key = {
-                (row.action, row.subject_kind, row.subject_digest): row for row in rows
-            }
+            row_by_key = {(row.action, row.subject_kind, row.subject_digest): row for row in rows}
             decisions = []
             for limit in ordered:
-                row = row_by_key.get(
-                    (limit.action, limit.subject_kind, limit.subject_digest)
-                )
+                row = row_by_key.get((limit.action, limit.subject_kind, limit.subject_digest))
                 if row is None:
                     raise SQLAlchemyError("rate_limit_row_missing")
                 decision = evaluate_rolling_limit(
@@ -246,17 +233,11 @@ async def _apply_limits_once(
                     maximum=limit.maximum,
                 )
                 decisions.append((limit, row, decision))
-            denied = [
-                decision.retry_after_seconds
-                for _, _, decision in decisions
-                if not decision.allowed
-            ]
+            denied = [decision.retry_after_seconds for _, _, decision in decisions if not decision.allowed]
             if denied:
                 raise _rate_limit_error(max(denied))
             for limit, row, decision in decisions:
-                events = [
-                    int(event.timestamp() * 1000) for event in decision.retained_events
-                ]
+                events = [int(event.timestamp() * 1000) for event in decision.retained_events]
                 if record_event:
                     events.append(int(now.timestamp() * 1000))
                 row.window_seconds = limit.window_seconds
@@ -290,14 +271,10 @@ async def _apply_limits(
             arguments = getattr(original, "args", ())
             error_code = arguments[0] if arguments else None
             if error_code not in {1205, 1213} or attempt == 2:
-                raise ProblemHTTPException(
-                    status_code=503, code="service_unavailable"
-                ) from None
+                raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
             await asyncio.sleep(0.01 * (attempt + 1))
         except SQLAlchemyError:
-            raise ProblemHTTPException(
-                status_code=503, code="service_unavailable"
-            ) from None
+            raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
 
 
 def _canonical_or_problem(value: str) -> CanonicalEmail:
@@ -365,9 +342,7 @@ class AuthService:
         self.settings = settings
         self.owner_email = canonicalize_email(settings.owner_email)
 
-    async def session_request_limit(
-        self, context: SessionContext | None, peer_ip: str | None
-    ) -> None:
+    async def session_request_limit(self, context: SessionContext | None, peer_ip: str | None) -> None:
         session_id = None if context is None else context.session.id
         await _apply_limits(
             self.database,
@@ -376,9 +351,7 @@ class AuthService:
             record_event=True,
         )
 
-    async def request_email(
-        self, email: str, purpose: str, peer_ip: str | None
-    ) -> None:
+    async def request_email(self, email: str, purpose: str, peer_ip: str | None) -> None:
         canonical = _canonical_or_problem(email)
         if purpose not in {"verify_email", "password_reset"}:
             raise ValueError("email_purpose_invalid")
@@ -394,9 +367,7 @@ class AuthService:
                 async with db.begin():
                     user = (
                         await db.execute(
-                            select(User)
-                            .where(User.email_canonical == canonical.canonical)
-                            .with_for_update()
+                            select(User).where(User.email_canonical == canonical.canonical).with_for_update()
                         )
                     ).scalar_one_or_none()
                     eligible = canonical.canonical == self.owner_email.canonical
@@ -406,11 +377,7 @@ class AuthService:
                         eligible = eligible and user is None
                         ttl = VERIFY_EMAIL_TOKEN_TTL
                     else:
-                        eligible = (
-                            eligible
-                            and user is not None
-                            and user.email_verified_at is not None
-                        )
+                        eligible = eligible and user is not None and user.email_verified_at is not None
                         ttl = PASSWORD_RESET_TOKEN_TTL
                         if user is not None:
                             recipient = user.email_delivery
@@ -440,13 +407,9 @@ class AuthService:
                         db.add(record)
                         db.add(job)
         except SQLAlchemyError:
-            raise ProblemHTTPException(
-                status_code=503, code="service_unavailable"
-            ) from None
+            raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
 
-    async def confirm_email(
-        self, token: str, password: str, peer_ip: str | None
-    ) -> None:
+    async def confirm_email(self, token: str, password: str, peer_ip: str | None) -> None:
         raw_token, digest = _email_token_digest(token)
         now = utc_now()
         await _apply_limits(
@@ -459,37 +422,23 @@ class AuthService:
             async with self.database.sessions() as db:
                 async with db.begin():
                     record = (
-                        await db.execute(
-                            select(EmailToken)
-                            .where(EmailToken.token_hash == digest)
-                            .with_for_update()
-                        )
+                        await db.execute(select(EmailToken).where(EmailToken.token_hash == digest).with_for_update())
                     ).scalar_one_or_none()
                     if record is None or record.purpose != "verify_email":
                         raise _token_error("email_token_invalid")
-                    if (
-                        record.consumed_at is not None
-                        or record.invalidated_at is not None
-                    ):
+                    if record.consumed_at is not None or record.invalidated_at is not None:
                         raise _token_error("email_token_used")
                     if now >= record.expires_at:
                         raise _token_error("email_token_expired")
-                    if (
-                        record.owner_id is not None
-                        or record.email_canonical != self.owner_email.canonical
-                    ):
+                    if record.owner_id is not None or record.email_canonical != self.owner_email.canonical:
                         raise _token_error("email_token_invalid")
                     existing_owner = (
-                        await db.execute(
-                            select(User).where(User.owner_slot == 1).with_for_update()
-                        )
+                        await db.execute(select(User).where(User.owner_slot == 1).with_for_update())
                     ).scalar_one_or_none()
                     if existing_owner is not None:
                         raise _token_error("email_token_used")
                     try:
-                        normalized = validate_new_password(
-                            password, self.owner_email.delivery
-                        )
+                        normalized = validate_new_password(password, self.owner_email.delivery)
                     except PasswordPolicyError as error:
                         raise _password_problem(error) from None
                     password_hash = await _password_work(hash_password, normalized)
@@ -545,13 +494,9 @@ class AuthService:
         except IntegrityError:
             raise _token_error("email_token_used") from None
         except CryptoEnvelopeError:
-            raise ProblemHTTPException(
-                status_code=503, code="service_unavailable"
-            ) from None
+            raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
         except SQLAlchemyError:
-            raise ProblemHTTPException(
-                status_code=503, code="service_unavailable"
-            ) from None
+            raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
         finally:
             del raw_token
 
@@ -577,40 +522,21 @@ class AuthService:
                 user = None
                 if canonical is not None:
                     user = (
-                        await db.execute(
-                            select(User).where(
-                                User.email_canonical == canonical.canonical
-                            )
-                        )
+                        await db.execute(select(User).where(User.email_canonical == canonical.canonical))
                     ).scalar_one_or_none()
         except SQLAlchemyError:
-            raise ProblemHTTPException(
-                status_code=503, code="service_unavailable"
-            ) from None
+            raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
         password_hash = (
-            user.password_hash
-            if user is not None and user.email_verified_at is not None
-            else DUMMY_PASSWORD_HASH
+            user.password_hash if user is not None and user.email_verified_at is not None else DUMMY_PASSWORD_HASH
         )
         valid = await _password_work(verify_password, password, password_hash)
-        allowed_owner = (
-            canonical is not None and canonical.canonical == self.owner_email.canonical
-        )
-        if (
-            not valid
-            or user is None
-            or user.email_verified_at is None
-            or not allowed_owner
-        ):
+        allowed_owner = canonical is not None and canonical.canonical == self.owner_email.canonical
+        if not valid or user is None or user.email_verified_at is None or not allowed_owner:
             await _apply_limits(self.database, limits, now, record_event=True)
             raise ProblemHTTPException(status_code=401, code="invalid_credentials")
-        return await create_authenticated_session(
-            self.database, user, remember_me, previous, now=now
-        )
+        return await create_authenticated_session(self.database, user, remember_me, previous, now=now)
 
-    async def reset_password(
-        self, token: str, password: str, peer_ip: str | None
-    ) -> None:
+    async def reset_password(self, token: str, password: str, peer_ip: str | None) -> None:
         _raw_token, digest = _email_token_digest(token)
         now = utc_now()
         await _apply_limits(
@@ -623,18 +549,11 @@ class AuthService:
             async with self.database.sessions() as db:
                 async with db.begin():
                     record = (
-                        await db.execute(
-                            select(EmailToken)
-                            .where(EmailToken.token_hash == digest)
-                            .with_for_update()
-                        )
+                        await db.execute(select(EmailToken).where(EmailToken.token_hash == digest).with_for_update())
                     ).scalar_one_or_none()
                     if record is None or record.purpose != "password_reset":
                         raise _token_error("email_token_invalid")
-                    if (
-                        record.consumed_at is not None
-                        or record.invalidated_at is not None
-                    ):
+                    if record.consumed_at is not None or record.invalidated_at is not None:
                         raise _token_error("email_token_used")
                     if now >= record.expires_at:
                         raise _token_error("email_token_expired")
@@ -648,9 +567,7 @@ class AuthService:
                     ):
                         raise _token_error("email_token_invalid")
                     try:
-                        normalized = validate_new_password(
-                            password, user.email_delivery
-                        )
+                        normalized = validate_new_password(password, user.email_delivery)
                     except PasswordPolicyError as error:
                         raise _password_problem(error) from None
                     password_hash = await _password_work(hash_password, normalized)
@@ -692,13 +609,9 @@ class AuthService:
         except IntegrityError:
             raise _token_error("email_token_used") from None
         except SQLAlchemyError:
-            raise ProblemHTTPException(
-                status_code=503, code="service_unavailable"
-            ) from None
+            raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
 
-    async def local_key(
-        self, context: SessionContext, peer_ip: str | None
-    ) -> dict[str, str]:
+    async def local_key(self, context: SessionContext, peer_ip: str | None) -> dict[str, str]:
         now = utc_now()
         await _apply_limits(
             self.database,
@@ -708,22 +621,16 @@ class AuthService:
         )
         authenticated_at = context.session.password_authenticated_at
         if authenticated_at is None:
-            raise ProblemHTTPException(
-                status_code=403, code="reauthentication_required"
-            )
+            raise ProblemHTTPException(status_code=403, code="reauthentication_required")
         if authenticated_at.tzinfo is None:
             authenticated_at = authenticated_at.replace(tzinfo=timezone.utc)
         if authenticated_at > now or now - authenticated_at >= RECENT_PASSWORD_WINDOW:
-            raise ProblemHTTPException(
-                status_code=403, code="reauthentication_required"
-            )
+            raise ProblemHTTPException(status_code=403, code="reauthentication_required")
         try:
             async with self.database.sessions() as db:
                 record = await db.get(OwnerLocalKey, context.session.owner_id)
         except SQLAlchemyError:
-            raise ProblemHTTPException(
-                status_code=503, code="service_unavailable"
-            ) from None
+            raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
         if record is None:
             raise ProblemHTTPException(status_code=503, code="service_unavailable")
         try:
@@ -735,9 +642,7 @@ class AuthService:
                 self.settings.local_key_kek_version,
             )
         except CryptoEnvelopeError:
-            raise ProblemHTTPException(
-                status_code=503, code="service_unavailable"
-            ) from None
+            raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
         return {
             "owner_id": str(record.owner_id),
             "key_id": str(record.key_id),
@@ -751,9 +656,7 @@ async def validate_owner_email_binding(database, settings: Settings) -> None:
     configured = canonicalize_email(settings.owner_email).canonical
     try:
         async with database.sessions() as db:
-            owner = (
-                await db.execute(select(User).where(User.owner_slot == 1))
-            ).scalar_one_or_none()
+            owner = (await db.execute(select(User).where(User.owner_slot == 1))).scalar_one_or_none()
     except SQLAlchemyError:
         raise RuntimeError("auth_store_unavailable") from None
     if owner is not None and owner.email_canonical != configured:

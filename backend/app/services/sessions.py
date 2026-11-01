@@ -56,9 +56,7 @@ async def get_session_context(request: Request) -> SessionContext | None:
     try:
         async with database.sessions() as db:
             record = (
-                await db.execute(
-                    select(AuthSession).where(AuthSession.token_hash == token_hash)
-                )
+                await db.execute(select(AuthSession).where(AuthSession.token_hash == token_hash))
             ).scalar_one_or_none()
             if (
                 record is None
@@ -71,9 +69,7 @@ async def get_session_context(request: Request) -> SessionContext | None:
             if record.kind == "anonymous":
                 if record.owner_id is not None or record.auth_version is not None:
                     return None
-                return SessionContext(
-                    record, None, record.csrf_token, encode_base64url(raw_token)
-                )
+                return SessionContext(record, None, record.csrf_token, encode_base64url(raw_token))
             if record.kind != "authenticated" or record.owner_id is None:
                 return None
             user = await db.get(User, record.owner_id)
@@ -84,13 +80,9 @@ async def get_session_context(request: Request) -> SessionContext | None:
                 or record.password_authenticated_at is None
             ):
                 return None
-            return SessionContext(
-                record, user, record.csrf_token, encode_base64url(raw_token)
-            )
+            return SessionContext(record, user, record.csrf_token, encode_base64url(raw_token))
     except SQLAlchemyError:
-        raise ProblemHTTPException(
-            status_code=503, code="service_unavailable"
-        ) from None
+        raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
 
 
 async def create_anonymous_session(request: Request) -> SessionContext:
@@ -119,15 +111,11 @@ async def create_anonymous_session(request: Request) -> SessionContext:
             async with db.begin():
                 db.add(record)
     except SQLAlchemyError:
-        raise ProblemHTTPException(
-            status_code=503, code="service_unavailable"
-        ) from None
+        raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
     return SessionContext(record, None, csrf_token, encode_base64url(raw_token))
 
 
-async def touch_session(
-    request: Request, context: SessionContext
-) -> SessionContext | None:
+async def touch_session(request: Request, context: SessionContext) -> SessionContext | None:
     if not context.authenticated or context.user is None:
         return context
     now = utc_now()
@@ -136,11 +124,7 @@ async def touch_session(
         async with database.sessions() as db:
             async with db.begin():
                 record = (
-                    await db.execute(
-                        select(AuthSession)
-                        .where(AuthSession.id == context.session.id)
-                        .with_for_update()
-                    )
+                    await db.execute(select(AuthSession).where(AuthSession.id == context.session.id).with_for_update())
                 ).scalar_one_or_none()
                 if (
                     record is None
@@ -150,26 +134,14 @@ async def touch_session(
                 ):
                     return None
                 user = await db.get(User, record.owner_id)
-                if (
-                    user is None
-                    or user.email_verified_at is None
-                    or record.auth_version != user.auth_version
-                ):
+                if user is None or user.email_verified_at is None or record.auth_version != user.auth_version:
                     return None
-                idle_duration = (
-                    SESSION_IDLE_REMEMBERED
-                    if record.remember_me
-                    else SESSION_IDLE_STANDARD
-                )
+                idle_duration = SESSION_IDLE_REMEMBERED if record.remember_me else SESSION_IDLE_STANDARD
                 record.last_activity_at = now
-                record.idle_expires_at = min(
-                    now + idle_duration, record.absolute_expires_at
-                )
+                record.idle_expires_at = min(now + idle_duration, record.absolute_expires_at)
         return SessionContext(record, user, record.csrf_token, context.cookie_token)
     except SQLAlchemyError:
-        raise ProblemHTTPException(
-            status_code=503, code="service_unavailable"
-        ) from None
+        raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
 
 
 def set_session_cookie(response: Response, context: SessionContext) -> None:
@@ -212,9 +184,7 @@ async def create_authenticated_session(
     raw_token = secrets.token_bytes(SESSION_TOKEN_BYTES)
     csrf_token = secrets.token_bytes(CSRF_TOKEN_BYTES)
     idle_duration = SESSION_IDLE_REMEMBERED if remember_me else SESSION_IDLE_STANDARD
-    absolute_duration = (
-        SESSION_ABSOLUTE_REMEMBERED if remember_me else SESSION_ABSOLUTE_STANDARD
-    )
+    absolute_duration = SESSION_ABSOLUTE_REMEMBERED if remember_me else SESSION_ABSOLUTE_STANDARD
     absolute_expires_at = instant + absolute_duration
     record = AuthSession(
         id=uuid4(),
@@ -245,9 +215,7 @@ async def create_authenticated_session(
                     )
                 db.add(record)
     except SQLAlchemyError:
-        raise ProblemHTTPException(
-            status_code=503, code="service_unavailable"
-        ) from None
+        raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
     return SessionContext(record, user, csrf_token, encode_base64url(raw_token))
 
 
@@ -259,15 +227,11 @@ async def revoke_session(request: Request, session_id: UUID) -> None:
             async with db.begin():
                 await db.execute(
                     update(AuthSession)
-                    .where(
-                        AuthSession.id == session_id, AuthSession.revoked_at.is_(None)
-                    )
+                    .where(AuthSession.id == session_id, AuthSession.revoked_at.is_(None))
                     .values(revoked_at=now)
                 )
     except SQLAlchemyError:
-        raise ProblemHTTPException(
-            status_code=503, code="service_unavailable"
-        ) from None
+        raise ProblemHTTPException(status_code=503, code="service_unavailable") from None
 
 
 async def require_verified_owner(

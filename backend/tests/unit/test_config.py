@@ -68,13 +68,9 @@ def test_development_origin_must_match_local_https(settings_factory):
         settings_factory(app_env="development", public_origin="https://example.com")
 
 
-@pytest.mark.parametrize(
-    "field", ["db_host", "db_name", "db_user", "db_password", "public_origin"]
-)
+@pytest.mark.parametrize("field", ["db_host", "db_name", "db_user", "db_password", "public_origin"])
 @pytest.mark.parametrize("value", ["", "   ", "__GENERATE_SECRET__"])
-def test_required_values_reject_empty_or_generation_markers(
-    settings_factory, field, value
-):
+def test_required_values_reject_empty_or_generation_markers(settings_factory, field, value):
     with pytest.raises(SettingsError):
         settings_factory(**{field: value})
 
@@ -162,9 +158,7 @@ def test_logout_ticket_previous_keys_are_optional_and_available_for_verification
         ("auth_email_outbox_key_b64", "__GENERATE_OUTBOX_KEY__"),
     ],
 )
-def test_auth_secret_keys_reject_malformed_values_without_echo(
-    settings_factory, field, value
-):
+def test_auth_secret_keys_reject_malformed_values_without_echo(settings_factory, field, value):
     with pytest.raises(SettingsError) as caught:
         settings_factory(**{field: value})
     assert field.upper() in str(caught.value)

@@ -52,9 +52,7 @@ def auth_client(auth_database):
             "ignore",
             message="Using `httpx` with `starlette.testclient` is deprecated.*",
         )
-        with TestClient(
-            create_app(auth_database), base_url=auth_database.public_origin
-        ) as client:
+        with TestClient(create_app(auth_database), base_url=auth_database.public_origin) as client:
             yield client
 
 
@@ -88,16 +86,12 @@ def insert_owner_and_sessions(settings, session_specs):
             owner_id=owner_id,
             csrf_token=csrf,
             auth_version=values.pop("auth_version", 1),
-            password_authenticated_at=values.pop(
-                "password_authenticated_at", now - timedelta(minutes=1)
-            ),
+            password_authenticated_at=values.pop("password_authenticated_at", now - timedelta(minutes=1)),
             remember_me=values.pop("remember_me", False),
             created_at=values.pop("created_at", now - timedelta(minutes=2)),
             last_activity_at=values.pop("last_activity_at", now - timedelta(minutes=2)),
             idle_expires_at=values.pop("idle_expires_at", now + timedelta(minutes=30)),
-            absolute_expires_at=values.pop(
-                "absolute_expires_at", now + timedelta(hours=12)
-            ),
+            absolute_expires_at=values.pop("absolute_expires_at", now + timedelta(hours=12)),
             revoked_at=values.pop("revoked_at", None),
         )
         assert not values
@@ -122,15 +116,7 @@ async def database_sessions(settings, identifiers):
     database = create_database(settings)
     try:
         async with database.sessions() as db:
-            rows = (
-                (
-                    await db.execute(
-                        select(AuthSession).where(AuthSession.id.in_(identifiers))
-                    )
-                )
-                .scalars()
-                .all()
-            )
+            rows = (await db.execute(select(AuthSession).where(AuthSession.id.in_(identifiers)))).scalars().all()
             return {row.id: row for row in rows}
     finally:
         await database.engine.dispose()
@@ -159,9 +145,7 @@ def test_anonymous_session_shares_csrf_across_tabs(auth_database, auth_client):
     assert first.headers["pragma"] == "no-cache"
 
 
-def test_authenticated_session_enforces_idle_absolute_and_auth_version(
-    auth_database, auth_client, monkeypatch
-):
+def test_authenticated_session_enforces_idle_absolute_and_auth_version(auth_database, auth_client, monkeypatch):
     from app.services import sessions
 
     now = datetime(2026, 11, 1, 12, 0, tzinfo=timezone.utc)
@@ -204,9 +188,7 @@ def test_authenticated_session_enforces_idle_absolute_and_auth_version(
     assert stored.password_authenticated_at == now - timedelta(minutes=1)
 
 
-def test_logout_ticket_revokes_only_target_session(
-    auth_database, auth_client, monkeypatch
-):
+def test_logout_ticket_revokes_only_target_session(auth_database, auth_client, monkeypatch):
     from app.services import sessions
 
     now = datetime(2026, 11, 1, 12, 0, tzinfo=timezone.utc)
@@ -218,9 +200,7 @@ def test_logout_ticket_revokes_only_target_session(
         "/api/v1/auth/session",
         headers={"Cookie": f"{COOKIE_NAME}={encoded_token(current_token)}"},
     ).json()
-    ticket = create_logout_ticket(
-        target.id, auth_database.secret_key("logout_ticket_key_b64")
-    )
+    ticket = create_logout_ticket(target.id, auth_database.secret_key("logout_ticket_key_b64"))
     response = auth_client.post(
         "/api/v1/auth/logout",
         json={"logout_ticket": ticket},
@@ -252,14 +232,10 @@ def test_logout_ticket_survives_key_rotation_until_session_expiry(
         "/api/v1/auth/session",
         headers={"Cookie": f"{COOKIE_NAME}={encoded_token(current_token)}"},
     ).json()
-    ticket = create_logout_ticket(
-        target.id, auth_database.secret_key("logout_ticket_key_b64")
-    )
+    ticket = create_logout_ticket(target.id, auth_database.secret_key("logout_ticket_key_b64"))
     rotated_settings = settings_factory(
         logout_ticket_key_b64=encoded_token(bytes([23]) * 32),
-        logout_ticket_previous_keys_b64=(
-            auth_database.logout_ticket_key_b64.get_secret_value()
-        ),
+        logout_ticket_previous_keys_b64=(auth_database.logout_ticket_key_b64.get_secret_value()),
     )
     monkeypatch.setattr(auth_client.app.state, "settings", rotated_settings)
 

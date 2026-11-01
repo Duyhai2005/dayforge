@@ -51,8 +51,7 @@ _PASSWORD_HASHER = PasswordHasher(
     type=Type.ID,
 )
 DUMMY_PASSWORD_HASH = (
-    "$argon2id$v=19$m=65536,t=3,p=1$kBvIFFyeBVP14QrH1obrFA$"
-    "9wchBP85PZYgqtWeVw6VrDNZOdGCOYXGFj1UWAPYyKE"
+    "$argon2id$v=19$m=65536,t=3,p=1$kBvIFFyeBVP14QrH1obrFA$" "9wchBP85PZYgqtWeVw6VrDNZOdGCOYXGFj1UWAPYyKE"
 )
 
 
@@ -86,12 +85,10 @@ def validate_new_password(password: str, email: str) -> str:
         raise PasswordPolicyError("password_blocklisted")
     try:
         canonical_email = canonicalize_email(email).canonical.decode("utf-8")
-    except (EmailAddressError, UnicodeDecodeError):
+    except EmailAddressError, UnicodeDecodeError:
         raise PasswordPolicyError("password_policy_violation") from None
     local_part = canonical_email.rsplit("@", 1)[0].casefold()
-    if canonical_email.casefold() in folded or (
-        len(local_part) >= 4 and local_part in folded
-    ):
+    if canonical_email.casefold() in folded or (len(local_part) >= 4 and local_part in folded):
         raise PasswordPolicyError("password_blocklisted")
     return normalized
 

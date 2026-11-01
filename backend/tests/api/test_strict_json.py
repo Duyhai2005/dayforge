@@ -9,9 +9,7 @@ from pydantic import Field, StrictBool, StrictInt
 from starlette.responses import Response
 
 with warnings.catch_warnings():
-    warnings.filterwarnings(
-        "ignore", message="Using `httpx` with `starlette.testclient` is deprecated.*"
-    )
+    warnings.filterwarnings("ignore", message="Using `httpx` with `starlette.testclient` is deprecated.*")
     from fastapi.testclient import TestClient
 
 from app.main import create_app
@@ -38,9 +36,7 @@ def strict_app(settings_factory):
         return Response(await request.body(), media_type="application/json")
 
     for path in ("/api/v1/_test/echo", "/api/v1/auth/_test/echo", "/outside"):
-        application.add_api_route(
-            path, echo, methods=["POST", "PUT", "PATCH", "GET", "HEAD"]
-        )
+        application.add_api_route(path, echo, methods=["POST", "PUT", "PATCH", "GET", "HEAD"])
     return application
 
 
@@ -66,9 +62,7 @@ def strict_client(strict_app):
         b'{"private":"test-only-private-json",}',
     ],
 )
-def test_invalid_json_never_reaches_handler(
-    strict_client, strict_app, caplog, capsys, raw
-):
+def test_invalid_json_never_reaches_handler(strict_client, strict_app, caplog, capsys, raw):
     response = strict_client.post(
         "/api/v1/_test/echo?token=test-only-query",
         content=raw,
@@ -120,9 +114,7 @@ def test_wrong_content_type_is_rejected(strict_client, strict_app, content_type)
     ],
 )
 @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH"])
-def test_parser_preserves_original_body_bytes(
-    strict_client, strict_app, content_type, method
-):
+def test_parser_preserves_original_body_bytes(strict_client, strict_app, content_type, method):
     raw = ' { "z": "é  mật khẩu", "a": [1, true] } \n'.encode()
     response = strict_client.request(
         method,
@@ -135,9 +127,7 @@ def test_parser_preserves_original_body_bytes(
     assert strict_app.state.probe_calls == 1
 
 
-def test_field_error_pointer_escapes_known_alias_only(
-    strict_client, strict_app, caplog, capsys
-):
+def test_field_error_pointer_escapes_known_alias_only(strict_client, strict_app, caplog, capsys):
     response = strict_client.post(
         "/api/v1/_test/model",
         json={
@@ -191,14 +181,10 @@ def _stream(application, path, messages, headers=(), method="POST"):
     return asyncio.run(check())
 
 
-@pytest.mark.parametrize(
-    "path,limit", [("/api/v1/auth/_test/echo", 16384), ("/api/v1/_test/echo", 8388608)]
-)
+@pytest.mark.parametrize("path,limit", [("/api/v1/auth/_test/echo", 16384), ("/api/v1/_test/echo", 8388608)])
 @pytest.mark.parametrize("length", [None, b"1", b"invalid", b"-1"])
 @pytest.mark.parametrize("extra", [0, 1])
-def test_streaming_body_limit_counts_actual_bytes(
-    strict_app, path, limit, length, extra
-):
+def test_streaming_body_limit_counts_actual_bytes(strict_app, path, limit, length, extra):
     raw = b'"' + ("é" * ((limit - 2) // 2)).encode() + b'"' + b" " * extra
     assert len(raw) == limit + extra
     messages = [
@@ -210,16 +196,8 @@ def test_streaming_body_limit_counts_actual_bytes(
         headers.append((b"content-length", length))
     sent, reads = _stream(strict_app, path, messages, headers)
     assert reads == 2
-    status = next(
-        message["status"]
-        for message in sent
-        if message["type"] == "http.response.start"
-    )
-    body = b"".join(
-        message.get("body", b"")
-        for message in sent
-        if message["type"] == "http.response.body"
-    )
+    status = next(message["status"] for message in sent if message["type"] == "http.response.start")
+    body = b"".join(message.get("body", b"") for message in sent if message["type"] == "http.response.body")
     if extra:
         assert status == 413
         assert json.loads(body)["code"] == "payload_too_large"

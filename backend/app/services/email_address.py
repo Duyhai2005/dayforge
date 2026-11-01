@@ -20,9 +20,7 @@ def canonicalize_email(value: str) -> CanonicalEmail:
     if not isinstance(value, str):
         raise EmailAddressError("email_invalid")
     delivery = value.strip(" \t\r\n\v\f")
-    if not delivery or any(
-        unicodedata.category(character) == "Cc" for character in delivery
-    ):
+    if not delivery or any(unicodedata.category(character) == "Cc" for character in delivery):
         raise EmailAddressError("email_invalid")
     try:
         parsed = validate_email(

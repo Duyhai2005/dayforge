@@ -26,9 +26,7 @@ _TOKEN_RETENTION = timedelta(days=7)
 _RATE_LIMIT_RETENTION = timedelta(hours=48)
 
 
-def encrypt_delivery_payload(
-    job_id: UUID, payload: bytes, key: bytes, version: int = _OUTBOX_VERSION
-) -> bytes:
+def encrypt_delivery_payload(job_id: UUID, payload: bytes, key: bytes, version: int = _OUTBOX_VERSION) -> bytes:
     if not isinstance(job_id, UUID) or not isinstance(payload, bytes):
         raise ValueError("email_payload_invalid")
     if not isinstance(key, bytes) or len(key) != 32 or version != _OUTBOX_VERSION:
@@ -38,9 +36,7 @@ def encrypt_delivery_payload(
     return nonce + AESGCM(key).encrypt(nonce, payload, aad)
 
 
-def decrypt_delivery_payload(
-    job_id: UUID, ciphertext: bytes, key: bytes, version: int
-) -> dict[str, str]:
+def decrypt_delivery_payload(job_id: UUID, ciphertext: bytes, key: bytes, version: int) -> dict[str, str]:
     if (
         not isinstance(job_id, UUID)
         or not isinstance(ciphertext, bytes)
@@ -55,7 +51,7 @@ def decrypt_delivery_payload(
     try:
         plaintext = AESGCM(key).decrypt(nonce, body, aad)
         value = json.loads(plaintext.decode("utf-8"))
-    except (InvalidTag, UnicodeDecodeError, ValueError, json.JSONDecodeError):
+    except InvalidTag, UnicodeDecodeError, ValueError, json.JSONDecodeError:
         raise ValueError("email_payload_invalid") from None
     if (
         not isinstance(value, dict)
@@ -83,9 +79,7 @@ def make_delivery_job(
     values = {"recipient": recipient, "kind": kind}
     if token is not None:
         values["token"] = token
-    plaintext = json.dumps(values, ensure_ascii=False, separators=(",", ":")).encode(
-        "utf-8"
-    )
+    plaintext = json.dumps(values, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     version = _OUTBOX_VERSION
     return EmailDeliveryJob(
         id=job_id,
@@ -158,9 +152,7 @@ async def deliver_pending_jobs(
     delivered = 0
     async with database.sessions() as db:
         async with db.begin():
-            await db.execute(
-                delete(EmailDeliveryJob).where(EmailDeliveryJob.expires_at <= instant)
-            )
+            await db.execute(delete(EmailDeliveryJob).where(EmailDeliveryJob.expires_at <= instant))
             expired_before = instant - _TOKEN_RETENTION
             await db.execute(
                 delete(EmailToken).where(
@@ -175,9 +167,7 @@ async def deliver_pending_jobs(
                     )
                 )
             )
-            await db.execute(
-                delete(AuthRateLimit).where(AuthRateLimit.expires_at <= instant)
-            )
+            await db.execute(delete(AuthRateLimit).where(AuthRateLimit.expires_at <= instant))
             jobs = (
                 (
                     await db.execute(
@@ -214,9 +204,7 @@ async def deliver_pending_jobs(
                     job.attempt_count = min(255, int(job.attempt_count) + 1)
                     job.last_error_code = "smtp_delivery_failed"
                     delay = min(3600, 2 ** min(10, int(job.attempt_count)))
-                    job.available_at = min(
-                        instant + timedelta(seconds=delay), job.expires_at
-                    )
+                    job.available_at = min(instant + timedelta(seconds=delay), job.expires_at)
                 else:
                     await db.delete(job)
                     delivered += 1

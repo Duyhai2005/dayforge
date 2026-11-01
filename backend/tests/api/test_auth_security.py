@@ -31,9 +31,7 @@ def auth_security_client(settings_factory, monkeypatch):
             message="Using `httpx` with `starlette.testclient` is deprecated.*",
         )
         with TestClient(application, base_url="https://localhost:3000") as client:
-            client.headers["X-CSRF-Token"] = (
-                base64.urlsafe_b64encode(csrf).rstrip(b"=").decode("ascii")
-            )
+            client.headers["X-CSRF-Token"] = base64.urlsafe_b64encode(csrf).rstrip(b"=").decode("ascii")
             yield client
 
 
@@ -53,9 +51,7 @@ def test_auth_posts_reject_untrusted_origin_or_csrf(auth_security_client):
 
     for origin_headers, csrf in cases:
         headers = {**origin_headers, "X-CSRF-Token": csrf}
-        response = auth_security_client.post(
-            "/api/v1/auth/logout", json={}, headers=headers
-        )
+        response = auth_security_client.post("/api/v1/auth/logout", json={}, headers=headers)
         assert response.status_code == 403
         assert response.json()["code"] == "csrf_failed"
 

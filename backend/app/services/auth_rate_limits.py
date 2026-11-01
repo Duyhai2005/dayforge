@@ -21,12 +21,7 @@ def pseudonymize(key: bytes, action: str, subject_kind: str, subject: bytes) -> 
     if not action or not subject_kind or not isinstance(subject, bytes):
         raise ValueError("rate_limit_subject_invalid")
     message = (
-        b"dayforge-auth-rate-v1\0"
-        + action.encode("ascii")
-        + b"\0"
-        + subject_kind.encode("ascii")
-        + b"\0"
-        + subject
+        b"dayforge-auth-rate-v1\0" + action.encode("ascii") + b"\0" + subject_kind.encode("ascii") + b"\0" + subject
     )
     return hmac.new(key, message, hashlib.sha256).digest()
 
@@ -42,16 +37,13 @@ def evaluate_rolling_limit(
         sorted(
             event.astimezone(timezone.utc)
             for event in events
-            if event.tzinfo is not None
-            and cutoff < event.astimezone(timezone.utc) <= instant
+            if event.tzinfo is not None and cutoff < event.astimezone(timezone.utc) <= instant
         )
     )
     if len(retained) < maximum:
         return RateLimitDecision(True, 0, retained)
     retry = max(
         1,
-        math.ceil(
-            (retained[0] + timedelta(seconds=window_seconds) - instant).total_seconds()
-        ),
+        math.ceil((retained[0] + timedelta(seconds=window_seconds) - instant).total_seconds()),
     )
     return RateLimitDecision(False, retry, retained)

@@ -19,9 +19,7 @@ def test_local_date_accepts_full_contract_range(value):
     assert TypeAdapter(LocalDate).validate_python(value) == value
 
 
-@pytest.mark.parametrize(
-    "value", ["0000-01-01", "1900-02-29", "2026-2-01", "2026-04-31"]
-)
+@pytest.mark.parametrize("value", ["0000-01-01", "1900-02-29", "2026-2-01", "2026-04-31"])
 def test_local_date_rejects_invalid_gregorian_or_padding(value):
     with pytest.raises(ValidationError):
         TypeAdapter(LocalDate).validate_python(value)

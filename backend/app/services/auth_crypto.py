@@ -39,29 +39,18 @@ def _validate_key_parameters(raw_key: bytes, kek: bytes, kek_version: int) -> No
 def _aad(owner_id: UUID, key_id: UUID, kek_version: int) -> bytes:
     if not isinstance(owner_id, UUID) or not isinstance(key_id, UUID):
         raise CryptoEnvelopeError("key_identity_invalid")
-    return (
-        b"dayforge-owner-local-key-v1\0"
-        + owner_id.bytes
-        + key_id.bytes
-        + struct.pack(">I", kek_version)
-    )
+    return b"dayforge-owner-local-key-v1\0" + owner_id.bytes + key_id.bytes + struct.pack(">I", kek_version)
 
 
-def wrap_owner_key(
-    owner_id: UUID, key_id: UUID, raw_key: bytes, kek: bytes, kek_version: int
-) -> WrappedKey:
+def wrap_owner_key(owner_id: UUID, key_id: UUID, raw_key: bytes, kek: bytes, kek_version: int) -> WrappedKey:
     _validate_key_parameters(raw_key, kek, kek_version)
     aad = _aad(owner_id, key_id, kek_version)
     nonce = secrets.token_bytes(12)
     ciphertext = AESGCM(kek).encrypt(nonce, raw_key, aad)
-    return WrappedKey(
-        algorithm="A256GCM", wrapped_key=nonce + ciphertext, kek_version=kek_version
-    )
+    return WrappedKey(algorithm="A256GCM", wrapped_key=nonce + ciphertext, kek_version=kek_version)
 
 
-def unwrap_owner_key(
-    owner_id: UUID, key_id: UUID, wrapped: WrappedKey, kek: bytes, kek_version: int
-) -> bytes:
+def unwrap_owner_key(owner_id: UUID, key_id: UUID, wrapped: WrappedKey, kek: bytes, kek_version: int) -> bytes:
     if not isinstance(wrapped, WrappedKey) or wrapped.algorithm != "A256GCM":
         raise CryptoEnvelopeError("wrapped_key_invalid")
     _validate_key_parameters(bytes(32), kek, kek_version)
@@ -107,9 +96,7 @@ def create_logout_ticket(session_id: UUID, key: bytes) -> str:
     return encode_base64url(identifier + signature)
 
 
-def verify_logout_ticket(
-    ticket: str | None, key: bytes | Sequence[bytes]
-) -> UUID | None:
+def verify_logout_ticket(ticket: str | None, key: bytes | Sequence[bytes]) -> UUID | None:
     if isinstance(key, bytes):
         keys: tuple[bytes, ...] = (key,)
     elif isinstance(key, Sequence):
@@ -126,13 +113,8 @@ def verify_logout_ticket(
     identifier, supplied_signature = payload[:16], payload[16:]
     valid_signature = False
     for candidate in keys:
-        expected_signature = hmac.new(
-            candidate, b"logout-v1" + identifier, hashlib.sha256
-        ).digest()
-        valid_signature = (
-            hmac.compare_digest(supplied_signature, expected_signature)
-            | valid_signature
-        )
+        expected_signature = hmac.new(candidate, b"logout-v1" + identifier, hashlib.sha256).digest()
+        valid_signature = hmac.compare_digest(supplied_signature, expected_signature) | valid_signature
     if not valid_signature:
         return None
     return UUID(bytes=identifier)

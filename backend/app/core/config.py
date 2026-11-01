@@ -52,10 +52,7 @@ def _decode_key(value: str) -> bytes:
         decoded = base64.b64decode(value + "=", altchars=b"-_", validate=True)
     except binascii.Error, ValueError:
         raise ValueError("invalid_key") from None
-    if (
-        len(decoded) != 32
-        or base64.urlsafe_b64encode(decoded).rstrip(b"=").decode("ascii") != value
-    ):
+    if len(decoded) != 32 or base64.urlsafe_b64encode(decoded).rstrip(b"=").decode("ascii") != value:
         raise ValueError("invalid_key")
     return decoded
 
@@ -105,19 +102,13 @@ class Settings(BaseModel):
                 maximum = 65535
                 try:
                     valid = (type(value) is int and 1 <= value <= maximum) or (
-                        isinstance(value, str)
-                        and re.fullmatch(r"[0-9]+", value)
-                        and 1 <= int(value) <= maximum
+                        isinstance(value, str) and re.fullmatch(r"[0-9]+", value) and 1 <= int(value) <= maximum
                     )
                 except ValueError:
                     valid = False
                 if not valid:
                     invalid.add(field)
-            elif (
-                not isinstance(value, str)
-                or not value.strip()
-                or re.search(r"__GENERATE_.*?__", value)
-            ):
+            elif not isinstance(value, str) or not value.strip() or re.search(r"__GENERATE_.*?__", value):
                 invalid.add(field)
         if values.get("app_env") not in ("development", "test", "production"):
             invalid.add("app_env")
@@ -137,9 +128,7 @@ class Settings(BaseModel):
                     canonicalize_email(value)
                 except EmailAddressError:
                     invalid.add(field)
-        if "email_smtp_host" not in invalid and not re.fullmatch(
-            r"[A-Za-z0-9.-]+", values["email_smtp_host"]
-        ):
+        if "email_smtp_host" not in invalid and not re.fullmatch(r"[A-Za-z0-9.-]+", values["email_smtp_host"]):
             invalid.add("email_smtp_host")
         if "public_origin" not in invalid:
             try:
@@ -160,22 +149,15 @@ class Settings(BaseModel):
                 origin.port
             except ValueError:
                 invalid.add("public_origin")
-            if (
-                values.get("app_env") == "development"
-                and values["public_origin"] != "https://localhost:3000"
-            ):
+            if values.get("app_env") == "development" and values["public_origin"] != "https://localhost:3000":
                 invalid.add("public_origin")
         if invalid:
-            raise SettingsError(
-                ", ".join(ENV_FIELDS.get(field, field) for field in sorted(invalid))
-            )
+            raise SettingsError(", ".join(ENV_FIELDS.get(field, field) for field in sorted(invalid)))
         try:
             super().__init__(**values)
         except ValidationError as error:
             fields = {str(entry["loc"][0]) for entry in error.errors()}
-            raise SettingsError(
-                ", ".join(ENV_FIELDS.get(field, field) for field in sorted(fields))
-            ) from None
+            raise SettingsError(", ".join(ENV_FIELDS.get(field, field) for field in sorted(fields))) from None
 
     def secret_key(
         self,
@@ -192,19 +174,14 @@ class Settings(BaseModel):
         keys = [self.secret_key("logout_ticket_key_b64")]
         if self.logout_ticket_previous_keys_b64 is not None:
             keys.extend(
-                _decode_key(value)
-                for value in self.logout_ticket_previous_keys_b64.get_secret_value().split(
-                    ","
-                )
+                _decode_key(value) for value in self.logout_ticket_previous_keys_b64.get_secret_value().split(",")
             )
         return keys
 
 
 def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
     source = os.environ if environ is None else environ
-    return Settings(
-        **{field: source[env] for field, env in ENV_FIELDS.items() if env in source}
-    )
+    return Settings(**{field: source[env] for field, env in ENV_FIELDS.items() if env in source})
 
 
 def build_database_url(settings: Settings) -> URL:

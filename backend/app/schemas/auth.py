@@ -27,9 +27,7 @@ class SessionView(ContractModel):
     session: SessionInfo | None
     csrf_token: Annotated[str, Field(strict=True, pattern=r"^[A-Za-z0-9_-]{43}$")]
     server_time: WireTimestamp
-    logout_ticket: (
-        Annotated[str, Field(strict=True, pattern=r"^[A-Za-z0-9_-]{64}$")] | None
-    )
+    logout_ticket: Annotated[str, Field(strict=True, pattern=r"^[A-Za-z0-9_-]{64}$")] | None
 
 
 class LogoutRequest(ContractModel):
@@ -54,9 +52,7 @@ class EmailRequest(ContractModel):
 class EmailTokenPasswordRequest(ContractModel):
     token: Annotated[
         str,
-        Field(
-            strict=True, min_length=43, max_length=43, pattern=r"^[A-Za-z0-9_-]{43}$"
-        ),
+        Field(strict=True, min_length=43, max_length=43, pattern=r"^[A-Za-z0-9_-]{43}$"),
     ]
     password: Annotated[str, Field(strict=True, max_length=1024)]
 

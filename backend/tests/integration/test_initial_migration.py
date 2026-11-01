@@ -65,14 +65,10 @@ def test_upgrade_from_empty_and_repeat_upgrade(migrated):
         "auth_rate_limits",
         "email_delivery_jobs",
     }
-    assert asyncio.run(query(migrated, "SELECT version_num FROM alembic_version")) == [
-        ("0002_authentication",)
-    ]
+    assert asyncio.run(query(migrated, "SELECT version_num FROM alembic_version")) == [("0002_authentication",)]
     assert "0002_authentication" in alembic("current")
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM users")) == [(0,)]
-    assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM workspace_settings")) == [
-        (0,)
-    ]
+    assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM workspace_settings")) == [(0,)]
     alembic("upgrade", "head")
     assert {row[0] for row in schema(migrated)} == {
         "alembic_version",
@@ -85,9 +81,7 @@ def test_upgrade_from_empty_and_repeat_upgrade(migrated):
         "email_delivery_jobs",
     }
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM users")) == [(0,)]
-    assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM workspace_settings")) == [
-        (0,)
-    ]
+    assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM workspace_settings")) == [(0,)]
 
 
 def insert_owner(settings, owner, **overrides):
@@ -139,9 +133,7 @@ def test_workspace_requires_existing_owner(migrated):
                 {"id": uuid4().bytes},
             )
         )
-    assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM workspace_settings")) == [
-        (0,)
-    ]
+    assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM workspace_settings")) == [(0,)]
 
 
 @pytest.mark.parametrize(
@@ -160,9 +152,7 @@ def test_workspace_constants_are_enforced(migrated, user_factory, field, value):
             )
         )
     assert error.value.orig.args[0] == 3819
-    assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM workspace_settings")) == [
-        (0,)
-    ]
+    assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM workspace_settings")) == [(0,)]
 
 
 def test_workspace_defaults_and_owner_delete_restrict(migrated, user_factory):
@@ -182,9 +172,7 @@ def test_workspace_defaults_and_owner_delete_restrict(migrated, user_factory):
         )
     ) == [("Asia/Bangkok", 420, 1)]
     with pytest.raises(IntegrityError):
-        asyncio.run(
-            query(migrated, "DELETE FROM users WHERE id=:id", {"id": owner.id.bytes})
-        )
+        asyncio.run(query(migrated, "DELETE FROM users WHERE id=:id", {"id": owner.id.bytes}))
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM users")) == [(1,)]
 
 
@@ -201,9 +189,7 @@ def test_email_has_its_own_binary_unique_constraint(migrated):
                 )
                 email = next(c for c in columns if c["name"] == "email_canonical")
                 assert str(email["type"]) == "VARBINARY(254)"
-                index = next(
-                    i for i in indexes if i["name"] == "uq_users_email_canonical"
-                )
+                index = next(i for i in indexes if i["name"] == "uq_users_email_canonical")
                 assert index["unique"] and index["column_names"] == ["email_canonical"]
         finally:
             await database.engine.dispose()
@@ -248,6 +234,4 @@ def test_downgrade_upgrade_on_disposable_db(migrated):
         "email_delivery_jobs",
     }
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM users")) == [(0,)]
-    assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM workspace_settings")) == [
-        (0,)
-    ]
+    assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM workspace_settings")) == [(0,)]

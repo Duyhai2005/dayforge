@@ -15,9 +15,7 @@ def contract_validator():
     from jsonschema import Draft202012Validator, FormatChecker
 
     schema = json.loads(
-        (
-            Path(__file__).resolve().parents[2] / "docs/tasks/t03/contract.schema.json"
-        ).read_text(encoding="utf-8")
+        (Path(__file__).resolve().parents[2] / "docs/tasks/t03/contract.schema.json").read_text(encoding="utf-8")
     )
 
     def validator(definition):
@@ -55,10 +53,8 @@ def mysql_control(mysql_test_settings):
 
     def docker(*arguments, timeout=15):
         try:
-            result = subprocess.run(
-                ["docker", *arguments], capture_output=True, text=True, timeout=timeout
-            )
-        except (OSError, subprocess.TimeoutExpired):
+            result = subprocess.run(["docker", *arguments], capture_output=True, text=True, timeout=timeout)
+        except OSError, subprocess.TimeoutExpired:
             pytest.fail("Isolated MySQL control unavailable")
         code, output = result.returncode, result.stdout.strip()
         del result
@@ -102,9 +98,7 @@ def mysql_control(mysql_test_settings):
                         )
                         != initial_endpoint
                     ):
-                        pytest.fail(
-                            "Isolated MySQL published endpoint changed across container restart"
-                        )
+                        pytest.fail("Isolated MySQL published endpoint changed across container restart")
                     return
                 sleep(1)
             pytest.fail("Isolated MySQL did not become healthy")
@@ -150,19 +144,11 @@ def settings_factory():
             db_user="dayforge_test",
             db_password="test-only-password",
             owner_email="owner@example.test",
-            local_key_kek_b64=base64.urlsafe_b64encode(bytes(range(32)))
-            .decode("ascii")
-            .rstrip("="),
+            local_key_kek_b64=base64.urlsafe_b64encode(bytes(range(32))).decode("ascii").rstrip("="),
             local_key_kek_version=1,
-            logout_ticket_key_b64=base64.urlsafe_b64encode(bytes(range(1, 33)))
-            .decode("ascii")
-            .rstrip("="),
-            auth_rate_limit_key_b64=base64.urlsafe_b64encode(bytes(range(2, 34)))
-            .decode("ascii")
-            .rstrip("="),
-            auth_email_outbox_key_b64=base64.urlsafe_b64encode(bytes(range(3, 35)))
-            .decode("ascii")
-            .rstrip("="),
+            logout_ticket_key_b64=base64.urlsafe_b64encode(bytes(range(1, 33))).decode("ascii").rstrip("="),
+            auth_rate_limit_key_b64=base64.urlsafe_b64encode(bytes(range(2, 34))).decode("ascii").rstrip("="),
+            auth_email_outbox_key_b64=base64.urlsafe_b64encode(bytes(range(3, 35))).decode("ascii").rstrip("="),
             email_smtp_host="127.0.0.1",
             email_smtp_port=1025,
             email_from="dayforge@example.test",
@@ -289,9 +275,7 @@ def mysql_test_settings():
         or os.environ.get("APP_ENV") != "test"
         or os.environ.get("DB_USER") != "dayforge_test"
         or os.environ.get("DB_HOST") != "127.0.0.1"
-        or not re.fullmatch(
-            r"[0-9a-f]{12,64}", os.environ.get("DAYFORGE_TEST_CONTAINER_ID", "")
-        )
+        or not re.fullmatch(r"[0-9a-f]{12,64}", os.environ.get("DAYFORGE_TEST_CONTAINER_ID", ""))
         or os.environ.get("DAYFORGE_TEST_PROJECT") != f"dayforge-test-{run_id}"
     ):
         pytest.fail("MySQL test environment is not isolated")

@@ -59,9 +59,7 @@ def _view(context: SessionContext, request: Request) -> SessionView:
             email_verified_at=format_utc_timestamp(user.email_verified_at),
         )
         password_authenticated_at = (
-            None
-            if record.password_authenticated_at is None
-            else format_utc_timestamp(record.password_authenticated_at)
+            None if record.password_authenticated_at is None else format_utc_timestamp(record.password_authenticated_at)
         )
         session_info = SessionInfo(
             id=str(record.id),
@@ -116,9 +114,7 @@ async def logout(
     if body.logout_ticket is None:
         target_id = None if context is None else context.session.id
     else:
-        target_id = verify_logout_ticket(
-            body.logout_ticket, settings.logout_ticket_verification_keys()
-        )
+        target_id = verify_logout_ticket(body.logout_ticket, settings.logout_ticket_verification_keys())
     if target_id is not None:
         await revoke_session(request, target_id)
         if context is not None and context.session.id == target_id:
@@ -138,9 +134,7 @@ async def register(
     return AcceptedEmailRequest()
 
 
-@router.post(
-    "/verification/resend", status_code=202, response_model=AcceptedEmailRequest
-)
+@router.post("/verification/resend", status_code=202, response_model=AcceptedEmailRequest)
 async def resend_verification(
     body: EmailRequest,
     request: Request,

@@ -100,9 +100,7 @@ def upgrade() -> None:
             "purpose IN ('verify_email', 'password_reset')",
             name=op.f("ck_email_tokens_purpose_valid"),
         ),
-        sa.CheckConstraint(
-            "expires_at > created_at", name=op.f("ck_email_tokens_expiry_order")
-        ),
+        sa.CheckConstraint("expires_at > created_at", name=op.f("ck_email_tokens_expiry_order")),
         sa.CheckConstraint(
             "consumed_at IS NULL OR consumed_at >= created_at",
             name=op.f("ck_email_tokens_consume_order"),
@@ -138,12 +136,8 @@ def upgrade() -> None:
             ondelete="RESTRICT",
         ),
         sa.UniqueConstraint("key_id", name="uq_owner_local_keys_key_id"),
-        sa.CheckConstraint(
-            "algorithm = 'A256GCM'", name=op.f("ck_owner_local_keys_algorithm_a256gcm")
-        ),
-        sa.CheckConstraint(
-            "kek_version >= 1", name=op.f("ck_owner_local_keys_kek_version_positive")
-        ),
+        sa.CheckConstraint("algorithm = 'A256GCM'", name=op.f("ck_owner_local_keys_algorithm_a256gcm")),
+        sa.CheckConstraint("kek_version >= 1", name=op.f("ck_owner_local_keys_kek_version_positive")),
         mysql_engine="InnoDB",
         mysql_charset="utf8mb4",
     )
@@ -172,9 +166,7 @@ def upgrade() -> None:
         sa.Column("event_timestamps", mysql.JSON(), nullable=False),
         sa.Column("updated_at", mysql.DATETIME(fsp=3), nullable=False),
         sa.Column("expires_at", mysql.DATETIME(fsp=3), nullable=False),
-        sa.CheckConstraint(
-            "window_seconds > 0", name=op.f("ck_auth_rate_limits_window_positive")
-        ),
+        sa.CheckConstraint("window_seconds > 0", name=op.f("ck_auth_rate_limits_window_positive")),
         sa.CheckConstraint(
             "request_count >= 0",
             name=op.f("ck_auth_rate_limits_request_count_nonnegative"),
@@ -217,12 +209,8 @@ def upgrade() -> None:
             "attempt_count >= 0",
             name=op.f("ck_email_delivery_jobs_attempt_count_nonnegative"),
         ),
-        sa.CheckConstraint(
-            "expires_at > created_at", name=op.f("ck_email_delivery_jobs_expiry_order")
-        ),
-        sa.Index(
-            "ix_email_delivery_jobs_ready", "sent_at", "available_at", "expires_at"
-        ),
+        sa.CheckConstraint("expires_at > created_at", name=op.f("ck_email_delivery_jobs_expiry_order")),
+        sa.Index("ix_email_delivery_jobs_ready", "sent_at", "available_at", "expires_at"),
         mysql_engine="InnoDB",
         mysql_charset="utf8mb4",
     )

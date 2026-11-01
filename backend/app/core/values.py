@@ -5,12 +5,8 @@ from datetime import date, datetime, timezone
 from uuid import UUID
 
 _LOCAL_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
-_UUID = re.compile(
-    r"[0-9a-f]{8}-[0-9a-f]{4}-[45][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
-)
-_TIMESTAMP = re.compile(
-    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z"
-)
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[45][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
+_TIMESTAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z")
 _DECIMAL = re.compile(r"0|-?[1-9][0-9]*")
 
 
@@ -52,17 +48,13 @@ def parse_wire_timestamp(value: str) -> datetime:
 
 def _utc_milliseconds(value: datetime) -> datetime:
     """Reject lost precision and normalize before stripping timezone for MySQL."""
-    if (
-        not isinstance(value, datetime)
-        or value.tzinfo is None
-        or value.utcoffset() is None
-    ):
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("invalid_timestamp")
     if value.microsecond % 1000:
         raise ValueError("invalid_timestamp")
     try:
         result = value.astimezone(timezone.utc)
-    except (ValueError, OverflowError):
+    except ValueError, OverflowError:
         raise ValueError("invalid_timestamp") from None
     if result.microsecond % 1000:
         raise ValueError("invalid_timestamp")

@@ -63,9 +63,7 @@ class RequestLoggingMiddleware:
                 if started:
                     error_code = "response_interrupted"
                 else:
-                    response = make_problem(
-                        Request(scope, receive), status_code=500, code="internal_error"
-                    )
+                    response = make_problem(Request(scope, receive), status_code=500, code="internal_error")
                     await response(scope, receive, send_response)
         finally:
             try:

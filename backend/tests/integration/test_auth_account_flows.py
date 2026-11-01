@@ -69,9 +69,7 @@ def auth_client(auth_database):
             "ignore",
             message="Using `httpx` with `starlette.testclient` is deprecated.*",
         )
-        with TestClient(
-            create_app(auth_database), base_url=auth_database.public_origin
-        ) as client:
+        with TestClient(create_app(auth_database), base_url=auth_database.public_origin) as client:
             yield client
 
 
@@ -194,9 +192,7 @@ def _login(client, settings, password=PASSWORD):
     )
 
 
-def test_forgot_is_neutral_for_unknown_and_non_allowlisted_email(
-    auth_database, auth_client
-):
+def test_forgot_is_neutral_for_unknown_and_non_allowlisted_email(auth_database, auth_client):
     unknown = post_auth(
         auth_client,
         auth_database,
@@ -238,12 +234,8 @@ def test_owner_email_binding_mismatch_fails_startup(auth_database):
             pass
 
 
-def test_verify_creates_owner_workspace_and_wrapped_key_atomically(
-    auth_database, auth_client
-):
-    requested = post_auth(
-        auth_client, auth_database, "register", {"email": "owner@example.test"}
-    )
+def test_verify_creates_owner_workspace_and_wrapped_key_atomically(auth_database, auth_client):
+    requested = post_auth(auth_client, auth_database, "register", {"email": "owner@example.test"})
     assert requested.status_code == 202
     messages = _capture_pending_email(auth_database)
     assert len(messages) == 1
@@ -289,20 +281,14 @@ def test_email_get_does_not_consume_token(auth_database, auth_client):
     token = _query_one(auth_database, select(EmailToken))
     assert token is not None
 
-    response = auth_client.get(
-        "/api/v1/auth/verification/confirm", params={"token": "redacted"}
-    )
+    response = auth_client.get("/api/v1/auth/verification/confirm", params={"token": "redacted"})
 
-    unchanged = _query_one(
-        auth_database, select(EmailToken).where(EmailToken.id == token.id)
-    )
+    unchanged = _query_one(auth_database, select(EmailToken).where(EmailToken.id == token.id))
     assert response.status_code == 405
     assert unchanged is not None and unchanged.consumed_at is None
 
 
-def test_used_token_returns_email_token_used_without_reapplying(
-    auth_database, auth_client
-):
+def test_used_token_returns_email_token_used_without_reapplying(auth_database, auth_client):
     post_auth(auth_client, auth_database, "register", {"email": "owner@example.test"})
     token = _token_from_message(_capture_pending_email(auth_database)[0])
     first = post_auth(
@@ -346,15 +332,10 @@ def test_expired_token_digest_is_pruned_after_7_days(auth_database):
     _run_with_database(auth_database, insert)
     _capture_pending_email(auth_database)
 
-    assert (
-        _query_one(auth_database, select(EmailToken).where(EmailToken.id == token.id))
-        is None
-    )
+    assert _query_one(auth_database, select(EmailToken).where(EmailToken.id == token.id)) is None
 
 
-def test_token_expired_at_boundary_and_wrong_purpose_is_rejected(
-    auth_database, auth_client, monkeypatch
-):
+def test_token_expired_at_boundary_and_wrong_purpose_is_rejected(auth_database, auth_client, monkeypatch):
     import app.services.auth as auth_service
 
     now = datetime.now(timezone.utc).replace(microsecond=0)
@@ -417,10 +398,7 @@ def test_verification_race_creates_one_owner(auth_database, auth_client):
 
     assert sorted(response.status_code for response in responses) == [200, 409]
     assert _query_one(auth_database, select(func.count()).select_from(User)) == 1
-    assert (
-        _query_one(auth_database, select(func.count()).select_from(WorkspaceSettings))
-        == 1
-    )
+    assert _query_one(auth_database, select(func.count()).select_from(WorkspaceSettings)) == 1
 
 
 def test_login_rotates_session_and_sets_remembered_cookie(auth_database, auth_client):
@@ -436,17 +414,13 @@ def test_login_rotates_session_and_sets_remembered_cookie(auth_database, auth_cl
     assert "max-age=" in cookie
     assert "secure" in cookie and "httponly" in cookie and "samesite=lax" in cookie
     assert response.cookies.get("__Host-dayforge-session") != old_cookie
-    sessions = _query_all(
-        auth_database, select(AuthSession).order_by(AuthSession.created_at)
-    )
+    sessions = _query_all(auth_database, select(AuthSession).order_by(AuthSession.created_at))
     assert len(sessions) == 2
     assert sessions[0].kind == "anonymous" and sessions[0].revoked_at is not None
     assert sessions[1].kind == "authenticated" and bool(sessions[1].remember_me)
 
 
-def test_two_devices_get_distinct_sessions_for_same_owner_and_stable_key(
-    auth_database, auth_client
-):
+def test_two_devices_get_distinct_sessions_for_same_owner_and_stable_key(auth_database, auth_client):
     owner_id, key_id, raw_key = _insert_owner(auth_database)
     with new_client(auth_database) as second:
         one = _login(auth_client, auth_database)
@@ -463,9 +437,7 @@ def test_two_devices_get_distinct_sessions_for_same_owner_and_stable_key(
     assert decode_base64url(one_key.json()["key_base64url"], 32) == raw_key
 
 
-def test_unknown_user_uses_dummy_argon2_and_same_credentials_error(
-    auth_database, auth_client, monkeypatch
-):
+def test_unknown_user_uses_dummy_argon2_and_same_credentials_error(auth_database, auth_client, monkeypatch):
     import app.services.auth as auth_service
     from app.services.passwords import DUMMY_PASSWORD_HASH
 
@@ -500,11 +472,7 @@ def test_unknown_user_uses_dummy_argon2_and_same_credentials_error(
     )
 
     assert wrong_password.status_code == unknown_user.status_code == 401
-    assert (
-        wrong_password.json()["code"]
-        == unknown_user.json()["code"]
-        == "invalid_credentials"
-    )
+    assert wrong_password.json()["code"] == unknown_user.json()["code"] == "invalid_credentials"
     assert calls[0] != DUMMY_PASSWORD_HASH
     assert calls[1] == DUMMY_PASSWORD_HASH
 
@@ -540,18 +508,14 @@ def test_reset_revokes_sessions_but_preserves_owner_key(auth_database, auth_clie
     assert other_session.json()["authenticated"] is False
     assert new_login.status_code == 200
     stored_user = _query_one(auth_database, select(User).where(User.id == owner_id))
-    local_key = _query_one(
-        auth_database, select(OwnerLocalKey).where(OwnerLocalKey.owner_id == owner_id)
-    )
+    local_key = _query_one(auth_database, select(OwnerLocalKey).where(OwnerLocalKey.owner_id == owner_id))
     assert stored_user is not None and stored_user.auth_version == 2
     assert local_key is not None and local_key.key_id == key_id
     assert (
         unwrap_owner_key(
             owner_id,
             local_key.key_id,
-            WrappedKey(
-                local_key.algorithm, local_key.wrapped_key, local_key.kek_version
-            ),
+            WrappedKey(local_key.algorithm, local_key.wrapped_key, local_key.kek_version),
             auth_database.secret_key("local_key_kek_b64"),
             auth_database.local_key_kek_version,
         )
@@ -593,21 +557,13 @@ def test_local_key_requires_recent_password(auth_database, auth_client, monkeypa
     _insert_owner(auth_database)
     login = _login(auth_client, auth_database)
     assert login.status_code == 200
-    password_time = datetime.fromisoformat(
-        login.json()["session"]["password_authenticated_at"].replace("Z", "+00:00")
-    )
-    monkeypatch.setattr(
-        auth_service, "utc_now", lambda: password_time + timedelta(minutes=5)
-    )
-    monkeypatch.setattr(
-        sessions, "utc_now", lambda: password_time + timedelta(minutes=5)
-    )
+    password_time = datetime.fromisoformat(login.json()["session"]["password_authenticated_at"].replace("Z", "+00:00"))
+    monkeypatch.setattr(auth_service, "utc_now", lambda: password_time + timedelta(minutes=5))
+    monkeypatch.setattr(sessions, "utc_now", lambda: password_time + timedelta(minutes=5))
 
     response = auth_client.get("/api/v1/auth/local-key")
     polled = auth_client.get("/api/v1/auth/session")
-    stored = _query_one(
-        auth_database, select(AuthSession).where(AuthSession.kind == "authenticated")
-    )
+    stored = _query_one(auth_database, select(AuthSession).where(AuthSession.kind == "authenticated"))
 
     assert response.status_code == 403
     assert response.json()["code"] == "reauthentication_required"
@@ -615,9 +571,7 @@ def test_local_key_requires_recent_password(auth_database, auth_client, monkeypa
     assert stored is not None and stored.password_authenticated_at == password_time
 
 
-def test_delivery_job_stores_ciphertext_only_and_sends_fragment_link(
-    auth_database, auth_client
-):
+def test_delivery_job_stores_ciphertext_only_and_sends_fragment_link(auth_database, auth_client):
     post_auth(auth_client, auth_database, "register", {"email": "owner@example.test"})
     job = _query_one(auth_database, select(EmailDeliveryJob))
     tokens = _query_all(auth_database, select(EmailToken))
@@ -631,20 +585,13 @@ def test_delivery_job_stores_ciphertext_only_and_sends_fragment_link(
     assert "https://localhost:3000/verify-email#token=" in content
     assert "?token=" not in content and "&token=" not in content
     assert _query_one(auth_database, select(EmailDeliveryJob)) is None
-    assert (
-        tokens[0].token_hash
-        == hashlib.sha256(
-            decode_base64url(_token_from_message(messages[0]), 32)
-        ).digest()
-    )
+    assert tokens[0].token_hash == hashlib.sha256(decode_base64url(_token_from_message(messages[0]), 32)).digest()
 
 
 def test_owner_email_is_trimmed_for_delivery_and_owner_storage(auth_database):
     settings = auth_database.model_copy(update={"owner_email": " owner@example.test "})
     with new_client(settings) as client:
-        requested = post_auth(
-            client, settings, "register", {"email": "owner@example.test"}
-        )
+        requested = post_auth(client, settings, "register", {"email": "owner@example.test"})
         assert requested.status_code == 202
         messages = _capture_pending_email(settings)
         assert messages[0]["To"] == "owner@example.test"
@@ -662,9 +609,7 @@ def test_owner_email_is_trimmed_for_delivery_and_owner_storage(auth_database):
 
 
 def test_auth_limits_are_atomic_across_email_and_ip_buckets(auth_database, auth_client):
-    first = post_auth(
-        auth_client, auth_database, "register", {"email": "one@example.test"}
-    )
+    first = post_auth(auth_client, auth_database, "register", {"email": "one@example.test"})
     same_email = post_auth(
         auth_client,
         auth_database,
@@ -694,9 +639,7 @@ def test_auth_limits_are_atomic_across_email_and_ip_buckets(auth_database, auth_
     assert accepted == 29
     assert denied.status_code == 429
     assert denied.headers["retry-after"]
-    assert (
-        _query_one(auth_database, select(func.count()).select_from(AuthRateLimit)) >= 7
-    )
+    assert _query_one(auth_database, select(func.count()).select_from(AuthRateLimit)) >= 7
 
 
 def test_session_and_local_key_share_a_session_rate_limit(auth_database, auth_client):

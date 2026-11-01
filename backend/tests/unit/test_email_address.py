@@ -11,17 +11,10 @@ def test_email_canonicalization_preserves_local_case_and_idna():
 
 
 def test_email_does_not_collapse_aliases():
+    assert canonicalize_email("owner+daily@example.test").canonical == b"owner+daily@example.test"
+    assert canonicalize_email("o.w.n.e.r@example.test").canonical == b"o.w.n.e.r@example.test"
     assert (
-        canonicalize_email("owner+daily@example.test").canonical
-        == b"owner+daily@example.test"
-    )
-    assert (
-        canonicalize_email("o.w.n.e.r@example.test").canonical
-        == b"o.w.n.e.r@example.test"
-    )
-    assert (
-        canonicalize_email("owner@example.test").canonical
-        != canonicalize_email("owner+daily@example.test").canonical
+        canonicalize_email("owner@example.test").canonical != canonicalize_email("owner+daily@example.test").canonical
     )
 
 

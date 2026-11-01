@@ -23,9 +23,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         revision = required_schema_revision()
         if configured.app_env == "production" and application.openapi_url is not None:
             application.router.routes[:] = [
-                route
-                for route in application.router.routes
-                if getattr(route, "path", None) != application.openapi_url
+                route for route in application.router.routes if getattr(route, "path", None) != application.openapi_url
             ]
             application.openapi_url = None
         database = create_database(configured)

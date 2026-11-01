@@ -6,9 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from app.main import create_app
 
 
-def test_version_matches_contract_without_database(
-    system_client, contract_validator, monkeypatch
-):
+def test_version_matches_contract_without_database(system_client, contract_validator, monkeypatch):
     def unexpected_connection(*args, **kwargs):
         raise AssertionError("version must not contact the database")
 
@@ -92,9 +90,7 @@ def test_production_hides_openapi(settings_factory, monkeypatch):
     async def wait_for_shutdown(*args, **kwargs):
         await asyncio.Event().wait()
 
-    monkeypatch.setattr(
-        main, "validate_owner_email_binding", validate_owner_email_binding
-    )
+    monkeypatch.setattr(main, "validate_owner_email_binding", validate_owner_email_binding)
     monkeypatch.setattr(main, "run_delivery_worker", wait_for_shutdown)
     with warnings.catch_warnings():
         warnings.filterwarnings(
@@ -121,18 +117,14 @@ def test_required_revision_is_discovered_from_packaged_scripts():
 
 
 @pytest.mark.parametrize("revisions", [[], ["first", "second"], None])
-def test_invalid_packaged_schema_is_a_sanitized_configuration_error(
-    tmp_path, monkeypatch, revisions
-):
+def test_invalid_packaged_schema_is_a_sanitized_configuration_error(tmp_path, monkeypatch, revisions):
     from app.services import readiness
 
     config = tmp_path / "alembic.ini"
     if revisions is not None:
         versions = tmp_path / "migrations" / "versions"
         versions.mkdir(parents=True)
-        config.write_text(
-            "[alembic]\nscript_location = " + str(versions.parent), encoding="utf-8"
-        )
+        config.write_text("[alembic]\nscript_location = " + str(versions.parent), encoding="utf-8")
         for revision in revisions:
             (versions / (revision + ".py")).write_text(
                 f"revision = '{revision}'\ndown_revision = None\n", encoding="utf-8"
@@ -147,13 +139,9 @@ def test_required_revision_is_not_hardcoded(tmp_path, monkeypatch):
 
     versions = tmp_path / "migrations" / "versions"
     versions.mkdir(parents=True)
-    (versions / "future.py").write_text(
-        "revision = 'future_head'\ndown_revision = None\n", encoding="utf-8"
-    )
+    (versions / "future.py").write_text("revision = 'future_head'\ndown_revision = None\n", encoding="utf-8")
     config = tmp_path / "alembic.ini"
-    config.write_text(
-        "[alembic]\nscript_location = " + str(versions.parent), encoding="utf-8"
-    )
+    config.write_text("[alembic]\nscript_location = " + str(versions.parent), encoding="utf-8")
     monkeypatch.setattr(readiness, "ALEMBIC_CONFIG", config)
     assert readiness.required_schema_revision() == "future_head"
 
@@ -174,14 +162,8 @@ def test_version_timestamp_is_created_for_each_response(system_client, monkeypat
             return next(instants)
 
     monkeypatch.setattr("app.api.system.datetime", Clock)
-    assert (
-        system_client.get("/api/v1/version").json()["server_time"]
-        == "2026-10-29T01:02:03.456Z"
-    )
-    assert (
-        system_client.get("/api/v1/version").json()["server_time"]
-        == "2026-10-29T01:02:04.789Z"
-    )
+    assert system_client.get("/api/v1/version").json()["server_time"] == "2026-10-29T01:02:03.456Z"
+    assert system_client.get("/api/v1/version").json()["server_time"] == "2026-10-29T01:02:04.789Z"
 
 
 @pytest.mark.parametrize(

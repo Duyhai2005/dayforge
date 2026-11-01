@@ -1,9 +1,5 @@
-def test_register_is_neutral_for_non_allowlisted_email(
-    auth_client, auth_repository, auth_mailbox
-):
-    response = auth_client.post(
-        "/api/v1/auth/register", json={"email": "other@example.test"}
-    )
+def test_register_is_neutral_for_non_allowlisted_email(auth_client, auth_repository, auth_mailbox):
+    response = auth_client.post("/api/v1/auth/register", json={"email": "other@example.test"})
 
     assert response.status_code == 202
     assert response.json() == {"status": "accepted", "resend_after_seconds": 60}
@@ -11,15 +7,9 @@ def test_register_is_neutral_for_non_allowlisted_email(
     assert auth_mailbox.messages == []
 
 
-def test_forgot_is_neutral_for_unknown_and_non_allowlisted_email(
-    auth_client, auth_repository, auth_mailbox
-):
-    unknown = auth_client.post(
-        "/api/v1/auth/password/forgot", json={"email": "missing@example.test"}
-    )
-    non_allowlisted = auth_client.post(
-        "/api/v1/auth/password/forgot", json={"email": "other@example.test"}
-    )
+def test_forgot_is_neutral_for_unknown_and_non_allowlisted_email(auth_client, auth_repository, auth_mailbox):
+    unknown = auth_client.post("/api/v1/auth/password/forgot", json={"email": "missing@example.test"})
+    non_allowlisted = auth_client.post("/api/v1/auth/password/forgot", json={"email": "other@example.test"})
 
     assert unknown.status_code == non_allowlisted.status_code == 202
     assert (
@@ -37,9 +27,7 @@ def test_forgot_is_neutral_for_unknown_and_non_allowlisted_email(
 def test_auth_posts_reject_untrusted_origin_or_csrf(auth_client):
     auth_client.headers["X-CSRF-Token"] = "A" * 43
 
-    response = auth_client.post(
-        "/api/v1/auth/register", json={"email": "owner@example.test"}
-    )
+    response = auth_client.post("/api/v1/auth/register", json={"email": "owner@example.test"})
 
     assert response.status_code == 403
     assert response.json()["code"] == "csrf_failed"

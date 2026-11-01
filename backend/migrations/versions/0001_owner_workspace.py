@@ -45,9 +45,7 @@ def upgrade() -> None:
         sa.UniqueConstraint("owner_slot", name="uq_users_owner_slot"),
         sa.UniqueConstraint("email_canonical", name="uq_users_email_canonical"),
         sa.CheckConstraint("owner_slot = 1", name=op.f("ck_users_owner_slot_one")),
-        sa.CheckConstraint(
-            "auth_version >= 1", name=op.f("ck_users_auth_version_positive")
-        ),
+        sa.CheckConstraint("auth_version >= 1", name=op.f("ck_users_auth_version_positive")),
         mysql_engine="InnoDB",
         mysql_charset="utf8mb4",
     )
@@ -92,9 +90,7 @@ def upgrade() -> None:
             "utc_offset_minutes = 420",
             name=op.f("ck_workspace_settings_utc_offset_minutes_420"),
         ),
-        sa.CheckConstraint(
-            "week_start = 1", name=op.f("ck_workspace_settings_week_start_monday")
-        ),
+        sa.CheckConstraint("week_start = 1", name=op.f("ck_workspace_settings_week_start_monday")),
         mysql_engine="InnoDB",
         mysql_charset="utf8mb4",
     )

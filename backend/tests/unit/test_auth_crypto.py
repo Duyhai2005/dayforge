@@ -32,9 +32,7 @@ def test_owner_key_wrap_round_trip_binds_owner_key_and_kek_version():
         (owner_id, key_id, 4),
     ):
         with pytest.raises(CryptoEnvelopeError):
-            unwrap_owner_key(
-                other_owner, other_key, wrapped, kek, kek_version=other_version
-            )
+            unwrap_owner_key(other_owner, other_key, wrapped, kek, kek_version=other_version)
 
 
 def test_owner_key_wrap_rejects_bad_key_material_and_tampering():
@@ -99,10 +97,7 @@ def test_logout_ticket_is_target_bound_and_has_contract_encoding():
     assert decode_base64url(ticket, 48) is not None
     assert verify_logout_ticket(ticket, key) == session_id
     assert verify_logout_ticket(ticket, bytes([8]) * 32) is None
-    assert (
-        verify_logout_ticket(ticket[:-1] + ("A" if ticket[-1] != "A" else "B"), key)
-        is None
-    )
+    assert verify_logout_ticket(ticket[:-1] + ("A" if ticket[-1] != "A" else "B"), key) is None
 
 
 def test_logout_ticket_accepts_previous_verification_key_after_rotation():
