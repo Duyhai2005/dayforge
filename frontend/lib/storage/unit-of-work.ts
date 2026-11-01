@@ -1,6 +1,6 @@
 import { StorageError, type StorageResult, storageErr, storageOk } from "./errors";
 import { STORAGE_STORES } from "./schema";
-import { type EncryptedRecord, encryptPayload } from "./crypto";
+import { type EncryptedRecord, encryptPayload, encryptSerializedPayload } from "./crypto";
 import {
   type OwnerAccessContext,
   type OwnerMetadata,
@@ -42,8 +42,6 @@ export interface PersistOperationInput {
   editTime?: HlcEditTime;
   clockInput?: ClockInputParams;
   recordOverlays?: readonly RecordOverlayInput[];
-  _abortForTest?: boolean;
-  _simulateQuotaExceeded?: boolean;
 }
 
 export interface PersistOperationResult {
@@ -63,10 +61,21 @@ export interface DeviceMetadata {
 
 const UINT64_MAX = BigInt("18446744073709551615");
 
+interface PersistOperationTestHooks {
+  abort?: boolean;
+  simulateQuotaExceeded?: boolean;
+}
+
 export async function persistOperationAtomic(
   db: IDBDatabase,
-  input: PersistOperationInput
+  input: PersistOperationInput,
+  testHooks?: PersistOperationTestHooks
 ): Promise<StorageResult<PersistOperationResult>> {
+  try {
+    input = structuredClone(input);
+  } catch (err) {
+    return storageErr("invalid_data", "Operation input must be structured-cloneable", err);
+  }
   let canonicalCommands: readonly unknown[];
   try {
     // Canonicalize contract-defined text before validation, hashing and
@@ -202,37 +211,42 @@ export async function persistOperationAtomic(
           const devReq = devStore.get([input.context.ownerId, input.deviceId]);
 
           devReq.onsuccess = async () => {
-            const devMeta = devReq.result as DeviceMetadata | undefined;
-            if (
-              devMeta &&
-              devMeta.last_sequence !== undefined &&
-              devMeta.last_sequence !== null
-            ) {
-              if (!/^[1-9][0-9]*$/.test(devMeta.last_sequence)) {
-                customError = new StorageError(
-                  "invalid_data",
-                  `Corrupted device sequence in metadata: '${devMeta.last_sequence}'`
-                );
-                tx.abort();
-                return;
+            try {
+              const devMeta = devReq.result as DeviceMetadata | undefined;
+              if (devMeta !== undefined) {
+                if (
+                  typeof devMeta.last_sequence !== "string" ||
+                  devMeta.last_sequence.length > 20 ||
+                  !/^[1-9][0-9]*$/.test(devMeta.last_sequence)
+                ) {
+                  customError = new StorageError(
+                    "invalid_data",
+                    "Corrupted device sequence in metadata"
+                  );
+                  tx.abort();
+                  return;
+                }
+                const currentSeq = BigInt(devMeta.last_sequence);
+                if (currentSeq >= UINT64_MAX) {
+                  customError = new StorageError(
+                    "invalid_data",
+                    "Device sequence overflow: cannot increment sequence beyond uint64 max"
+                  );
+                  tx.abort();
+                  return;
+                }
+                allocatedSequence = (currentSeq + BigInt(1)).toString();
+              } else {
+                allocatedSequence = "1";
               }
-              const currentSeq = BigInt(devMeta.last_sequence);
-              if (currentSeq >= UINT64_MAX) {
-                customError = new StorageError(
-                  "invalid_data",
-                  "Device sequence overflow: cannot increment sequence beyond uint64 max"
-                );
-                tx.abort();
-                return;
-              }
-              allocatedSequence = (currentSeq + BigInt(1)).toString();
-            } else {
-              allocatedSequence = "1";
-            }
 
-            // Validate persisted last_hlc
-            if (devMeta?.last_hlc !== undefined && devMeta?.last_hlc !== null) {
-              if (!validateHlc(devMeta.last_hlc)) {
+              // Older device metadata may not yet have a clock value. If present,
+              // it must still be a valid HLC before it influences derivation.
+              if (
+                devMeta?.last_hlc !== undefined &&
+                devMeta.last_hlc !== null &&
+                !validateHlc(devMeta.last_hlc)
+              ) {
                 customError = new StorageError(
                   "invalid_data",
                   "Corrupted persisted last_hlc in device metadata"
@@ -240,226 +254,245 @@ export async function persistOperationAtomic(
                 tx.abort();
                 return;
               }
-            }
 
-            // Derive or validate HLC
-            try {
-              if (input.clockInput) {
-                const estimatedUtc =
-                  input.clockInput.estimatedUtcMs ?? input.clockInput.wallMs;
-                if (estimatedUtc === undefined) {
-                  customError = new StorageError(
-                    "invalid_data",
-                    "clockInput must provide estimatedUtcMs or wallMs"
-                  );
-                  tx.abort();
-                  return;
-                }
-                const rawWall = input.clockInput.rawWallMs ?? estimatedUtc;
-                const quality = input.clockInput.quality ?? "calibrated";
-                allocatedHlc = advanceHlc(
-                  devMeta?.last_hlc ?? null,
-                  estimatedUtc,
-                  input.clockInput.calibrationId,
-                  quality,
-                  rawWall
-                );
-              } else if (input.editTime) {
-                if (devMeta?.last_hlc) {
-                  if (input.editTime.physical_ms < devMeta.last_hlc.physical_ms) {
+              // Derive or validate HLC
+              try {
+                if (input.clockInput) {
+                  const estimatedUtc =
+                    input.clockInput.estimatedUtcMs ?? input.clockInput.wallMs;
+                  if (estimatedUtc === undefined) {
                     customError = new StorageError(
                       "invalid_data",
-                      "Stale HLC: persisted clock state is ahead of input editTime"
+                      "clockInput must provide estimatedUtcMs or wallMs"
                     );
                     tx.abort();
                     return;
                   }
-                  if (
-                    input.editTime.physical_ms === devMeta.last_hlc.physical_ms &&
-                    input.editTime.logical <= devMeta.last_hlc.logical
-                  ) {
-                    allocatedHlc = advanceHlc(
-                      devMeta.last_hlc,
-                      input.editTime.physical_ms,
-                      input.editTime.calibration_id,
-                      input.editTime.quality,
-                      input.editTime.raw_wall_ms
-                    );
+                  const rawWall = input.clockInput.rawWallMs ?? estimatedUtc;
+                  const quality =
+                    input.clockInput.quality === undefined
+                      ? "calibrated"
+                      : input.clockInput.quality;
+                  allocatedHlc = advanceHlc(
+                    devMeta?.last_hlc ?? null,
+                    estimatedUtc,
+                    input.clockInput.calibrationId,
+                    quality,
+                    rawWall
+                  );
+                } else if (input.editTime) {
+                  if (devMeta?.last_hlc) {
+                    if (input.editTime.physical_ms < devMeta.last_hlc.physical_ms) {
+                      customError = new StorageError(
+                        "invalid_data",
+                        "Stale HLC: persisted clock state is ahead of input editTime"
+                      );
+                      tx.abort();
+                      return;
+                    }
+                    if (
+                      input.editTime.physical_ms === devMeta.last_hlc.physical_ms &&
+                      input.editTime.logical <= devMeta.last_hlc.logical
+                    ) {
+                      allocatedHlc = advanceHlc(
+                        devMeta.last_hlc,
+                        input.editTime.physical_ms,
+                        input.editTime.calibration_id,
+                        input.editTime.quality,
+                        input.editTime.raw_wall_ms
+                      );
+                    } else {
+                      allocatedHlc = input.editTime;
+                    }
                   } else {
                     allocatedHlc = input.editTime;
                   }
                 } else {
-                  allocatedHlc = input.editTime;
+                  customError = new StorageError(
+                    "invalid_data",
+                    "Missing clock evidence: either clockInput or editTime must be provided"
+                  );
+                  tx.abort();
+                  return;
                 }
-              } else {
-                customError = new StorageError(
-                  "invalid_data",
-                  "Missing clock evidence: either clockInput or editTime must be provided"
-                );
-                tx.abort();
-                return;
-              }
-            } catch (hlcErr) {
-              customError =
-                hlcErr instanceof StorageError
-                  ? hlcErr
-                  : new StorageError(
-                      "invalid_data",
-                      hlcErr instanceof Error ? hlcErr.message : String(hlcErr)
-                    );
-              tx.abort();
-              return;
-            }
-
-            // Construct operation envelope
-            const envelope: OperationEnvelope = {
-              protocol_version: 1,
-              reducer_version: 1,
-              operation_id: input.operationId,
-              owner_id: input.context.ownerId,
-              device_id: input.deviceId,
-              device_sequence: allocatedSequence,
-              edit_time: allocatedHlc,
-              dependencies: input.dependencies,
-              commands: canonicalCommands as readonly StorageCommand[],
-            };
-
-            // Start keepalive for async crypto
-            keepAlivePing();
-
-            try {
-              const canonicalJson = canonicalizeJson(envelope);
-              // T03 limits an individual operation to 2 MiB of canonical
-              // UTF-8 wire bytes. Enforce before hash/encrypt/durable commit.
-              assertOperationWireSize(canonicalJson);
-              const hashHex = await sha256Hex(canonicalJson);
-              const encRes = await encryptPayload(
-                input.context.key,
-                input.context.ownerId,
-                input.context.keyId,
-                STORAGE_STORES.operations,
-                input.operationId,
-                envelope
-              );
-
-              cryptoKeepAliveActive = false;
-
-              if (!encRes.ok) {
-                customError = encRes.error;
+              } catch (hlcErr) {
+                customError =
+                  hlcErr instanceof StorageError
+                    ? hlcErr
+                    : new StorageError(
+                        "invalid_data",
+                        hlcErr instanceof Error ? hlcErr.message : String(hlcErr)
+                      );
                 tx.abort();
                 return;
               }
 
-              // Determine outbox entry status (untrusted clock quality -> 'time_invalid')
-              const status: OutboxStatus =
-                allocatedHlc.quality === "untrusted"
-                  ? "time_invalid"
-                  : "queued";
+              if (!validateHlc(allocatedHlc)) {
+                customError = new StorageError("invalid_data", "Allocated HLC is invalid");
+                tx.abort();
+                return;
+              }
 
-              const outboxEntry: OutboxEntry = {
-                owner_id: input.context.ownerId,
+              // Construct operation envelope
+              const envelope: OperationEnvelope = {
+                protocol_version: 1,
+                reducer_version: 1,
                 operation_id: input.operationId,
+                owner_id: input.context.ownerId,
+                device_id: input.deviceId,
                 device_sequence: allocatedSequence,
-                status,
-                request_hash: hashHex,
-                encrypted_envelope: encRes.value,
-                created_at: new Date().toISOString(),
+                edit_time: allocatedHlc,
+                dependencies: input.dependencies,
+                commands: canonicalCommands as readonly StorageCommand[],
               };
 
-              if (input._simulateQuotaExceeded) {
-                customError = new StorageError(
-                  "quota_exceeded",
-                  "Storage quota exceeded"
-                );
-                tx.abort();
-                return;
-              }
+              // Start keepalive for async crypto
+              keepAlivePing();
 
-              const opReq = opStore.put(outboxEntry);
-              opReq.onerror = () => {
-                if (opReq.error?.name === "QuotaExceededError") {
+              try {
+                const canonicalJson = canonicalizeJson(envelope);
+                // T03 limits an individual operation to 2 MiB of canonical
+                // UTF-8 wire bytes. Enforce before hash/encrypt/durable commit.
+                assertOperationWireSize(canonicalJson);
+                const hashHex = await sha256Hex(canonicalJson);
+                const encRes = await encryptSerializedPayload(
+                  input.context.key,
+                  input.context.ownerId,
+                  input.context.keyId,
+                  STORAGE_STORES.operations,
+                  input.operationId,
+                  canonicalJson
+                );
+
+                cryptoKeepAliveActive = false;
+
+                if (!encRes.ok) {
+                  customError = encRes.error;
+                  tx.abort();
+                  return;
+                }
+
+                // Determine outbox entry status (untrusted clock quality -> 'time_invalid')
+                const status: OutboxStatus =
+                  allocatedHlc.quality === "untrusted"
+                    ? "time_invalid"
+                    : "queued";
+
+                const outboxEntry: OutboxEntry = {
+                  owner_id: input.context.ownerId,
+                  operation_id: input.operationId,
+                  device_sequence: allocatedSequence,
+                  status,
+                  request_hash: hashHex,
+                  encrypted_envelope: encRes.value,
+                  created_at: new Date().toISOString(),
+                };
+
+                if (testHooks?.simulateQuotaExceeded) {
                   customError = new StorageError(
                     "quota_exceeded",
-                    opReq.error.message,
-                    opReq.error
+                    "Storage quota exceeded"
                   );
+                  tx.abort();
+                  return;
                 }
-              };
 
-              // Put record overlays
-              for (const item of preEncryptedOverlays) {
-                const recReq = recordsStore.put({
-                  owner_id: input.context.ownerId,
-                  kind: item.kind,
-                  id: item.id,
-                  key_id: item.encrypted.key_id,
-                  store: STORAGE_STORES.records,
-                  record_id: `${item.kind}:${item.id}`,
-                  iv: item.encrypted.iv,
-                  ciphertext: item.encrypted.ciphertext,
-                });
-                recReq.onerror = () => {
-                  if (recReq.error?.name === "QuotaExceededError") {
+                const opReq = opStore.put(outboxEntry);
+                opReq.onerror = () => {
+                  if (opReq.error?.name === "QuotaExceededError") {
                     customError = new StorageError(
                       "quota_exceeded",
-                      recReq.error.message,
-                      recReq.error
+                      opReq.error.message,
+                      opReq.error
                     );
                   }
                 };
-              }
 
-              // Update device_meta with new sequence and HLC
-              const updatedDevMeta: DeviceMetadata = {
-                owner_id: input.context.ownerId,
-                device_id: input.deviceId,
-                last_sequence: allocatedSequence,
-                last_hlc: allocatedHlc,
-                updated_at: new Date().toISOString(),
-              };
-              const devPutReq = devStore.put(updatedDevMeta);
-              devPutReq.onerror = () => {
-                if (devPutReq.error?.name === "QuotaExceededError") {
+                // Put record overlays
+                for (const item of preEncryptedOverlays) {
+                  const recReq = recordsStore.put({
+                    owner_id: input.context.ownerId,
+                    kind: item.kind,
+                    id: item.id,
+                    key_id: item.encrypted.key_id,
+                    store: STORAGE_STORES.records,
+                    record_id: `${item.kind}:${item.id}`,
+                    iv: item.encrypted.iv,
+                    ciphertext: item.encrypted.ciphertext,
+                  });
+                  recReq.onerror = () => {
+                    if (recReq.error?.name === "QuotaExceededError") {
+                      customError = new StorageError(
+                        "quota_exceeded",
+                        recReq.error.message,
+                        recReq.error
+                      );
+                    }
+                  };
+                }
+
+                // Update device_meta with new sequence and HLC
+                const updatedDevMeta: DeviceMetadata = {
+                  owner_id: input.context.ownerId,
+                  device_id: input.deviceId,
+                  last_sequence: allocatedSequence,
+                  last_hlc: allocatedHlc,
+                  updated_at: new Date().toISOString(),
+                };
+                const devPutReq = devStore.put(updatedDevMeta);
+                devPutReq.onerror = () => {
+                  if (devPutReq.error?.name === "QuotaExceededError") {
+                    customError = new StorageError(
+                      "quota_exceeded",
+                      devPutReq.error.message,
+                      devPutReq.error
+                    );
+                  }
+                };
+
+                if (testHooks?.abort) {
+                  customError = new StorageError(
+                    "transaction_aborted",
+                    "Transaction aborted for test"
+                  );
+                  tx.abort();
+                }
+              } catch (err) {
+                cryptoKeepAliveActive = false;
+                if (
+                  (typeof DOMException !== "undefined" && err instanceof DOMException && err.name === "QuotaExceededError") ||
+                  (typeof err === "object" && err !== null && "name" in err && (err as { name: string }).name === "QuotaExceededError")
+                ) {
                   customError = new StorageError(
                     "quota_exceeded",
-                    devPutReq.error.message,
-                    devPutReq.error
+                    err instanceof Error ? err.message : "Storage quota exceeded",
+                    err
                   );
+                } else {
+                  customError =
+                    err instanceof StorageError
+                      ? err
+                      : new StorageError(
+                          "transaction_aborted",
+                          err instanceof Error ? err.message : "Error during atomic persist",
+                          err
+                        );
                 }
-              };
-
-              if (input._abortForTest) {
-                customError = new StorageError(
-                  "transaction_aborted",
-                  "Transaction aborted for test"
-                );
-                tx.abort();
+                try {
+                  tx.abort();
+                } catch {
+                  // Ignore abort error if already aborting
+                }
               }
             } catch (err) {
               cryptoKeepAliveActive = false;
-              if (
-                (typeof DOMException !== "undefined" && err instanceof DOMException && err.name === "QuotaExceededError") ||
-                (typeof err === "object" && err !== null && "name" in err && (err as { name: string }).name === "QuotaExceededError")
-              ) {
-                customError = new StorageError(
-                  "quota_exceeded",
-                  err instanceof Error ? err.message : "Storage quota exceeded",
-                  err
-                );
-              } else {
-                customError =
-                  err instanceof StorageError
-                    ? err
-                    : new StorageError(
-                        "transaction_aborted",
-                        err instanceof Error ? err.message : "Error during atomic persist",
-                        err
-                      );
-              }
+              customError = err instanceof StorageError
+                ? err
+                : new StorageError("invalid_data", "Failed to process persisted operation metadata", err);
               try {
                 tx.abort();
               } catch {
-                // Ignore abort error if already aborting
+                // Ignore abort error if the transaction is already aborting.
               }
             }
           };

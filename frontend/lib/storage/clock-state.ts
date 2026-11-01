@@ -18,6 +18,17 @@ export function validateHlc(hlc: unknown): hlc is HlcEditTime {
     return false;
   }
   const candidate = hlc as Partial<HlcEditTime>;
+  const expectedFields = new Set([
+    "physical_ms",
+    "logical",
+    "calibration_id",
+    "raw_wall_ms",
+    "quality",
+  ]);
+  const ownFields = Object.keys(candidate);
+  if (ownFields.length !== expectedFields.size || ownFields.some((field) => !expectedFields.has(field))) {
+    return false;
+  }
   if (
     typeof candidate.physical_ms !== "number" ||
     !Number.isInteger(candidate.physical_ms) ||
@@ -94,6 +105,9 @@ export function advanceHlc(
     );
   }
 
+  if (quality !== "calibrated" && quality !== "offline_estimate" && quality !== "untrusted") {
+    throw new StorageError("invalid_data", "Invalid HLC quality");
+  }
   const roundedUtc = Math.floor(estimatedUtcMs);
   const roundedRawWall = Math.floor(rawWallMs);
   if (!currentHlc) {

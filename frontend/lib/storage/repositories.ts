@@ -1,5 +1,6 @@
 import { StorageError, type StorageResult, storageErr, storageOk } from "./errors";
 import { STORAGE_STORES } from "./schema";
+import { revalidateOwnerContext } from "./read-access";
 import { type OpenDatabaseOptions, openDatabase, closeDatabase } from "./db";
 import { type EncryptedRecord, decryptPayload } from "./crypto";
 import {
@@ -16,12 +17,6 @@ import {
 
 export interface LocalStorageGateway {
   open(): Promise<StorageResult<void>>;
-  listPending(
-    ctx: OwnerAccessContext
-  ): Promise<StorageResult<readonly OperationEnvelope[]>>;
-  listPendingOperations(
-    ctx: OwnerAccessContext
-  ): Promise<StorageResult<readonly OperationEnvelope[]>>;
   listSendableOperations(
     ctx: OwnerAccessContext
   ): Promise<StorageResult<readonly OperationEnvelope[]>>;
@@ -40,15 +35,6 @@ export interface LocalStorageGateway {
     ctx: OwnerAccessContext,
     operationId: string
   ): Promise<StorageResult<void>>;
-  /**
-   * @deprecated Does not persist the corresponding pull event or cursor.
-   * T11 must use confirmPulledOperationInTx() in its shadow/cursor transaction.
-   */
-  markOperationSynced(
-    ctx: OwnerAccessContext,
-    operationId: string,
-    expectedRequestHash: string
-  ): Promise<StorageResult<void>>;
   close(): void;
 }
 
@@ -61,7 +47,17 @@ export function createLocalStorageGateway(
     if (db) {
       return storageOk(db);
     }
-    const openRes = await openDatabase(options);
+    const openRes = await openDatabase({
+      ...options,
+      onVersionChange: () => {
+        db = null;
+        options?.onVersionChange?.();
+      },
+      onClose: () => {
+        db = null;
+        options?.onClose?.();
+      },
+    });
     if (!openRes.ok) {
       return openRes;
     }
@@ -86,18 +82,6 @@ export function createLocalStorageGateway(
         return openRes;
       }
       return await persistOperationAtomic(openRes.value, input);
-    },
-
-    async listPending(
-      ctx: OwnerAccessContext
-    ): Promise<StorageResult<readonly OperationEnvelope[]>> {
-      return this.listSendableOperations(ctx);
-    },
-
-    async listPendingOperations(
-      ctx: OwnerAccessContext
-    ): Promise<StorageResult<readonly OperationEnvelope[]>> {
-      return this.listSendableOperations(ctx);
     },
 
     async listSendableOperations(
@@ -141,23 +125,6 @@ export function createLocalStorageGateway(
         return openRes;
       }
       return await markOperationAcked(openRes.value, ctx, operationId);
-    },
-
-    async markOperationSynced(
-      ctx: OwnerAccessContext,
-      operationId: string,
-      expectedRequestHash: string
-    ): Promise<StorageResult<void>> {
-      const openRes = await ensureOpen();
-      if (!openRes.ok) {
-        return openRes;
-      }
-      return await markOperationSynced(
-        openRes.value,
-        ctx,
-        operationId,
-        expectedRequestHash
-      );
     },
 
     close(): void {
@@ -300,16 +267,10 @@ async function listOutboxOperations(
     envelopes.push(decRes.value);
   }
 
-  // Anti-TOCTOU: re-verify owner meta after decryption before returning plaintext
-  const recheckTx = db.transaction(STORAGE_STORES.owner_meta, "readonly");
-  const recheckMeta = await new Promise<OwnerMetadata | null>((resolve) => {
-    const req = recheckTx.objectStore(STORAGE_STORES.owner_meta).get(ctx.ownerId);
-    req.onsuccess = () => resolve((req.result as OwnerMetadata) ?? null);
-    req.onerror = () => resolve(null);
-  });
-  const recheckErr = checkOwnerMetaRecord(recheckMeta ?? undefined, ctx);
-  if (recheckErr) {
-    return { ok: false, error: recheckErr };
+  // Revalidate after decryption; a concurrent close or upgrade stays typed.
+  const accessRes = await revalidateOwnerContext(db, ctx);
+  if (!accessRes.ok) {
+    return accessRes;
   }
 
   envelopes.sort((a, b) => {
@@ -354,10 +315,6 @@ export async function listOptimisticOperations(
       status === "pending"
   );
 }
-
-// Backwards-compatible names retain sendability semantics.
-export const listPendingOperations = listSendableOperations;
-export const listPending = listSendableOperations;
 
 export async function getRecord<T>(
   db: IDBDatabase,
@@ -505,16 +462,10 @@ export async function getRecord<T>(
     return decRes;
   }
 
-  // Anti-TOCTOU: re-verify owner meta after decryption before returning plaintext
-  const recheckTx = db.transaction(STORAGE_STORES.owner_meta, "readonly");
-  const recheckMeta = await new Promise<OwnerMetadata | null>((resolve) => {
-    const req = recheckTx.objectStore(STORAGE_STORES.owner_meta).get(ctx.ownerId);
-    req.onsuccess = () => resolve((req.result as OwnerMetadata) ?? null);
-    req.onerror = () => resolve(null);
-  });
-  const recheckErr = checkOwnerMetaRecord(recheckMeta ?? undefined, ctx);
-  if (recheckErr) {
-    return { ok: false, error: recheckErr };
+  // Revalidate after decryption; a concurrent close or upgrade stays typed.
+  const accessRes = await revalidateOwnerContext(db, ctx);
+  if (!accessRes.ok) {
+    return accessRes;
   }
 
   return decRes;
@@ -772,95 +723,4 @@ export function confirmPulledOperationInTx(
       )
     );
   };
-}
-
-/**
- * @deprecated Standalone outbox deletion cannot establish pull-to-shadow
- * atomicity. Retained only for backwards-compatible storage tests/consumers.
- *
- * T11 MUST call confirmPulledOperationInTx() from a single readwrite
- * transaction that also writes the verified pulled shadow event, projection
- * changes and sync cursor. Do not call this wrapper from the sync engine.
- */
-export async function markOperationSynced(
-  db: IDBDatabase,
-  ctx: OwnerAccessContext,
-  operationId: string,
-  expectedRequestHash: string
-): Promise<StorageResult<void>> {
-  if (
-    typeof expectedRequestHash !== "string" ||
-    !HASH_PATTERN.test(expectedRequestHash)
-  ) {
-    return storageErr(
-      "invalid_data",
-      `expectedRequestHash must be a lowercase 64-hex SHA-256 hash: got '${expectedRequestHash}'`
-    );
-  }
-
-  return new Promise((resolve) => {
-    let customError: StorageError | null = null;
-    try {
-      const tx = db.transaction(
-        [STORAGE_STORES.owner_meta, STORAGE_STORES.operations],
-        "readwrite"
-      );
-
-      confirmPulledOperationInTx(
-        tx,
-        ctx,
-        operationId,
-        expectedRequestHash,
-        {
-          onError: (err) => {
-            customError = err;
-          },
-        }
-      );
-
-      tx.oncomplete = () => {
-        resolve(storageOk(undefined));
-      };
-
-      tx.onerror = () => {
-        if (customError) {
-          resolve(
-            storageErr(customError.code, customError.message, customError.cause)
-          );
-        } else {
-          resolve(
-            storageErr(
-              "unavailable",
-              tx.error?.message ?? "Transaction error while marking operation synced",
-              tx.error
-            )
-          );
-        }
-      };
-
-      tx.onabort = () => {
-        if (customError) {
-          resolve(
-            storageErr(customError.code, customError.message, customError.cause)
-          );
-        } else {
-          resolve(
-            storageErr(
-              "transaction_aborted",
-              tx.error?.message ?? "Transaction aborted while marking operation synced",
-              tx.error
-            )
-          );
-        }
-      };
-    } catch (err) {
-      resolve(
-        storageErr(
-          "unavailable",
-          err instanceof Error ? err.message : "Error marking operation synced",
-          err
-        )
-      );
-    }
-  });
 }

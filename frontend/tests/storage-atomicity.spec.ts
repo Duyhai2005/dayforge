@@ -1,7 +1,5 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import ts from "typescript";
+import { buildStorageBrowserHarness } from "./helpers/storage-browser-harness";
 import {
   StorageError,
   openDatabase,
@@ -18,6 +16,8 @@ import {
   canonicalizeJson,
   sha256Hex,
   computeCanonicalHash,
+  decryptPayload,
+  listOptimisticOperations,
   type OperationEnvelope,
   type OutboxEntry,
   type OutboxStatus,
@@ -30,7 +30,7 @@ import {
   assertOperationWireSize,
   createLocalStorageGateway,
   type LocalStorageGateway,
-} from "../lib/storage";
+} from "./storage-api";
 
 declare global {
   interface Window {
@@ -48,6 +48,8 @@ declare global {
       canonicalizeJson: typeof canonicalizeJson;
       sha256Hex: typeof sha256Hex;
       computeCanonicalHash: typeof computeCanonicalHash;
+      decryptPayload: typeof decryptPayload;
+      listOptimisticOperations: typeof listOptimisticOperations;
       persistOperationAtomic: typeof persistOperationAtomic;
       createLocalStorageGateway: typeof createLocalStorageGateway;
       isCanonicalLocalDate: typeof isCanonicalLocalDate;
@@ -57,39 +59,7 @@ declare global {
 }
 
 function buildStorageScript(): string {
-  const libDir = path.resolve(__dirname, "../lib/storage");
-  const files = [
-    "errors.ts",
-    "schema.ts",
-    "migration.ts",
-    "db.ts",
-    "crypto.ts",
-    "owner-gate.ts",
-    "clock-state.ts",
-    "outbox.ts",
-    "unit-of-work.ts",
-    "repositories.ts",
-  ];
-
-  const combined = files
-    .map((file) => fs.readFileSync(path.join(libDir, file), "utf-8"))
-    .join("\n")
-    .replace(/import\s+[\s\S]*?from\s+['"][^'"]+['"];?/g, "")
-    .replace(/import\s+.*?;/g, "");
-
-  const transpiled = ts.transpileModule(combined, {
-    compilerOptions: {
-      target: ts.ScriptTarget.ES2022,
-      module: ts.ModuleKind.CommonJS,
-    },
-  }).outputText;
-
-  return `(() => {
-    const exports = {};
-    const module = { exports };
-    ${transpiled}
-    window.__dayforge_storage_atomicity = exports;
-  })();`;
+  return buildStorageBrowserHarness("__dayforge_storage_atomicity");
 }
 
 test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
@@ -314,7 +284,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           });
 
           // Verify through gateway APIs
-          const pendingRes = await gateway.listPending(ctx);
+          const pendingRes = await gateway.listSendableOperations(ctx);
           const getPlanRes = await gateway.getRecord<{ name: string; color_id: string }>(ctx, "plan", planId);
           const getTaskRes = await gateway.getRecord<{ title: string; plan_id: string }>(ctx, "work_item", taskId);
 
@@ -759,7 +729,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
             recordOverlays: [{ kind: "plan", id: planId, payload: { name: "Persistent Plan" } }],
           });
 
-          const pending = await gateway.listPending(ctx);
+          const pending = await gateway.listSendableOperations(ctx);
           gateway.close();
 
           return {
@@ -785,7 +755,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           const gateway = createLocalStorageGateway({ name: testDbName });
           await gateway.open();
 
-          const pending = await gateway.listPending(ctx);
+          const pending = await gateway.listSendableOperations(ctx);
           const planRecord = await gateway.getRecord<{ name: string }>(ctx, "plan", "aaaaaaaa-1111-4111-8111-111111111111");
           gateway.close();
 
@@ -961,7 +931,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           });
 
           // listPending must NOT return untrusted operations
-          const pendingRes = await gateway.listPending(ctx);
+          const pendingRes = await gateway.listSendableOperations(ctx);
 
           gateway.close();
 
@@ -1383,7 +1353,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           });
 
           // 2. listPending returns it
-          const pending1 = await gateway.listPending(ctx);
+          const pending1 = await gateway.listSendableOperations(ctx);
 
           // 3. Mark operation acked (server acknowledged receipt)
           const ackRes = await gateway.markOperationAcked(ctx, opId);
@@ -1397,7 +1367,7 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
           });
 
           // 5. listPending should NO LONGER return it (since status is ack_waiting_pull, not pending)
-          const pending2 = await gateway.listPending(ctx);
+          const pending2 = await gateway.listSendableOperations(ctx);
 
           // 6. Confirm sync via markOperationSynced (after server pull confirms processed)
           const syncRes = await gateway.markOperationSynced(ctx, opId, rowAfterAck.request_hash);
@@ -3071,5 +3041,230 @@ test.describe("Storage Atomicity, Outbox & Clock Specifications", () => {
       expect(result.optimisticAfter).toBe(0);
     });
 
+    test("R01: snapshot immutable operation inputs before hashing and encryption", async ({ page }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+      const result = await page.evaluate(async () => {
+        const s = window.__dayforge_storage_atomicity;
+        const ownerId = "11111111-9001-4000-8000-000000000001";
+        const operationId = "22222222-9001-4000-8000-000000000001";
+        const open = await s.openDatabase({ name: `r01-${crypto.randomUUID()}` });
+        if (!open.ok) return { setup: false };
+        const db = open.value;
+        const key = await s.generateTestKey();
+        const unlocked = await s.unlockOwner(db, ownerId, "r01-key", key);
+        if (!unlocked.ok) return { setup: false };
+        const input: any = {
+          context: unlocked.value,
+          deviceId: "33333333-9001-4000-8000-000000000001",
+          operationId,
+          commands: [{
+            root: { kind: "plan", id: "44444444-9001-4000-8000-000000000001" },
+            action: "plan.create",
+            payload: { data: { name: "stable", color_id: "green" } },
+            precondition: null,
+          }],
+          dependencies: [],
+          clockInput: {
+            estimatedUtcMs: 1793480000000,
+            rawWallMs: 1793480000000,
+            calibrationId: "55555555-9001-4000-8000-000000000001",
+            quality: "calibrated",
+          },
+        };
+        const originalDigest = crypto.subtle.digest.bind(crypto.subtle);
+        crypto.subtle.digest = async (...args) => {
+          const digest = await originalDigest(...args);
+          input.commands[0].root.id = "66666666-9001-4000-8000-000000000001";
+          input.dependencies.push("77777777-9001-4000-8000-000000000001");
+          return digest;
+        };
+        const saved = await s.persistOperationAtomic(db, input);
+        crypto.subtle.digest = originalDigest;
+        const row = await new Promise<any>((resolve) => {
+          const tx = db.transaction(s.STORAGE_STORES.operations, "readonly");
+          const req = tx.objectStore(s.STORAGE_STORES.operations).get([ownerId, operationId]);
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => resolve(null);
+        });
+        if (!row) return { setup: true, saveOk: saved.ok, rowExists: false };
+        const decoded = await s.decryptPayload<OperationEnvelope>(unlocked.value.key, row.encrypted_envelope, ownerId, "operations", operationId);
+        const hashed = decoded.ok ? await s.computeCanonicalHash(decoded.value) : null;
+        db.close();
+        return {
+          setup: true,
+          saveOk: saved.ok,
+          rowExists: true,
+          hashMatches: hashed?.hash === row.request_hash,
+          storedRootId: decoded.ok ? decoded.value.commands[0].root.id : null,
+          storedDependencies: decoded.ok ? decoded.value.dependencies : null,
+        };
+      });
+      expect(result.setup).toBe(true);
+      expect(result.saveOk).toBe(true);
+      expect(result.rowExists).toBe(true);
+      expect(result.hashMatches).toBe(true);
+      expect(result.storedRootId).toBe("44444444-9001-4000-8000-000000000001");
+      expect(result.storedDependencies).toEqual([]);
+    });
+
+    test("R02: malformed persisted sequence metadata fails closed without reusing sequence one", async ({ page }) => {
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+      const result = await page.evaluate(async () => {
+        const s = window.__dayforge_storage_atomicity;
+        const ownerId = "11111111-9002-4000-8000-000000000001";
+        const deviceId = "33333333-9002-4000-8000-000000000001";
+        const open = await s.openDatabase({ name: `r02-${crypto.randomUUID()}` });
+        if (!open.ok) return { setup: false };
+        const db = open.value;
+        const key = await s.generateTestKey();
+        const unlocked = await s.unlockOwner(db, ownerId, "r02-key", key);
+        if (!unlocked.ok) return { setup: false };
+        const makeInput = (operationId: string): any => ({
+          context: unlocked.value,
+          deviceId,
+          operationId,
+          commands: [{ root: { kind: "plan", id: "44444444-9002-4000-8000-000000000001" }, action: "plan.create", payload: { data: { name: "seq", color_id: "green" } }, precondition: null }],
+          dependencies: [],
+          clockInput: { estimatedUtcMs: 1793480000000, rawWallMs: 1793480000000, calibrationId: "55555555-9002-4000-8000-000000000001", quality: "calibrated" },
+        });
+        const first = await s.persistOperationAtomic(db, makeInput("22222222-9002-4000-8000-000000000001"));
+        await new Promise<void>((resolve, reject) => {
+          const tx = db.transaction(s.STORAGE_STORES.device_meta, "readwrite");
+          const store = tx.objectStore(s.STORAGE_STORES.device_meta);
+          const req = store.get([ownerId, deviceId]);
+          req.onsuccess = () => { const row = req.result; delete row.last_sequence; store.put(row); };
+          req.onerror = () => reject(req.error);
+          tx.oncomplete = () => resolve();
+          tx.onabort = () => reject(tx.error);
+        });
+        const next = await s.persistOperationAtomic(db, makeInput("22222222-9002-4000-8000-000000000002"));
+        await new Promise<void>((resolve, reject) => {
+          const tx = db.transaction(s.STORAGE_STORES.device_meta, "readwrite");
+          const store = tx.objectStore(s.STORAGE_STORES.device_meta);
+          const req = store.get([ownerId, deviceId]);
+          req.onsuccess = () => { const row = req.result; row.last_sequence = { toString: null }; store.put(row); };
+          req.onerror = () => reject(req.error);
+          tx.oncomplete = () => resolve();
+          tx.onabort = () => reject(tx.error);
+        });
+        const hostile = await s.persistOperationAtomic(db, makeInput("22222222-9002-4000-8000-000000000003"));
+        const state = await new Promise<{ count: number; lastSequence: unknown }>((resolve) => {
+          const tx = db.transaction([s.STORAGE_STORES.operations, s.STORAGE_STORES.device_meta], "readonly");
+          const countReq = tx.objectStore(s.STORAGE_STORES.operations).count();
+          const metaReq = tx.objectStore(s.STORAGE_STORES.device_meta).get([ownerId, deviceId]);
+          tx.oncomplete = () => resolve({ count: countReq.result, lastSequence: metaReq.result.last_sequence });
+        });
+        db.close();
+        return {
+          setup: true,
+          firstOk: first.ok,
+          secondOk: next.ok,
+          errorCode: next.ok ? null : next.error.code,
+          reusedSequenceOne: next.ok && next.value.deviceSequence === "1",
+          hostileOk: hostile.ok,
+          hostileCode: hostile.ok ? null : hostile.error.code,
+          operationCount: state.count,
+          sequenceStillMalformed: typeof state.lastSequence === "object",
+        };
+      });
+      expect(result.setup).toBe(true);
+      expect(result.firstOk).toBe(true);
+      expect(result.secondOk).toBe(false);
+      expect(result.errorCode).toBe("invalid_data");
+      expect(result.reusedSequenceOne).toBe(false);
+      expect(result.hostileOk).toBe(false);
+      expect(result.hostileCode).toBe("invalid_data");
+      expect(result.operationCount).toBe(1);
+      expect(result.sequenceStillMalformed).toBe(true);
+      expect(pageErrors).toEqual([]);
+    });
+
+    test("R03: invalid clock quality and extra HLC fields are rejected before commit", async ({ page }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+      const result = await page.evaluate(async () => {
+        const s = window.__dayforge_storage_atomicity;
+        const ownerId = "11111111-9003-4000-8000-000000000001";
+        const open = await s.openDatabase({ name: `r03-${crypto.randomUUID()}` });
+        if (!open.ok) return { setup: false };
+        const db = open.value;
+        const key = await s.generateTestKey();
+        const unlocked = await s.unlockOwner(db, ownerId, "r03-key", key);
+        if (!unlocked.ok) return { setup: false };
+        const makeInput = (operationId: string, deviceId: string, extras: object = {}): any => ({
+          context: unlocked.value,
+          deviceId,
+          operationId,
+          commands: [{ root: { kind: "plan", id: "44444444-9003-4000-8000-000000000001" }, action: "plan.create", payload: { data: { name: "clock", color_id: "green" } }, precondition: null }],
+          dependencies: [],
+          clockInput: { estimatedUtcMs: 1793480000000, rawWallMs: 1793480000000, calibrationId: "55555555-9003-4000-8000-000000000001", quality: "calibrated" },
+          ...extras,
+        });
+        const badQuality = await s.persistOperationAtomic(db, makeInput("22222222-9003-4000-8000-000000000001", "33333333-9003-4000-8000-000000000001", { clockInput: { estimatedUtcMs: 1793480000000, rawWallMs: 1793480000000, calibrationId: "55555555-9003-4000-8000-000000000001", quality: "bogus" } }));
+        const badEditTime = await s.persistOperationAtomic(db, makeInput("22222222-9003-4000-8000-000000000002", "33333333-9003-4000-8000-000000000002", { clockInput: undefined, editTime: { physical_ms: 1793480000000, logical: 0, calibration_id: "55555555-9003-4000-8000-000000000001", raw_wall_ms: 1793480000000, quality: "calibrated", debug: "extra" } }));
+        const nullQuality = await s.persistOperationAtomic(db, makeInput("22222222-9003-4000-8000-000000000003", "33333333-9003-4000-8000-000000000003", { clockInput: { estimatedUtcMs: 1793480000000, rawWallMs: 1793480000000, calibrationId: "55555555-9003-4000-8000-000000000001", quality: null } }));
+        db.close();
+        return {
+          setup: true,
+          badQualityOk: badQuality.ok,
+          badQualityCode: badQuality.ok ? null : badQuality.error.code,
+          badEditTimeOk: badEditTime.ok,
+          badEditTimeCode: badEditTime.ok ? null : badEditTime.error.code,
+          nullQualityOk: nullQuality.ok,
+          nullQualityCode: nullQuality.ok ? null : nullQuality.error.code,
+        };
+      });
+      expect(result.setup).toBe(true);
+      expect(result.badQualityOk).toBe(false);
+      expect(result.badQualityCode).toBe("invalid_data");
+      expect(result.badEditTimeOk).toBe(false);
+      expect(result.badEditTimeCode).toBe("invalid_data");
+      expect(result.nullQualityOk).toBe(false);
+      expect(result.nullQualityCode).toBe("invalid_data");
+    });
+
+    test("R04: connection closing during outbox decryption returns a typed storage error", async ({ page }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+      const result = await page.evaluate(async () => {
+        const s = window.__dayforge_storage_atomicity;
+        const ownerId = "11111111-9004-4000-8000-000000000001";
+        const open = await s.openDatabase({ name: `r04-${crypto.randomUUID()}` });
+        if (!open.ok) return { setup: false };
+        const db = open.value;
+        const key = await s.generateTestKey();
+        const unlocked = await s.unlockOwner(db, ownerId, "r04-key", key);
+        if (!unlocked.ok) return { setup: false };
+        const gateway = s.createLocalStorageGateway({ name: db.name });
+        const saved = await gateway.persistOperation({
+          context: unlocked.value,
+          deviceId: "33333333-9004-4000-8000-000000000001",
+          operationId: "22222222-9004-4000-8000-000000000001",
+          commands: [{ root: { kind: "plan", id: "44444444-9004-4000-8000-000000000001" }, action: "plan.create", payload: { data: { name: "read", color_id: "green" } }, precondition: null }],
+          dependencies: [],
+          clockInput: { estimatedUtcMs: 1793480000000, rawWallMs: 1793480000000, calibrationId: "55555555-9004-4000-8000-000000000001", quality: "calibrated" },
+        });
+        if (!saved.ok) return { setup: false };
+        const originalDecrypt = crypto.subtle.decrypt.bind(crypto.subtle);
+        crypto.subtle.decrypt = async (...args) => { const plaintext = await originalDecrypt(...args); db.close(); return plaintext; };
+        try {
+          const read = await s.listOptimisticOperations(db, unlocked.value);
+          return { setup: true, returnedResult: true, ok: read.ok, errorCode: read.ok ? null : read.error.code };
+        } catch (error) {
+          return { setup: true, returnedResult: false, errorName: error instanceof Error ? error.name : "unknown" };
+        } finally {
+          crypto.subtle.decrypt = originalDecrypt;
+          gateway.close();
+        }
+      });
+      expect(result.setup).toBe(true);
+      expect(result.returnedResult).toBe(true);
+      expect(result.ok).toBe(false);
+      expect(result.errorCode).toBe("unavailable");
+    });
   });
 });

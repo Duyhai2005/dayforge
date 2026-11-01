@@ -1,7 +1,5 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import ts from "typescript";
+import { buildStorageBrowserHarness } from "./helpers/storage-browser-harness";
 import {
   StorageError,
   openDatabase,
@@ -26,7 +24,7 @@ import {
   type OutboxEntry,
   type PersistOperationInput,
   type LocalStorageGateway,
-} from "../lib/storage";
+} from "./storage-api";
 
 declare global {
   interface Window {
@@ -54,41 +52,7 @@ declare global {
 }
 
 function buildStorageScript(): string {
-  const libDir = path.resolve(__dirname, "../lib/storage");
-  const files = [
-    "errors.ts",
-    "schema.ts",
-    "migration.ts",
-    "db.ts",
-    "crypto.ts",
-    "owner-gate.ts",
-    "clock-state.ts",
-    "outbox.ts",
-    "unit-of-work.ts",
-    "repositories.ts",
-    "view-preferences.ts",
-  ];
-
-  const combined = files
-    .filter((file) => fs.existsSync(path.join(libDir, file)))
-    .map((file) => fs.readFileSync(path.join(libDir, file), "utf-8"))
-    .join("\n")
-    .replace(/import\s+[\s\S]*?from\s+['"][^'"]+['"];?/g, "")
-    .replace(/import\s+.*?;/g, "");
-
-  const transpiled = ts.transpileModule(combined, {
-    compilerOptions: {
-      target: ts.ScriptTarget.ES2022,
-      module: ts.ModuleKind.CommonJS,
-    },
-  }).outputText;
-
-  return `(() => {
-    const exports = {};
-    const module = { exports };
-    ${transpiled}
-    window.__dayforge_storage_failures = exports;
-  })();`;
+  return buildStorageBrowserHarness("__dayforge_storage_failures");
 }
 
 test.describe("Storage Failures, Security Invariants & Scale Specifications", () => {
@@ -540,7 +504,7 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
 
           // Read back normally to verify initial integrity
           const initialRead = await gateway.getRecord(ctx, "plan", planId);
-          const initialList = await gateway.listPending(ctx);
+          const initialList = await gateway.listSendableOperations(ctx);
 
           // 1. Corrupt record overlay ciphertext in storage directly
           const txCorrupt = db.transaction([STORAGE_STORES.records, STORAGE_STORES.operations], "readwrite");
@@ -570,7 +534,7 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
           const tamperedRecRes = await gateway.getRecord(ctx, "plan", planId);
 
           // 3. Read corrupted outbox entry
-          const tamperedListRes = await gateway.listPending(ctx);
+          const tamperedListRes = await gateway.listSendableOperations(ctx);
 
           // 4. Test decryption with wrong key
           const key2 = await generateTestKey();
@@ -719,7 +683,7 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
 
           // Read back through listPending
           const t1 = performance.now();
-          const listRes = await gateway.listPending(ctx);
+          const listRes = await gateway.listSendableOperations(ctx);
           const readDuration = performance.now() - t1;
 
           if (!listRes.ok) {
@@ -874,7 +838,7 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
           // Read back overlay
           const recRes = await gateway.getRecord<{ note: string }>(ctx, "milestone", noteId);
           // Read back outbox envelope
-          const listRes = await gateway.listPending(ctx);
+          const listRes = await gateway.listSendableOperations(ctx);
 
           closeDatabase(db);
           gateway.close();
@@ -1167,7 +1131,7 @@ test.describe("Storage Failures, Security Invariants & Scale Specifications", ()
 
           // Measure listPending: reads all 100 outbox entries, decrypts AES-256-GCM envelopes, sorts by sequence
           const listStart = performance.now();
-          const listRes = await gateway.listPending(ctx);
+          const listRes = await gateway.listSendableOperations(ctx);
           const listDuration = performance.now() - listStart;
 
           if (!listRes.ok) {

@@ -57,18 +57,6 @@ export function createAad(
   return textEncoder.encode(`${ownerId}:${keyId}:${store}:${recordId}`);
 }
 
-export async function generateTestKey(): Promise<CryptoKey> {
-  const subtle = getSubtleCrypto();
-  return await subtle.generateKey(
-    {
-      name: "AES-GCM",
-      length: 256,
-    },
-    false,
-    ["encrypt", "decrypt"]
-  );
-}
-
 export async function importRawKey(rawBytes: Uint8Array): Promise<CryptoKey> {
   if (rawBytes.byteLength !== 32) {
     throw new StorageError(
@@ -104,6 +92,17 @@ export async function encryptPayload<T>(
     return storageErr("invalid_data", "Failed to serialize payload to JSON", err);
   }
 
+  return await encryptSerializedPayload(key, ownerId, keyId, store, recordId, jsonString);
+}
+
+export async function encryptSerializedPayload(
+  key: CryptoKey,
+  ownerId: string,
+  keyId: string,
+  store: string,
+  recordId: string,
+  jsonString: string
+): Promise<StorageResult<EncryptedRecord>> {
   const plaintextBytes = textEncoder.encode(jsonString);
   const iv = getRandomValues(new Uint8Array(12));
   const aad = createAad(ownerId, keyId, store, recordId);

@@ -1,7 +1,7 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import ts from "typescript";
+import { buildStorageBrowserHarness } from "./helpers/storage-browser-harness";
+import * as publicStorageApi from "../lib/storage";
+import * as integrationStorageApi from "../lib/storage/integration";
 import {
   StorageError,
   storageErr,
@@ -15,8 +15,9 @@ import {
   upgradeDatabase,
   checkVersionCompatibility,
   isVersionSupported,
+  createLocalStorageGateway,
   clearMigrationSteps,
-} from "../lib/storage";
+} from "./storage-api";
 
 declare global {
   interface Window {
@@ -32,38 +33,28 @@ declare global {
       isVersionSupported: typeof isVersionSupported;
       checkVersionCompatibility: typeof checkVersionCompatibility;
       openDatabase: typeof openDatabase;
+      createLocalStorageGateway: typeof createLocalStorageGateway;
       closeDatabase: typeof closeDatabase;
     };
   }
 }
 
 function buildStorageScript(): string {
-  const libDir = path.resolve(__dirname, "../lib/storage");
-  const errorsCode = fs.readFileSync(path.join(libDir, "errors.ts"), "utf-8");
-  const schemaCode = fs.readFileSync(path.join(libDir, "schema.ts"), "utf-8");
-  const migrationCode = fs.readFileSync(path.join(libDir, "migration.ts"), "utf-8");
-  const dbCode = fs.readFileSync(path.join(libDir, "db.ts"), "utf-8");
-
-  const combined = [errorsCode, schemaCode, migrationCode, dbCode]
-    .join("\n")
-    .replace(/import\s+.*?;/g, "");
-
-  const transpiled = ts.transpileModule(combined, {
-    compilerOptions: {
-      target: ts.ScriptTarget.ES2022,
-      module: ts.ModuleKind.CommonJS,
-    },
-  }).outputText;
-
-  return `(() => {
-    const exports = {};
-    const module = { exports };
-    ${transpiled}
-    window.__dayforge_storage = exports;
-  })();`;
+  return buildStorageBrowserHarness("__dayforge_storage");
 }
 
 test.describe("Storage Foundation Specifications", () => {
+  test("public and integration entrypoints expose only their intended capabilities", () => {
+    expect(Object.keys(publicStorageApi).sort()).toEqual(["StorageError", "createLocalStorageGateway", "storageErr", "storageOk"]);
+    for (const key of ["generateTestKey", "storeCryptoKey", "removeCryptoKey", "setOwnerMeta", "markOperationSynced", "listPending"]) {
+      expect(key in publicStorageApi).toBe(false);
+    }
+    for (const key of ["storeCryptoKey", "removeCryptoKey", "setOwnerMeta", "OWNER_KEY_SENTINEL_RECORD_ID", "registerMigrationStep", "generateTestKey"]) {
+      expect(key in integrationStorageApi).toBe(false);
+    }
+    expect("confirmPulledOperationInTx" in integrationStorageApi).toBe(true);
+  });
+
   test.describe("ST-02: Server-side and SSR Safety", () => {
     test.beforeEach(() => {
       clearMigrationSteps();
@@ -303,6 +294,39 @@ test.describe("Storage Foundation Specifications", () => {
       });
     });
 
+    test("gateway discards a cached database after versionchange", async ({ page }) => {
+      await page.goto("/work");
+      await page.addScriptTag({ content: buildStorageScript() });
+      const result = await page.evaluate(async () => {
+        const { createLocalStorageGateway, CURRENT_SCHEMA_VERSION } = window.__dayforge_storage;
+        const name = `gateway-versionchange-${crypto.randomUUID()}`;
+        let versionChangeCalled = false;
+        const gateway = createLocalStorageGateway({ name, onVersionChange: () => { versionChangeCalled = true; } });
+        const opened = await gateway.open();
+        if (!opened.ok) return { setup: false };
+        const upgraded = await new Promise<boolean>((resolve) => {
+          const request = indexedDB.open(name, CURRENT_SCHEMA_VERSION + 1);
+          request.onupgradeneeded = () => {};
+          request.onsuccess = () => { request.result.close(); resolve(true); };
+          request.onerror = () => resolve(false);
+          request.onblocked = () => resolve(false);
+        });
+        const reopened = await gateway.open();
+        gateway.close();
+        return {
+          setup: true,
+          upgraded,
+          versionChangeCalled,
+          reopened: reopened.ok,
+          reopenCode: reopened.ok ? null : reopened.error.code,
+        };
+      });
+      expect(result.setup).toBe(true);
+      expect(result.upgraded).toBe(true);
+      expect(result.versionChangeCalled).toBe(true);
+      expect(result.reopened).toBe(false);
+      expect(result.reopenCode).toBe("unsupported_version");
+    });
     test("closes connection automatically on versionchange so new upgrades are not blocked", async ({ page }) => {
       const result = await page.evaluate(async () => {
         const { openDatabase, closeDatabase, DB_NAME } = window.__dayforge_storage;

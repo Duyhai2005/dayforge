@@ -445,3 +445,31 @@ Commit `c4638f3` đóng race giữa việc chụp snapshot/giải mã toàn bộ
 
 > Kết quả CI của các commit sửa M06 cần được kiểm tra trực tiếp trên GitHub Actions; tài liệu không tự khẳng định đã pass trước khi CI hoàn tất.
 
+## 15. PR #8 Follow-up — Integrity and API Findings R01–R04
+
+**Date:** 01/11/2026
+**Reviewed head:** `0bb5877695574378ab78b7e8e81d69738891308c`
+
+The follow-up remediation addresses the four findings from the open PR review:
+
+1. **R01 — Immutable operation snapshot:** `persistOperationAtomic()` structured-clones its input before validation and derivation. It hashes the canonical envelope bytes and encrypts that same serialized string, so caller mutation cannot make the stored envelope disagree with `request_hash`.
+2. **R02 — Sequence metadata fails closed:** a persisted device lane must contain a canonical, bounded decimal `last_sequence`; missing, malformed (including structured-cloneable objects), or out-of-range values return `invalid_data` instead of restarting at sequence `1`. Existing optional `last_hlc` metadata remains compatible, while malformed present values remain rejected.
+3. **R03 — HLC values are strict:** HLC validation rejects extra own fields, and `advanceHlc()` rejects quality values outside the supported enum, including explicit `null` (only omitted quality defaults). These checks happen before commit.
+4. **R04 — Typed close-during-read failure:** the post-decryption owner recheck is shared by record, outbox, and view-preference reads. A closed connection during revalidation is returned as a typed storage error. The gateway also drops its cached connection on close/versionchange.
+
+The app-facing `frontend/lib/storage/index.ts` now exposes the gateway, result/error helpers, and essential DTO types. Low-level T09/T11 primitives live in `frontend/lib/storage/integration.ts`; key-store mutation, migration registry, sentinel internals, and test-key generation are excluded. The deprecated standalone `markOperationSynced` API and `listPending` aliases were removed from production. Test-only compatibility helpers live in `frontend/tests/storage-api.ts`, and all six storage specs use the shared per-module browser harness in `frontend/tests/helpers/storage-browser-harness.ts`.
+
+### Follow-up verification
+
+| Check | Result |
+|---|---|
+| `pnpm lint:web` | PASS, no lint errors or warnings |
+| `pnpm typecheck:web` | PASS |
+| R01–R04 Playwright regressions (including hostile sequence metadata and explicit-null quality) | PASS, 4/4 |
+| Full frontend Playwright suite (`--workers=4`) | PASS, 136/136 |
+| Production build (`pnpm build:web`) | PASS |
+| Production Playwright suite (`--workers=4`) | PASS, 136/136 |
+| `pnpm verify` | Could not complete: `uv` is not installed, so the backend Ruff step stopped `verify:fast` before backend checks. Frontend lint/typecheck and both browser suites were run separately. |
+
+The frontend and storage changes are verified locally. Backend checks remain unverified in this environment because the required `uv` executable is unavailable.
+

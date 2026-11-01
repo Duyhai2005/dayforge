@@ -1,5 +1,6 @@
 import { StorageError, type StorageResult, storageErr, storageOk } from "./errors";
 import { STORAGE_STORES } from "./schema";
+import { revalidateOwnerContext } from "./read-access";
 import { type EncryptedRecord, encryptPayload, decryptPayload } from "./crypto";
 import {
   type OwnerAccessContext,
@@ -185,16 +186,10 @@ export async function readOwnerViewPreference(
     return decRes;
   }
 
-  // Anti-TOCTOU: re-verify owner meta after decryption before returning plaintext
-  const recheckTx = db.transaction(STORAGE_STORES.owner_meta, "readonly");
-  const recheckMeta = await new Promise<OwnerMetadata | null>((resolve) => {
-    const req = recheckTx.objectStore(STORAGE_STORES.owner_meta).get(ctx.ownerId);
-    req.onsuccess = () => resolve((req.result as OwnerMetadata) ?? null);
-    req.onerror = () => resolve(null);
-  });
-  const recheckErr = checkOwnerMetaRecord(recheckMeta ?? undefined, ctx);
-  if (recheckErr) {
-    return { ok: false, error: recheckErr };
+  // Revalidate after decryption; a concurrent close or upgrade stays typed.
+  const accessRes = await revalidateOwnerContext(db, ctx);
+  if (!accessRes.ok) {
+    return accessRes;
   }
 
   return decRes;

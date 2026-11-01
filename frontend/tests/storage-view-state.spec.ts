@@ -1,7 +1,5 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import ts from "typescript";
+import { buildStorageBrowserHarness } from "./helpers/storage-browser-harness";
 import {
   StorageError,
   openDatabase,
@@ -17,7 +15,7 @@ import {
   readOwnerViewPreference,
   writeOwnerViewPreference,
   migrateLegacyViewPreferences,
-} from "../lib/storage";
+} from "./storage-api";
 
 declare global {
   interface Window {
@@ -39,41 +37,7 @@ declare global {
 }
 
 function buildStorageScript(): string {
-  const libDir = path.resolve(__dirname, "../lib/storage");
-  const files = [
-    "errors.ts",
-    "schema.ts",
-    "migration.ts",
-    "db.ts",
-    "crypto.ts",
-    "owner-gate.ts",
-    "clock-state.ts",
-    "outbox.ts",
-    "unit-of-work.ts",
-    "repositories.ts",
-    "view-preferences.ts",
-  ];
-
-  const combined = files
-    .filter((file) => fs.existsSync(path.join(libDir, file)))
-    .map((file) => fs.readFileSync(path.join(libDir, file), "utf-8"))
-    .join("\n")
-    .replace(/import\s+[\s\S]*?from\s+['"][^'"]+['"];?/g, "")
-    .replace(/import\s+.*?;/g, "");
-
-  const transpiled = ts.transpileModule(combined, {
-    compilerOptions: {
-      target: ts.ScriptTarget.ES2022,
-      module: ts.ModuleKind.CommonJS,
-    },
-  }).outputText;
-
-  return `(() => {
-    const exports = {};
-    const module = { exports };
-    ${transpiled}
-    window.__dayforge_storage_view_state = exports;
-  })();`;
+  return buildStorageBrowserHarness("__dayforge_storage_view_state");
 }
 
 test.describe("Storage View Preferences Specifications", () => {

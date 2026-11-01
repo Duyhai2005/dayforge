@@ -6,6 +6,7 @@ export interface OpenDatabaseOptions {
   version?: number;
   onBlocked?: () => void;
   onVersionChange?: () => void;
+  onClose?: () => void;
   blockedTimeoutMs?: number;
 }
 
@@ -110,6 +111,10 @@ export async function openDatabase(
       }
       settled = true;
       const db = request.result;
+
+      db.addEventListener("close", () => {
+        try { options?.onClose?.(); } catch { /* Ignore callback errors */ }
+      });
 
       db.addEventListener("versionchange", () => {
         if (options?.onVersionChange) {
