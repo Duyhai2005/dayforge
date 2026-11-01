@@ -24,6 +24,7 @@ required-version = "==0.13.6"
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+addopts = ["--import-mode=importlib"]
 markers = ["mysql: requires the isolated MySQL test runner"]
 
 [tool.black]

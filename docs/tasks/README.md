@@ -10,7 +10,7 @@
 
 **Spec:** [Thiết kế T01 đã duyệt](t01/design.md), [tổng quan hồ sơ](../project-definition/README.md), [yêu cầu chức năng](../project-definition/02-functional-requirements.md), [UX](../project-definition/03-ux-and-interactions.md), [kiến trúc](../project-definition/04-technical-architecture.md), [dữ liệu và đồng bộ](../project-definition/05-data-and-sync.md), [nghiệm thu](../project-definition/06-delivery-and-acceptance.md).
 
-Ngày cập nhật: **31/10/2026** · Trạng thái: **T01–T03 hoàn thành thiết kế/hợp đồng; T04 hoàn thành nền môi trường local; T05 hoàn thành nền FastAPI/MySQL theo [báo cáo kiểm chứng](t05/review-and-verification.md); T06 hoàn thành khung Next.js; T07 hoàn thành kiểm tra tự động và CI theo [báo cáo kiểm chứng](t07/review-and-verification.md); T08 hoàn thành lớp lưu trữ cục bộ bền vững theo [báo cáo kiểm chứng](t08/review-and-verification.md). T09–T36 chưa hoàn thành; chưa triển khai các luồng dữ liệu, tài khoản hoặc offline thực.**
+Ngày cập nhật: **01/11/2026** · Trạng thái: **T01–T03 hoàn thành thiết kế/hợp đồng; T04 hoàn thành nền môi trường local; T05 hoàn thành nền FastAPI/MySQL theo [báo cáo kiểm chứng](t05/review-and-verification.md); T06 hoàn thành khung Next.js; T07 hoàn thành kiểm tra tự động và CI theo [báo cáo kiểm chứng](t07/review-and-verification.md); T08 hoàn thành lớp lưu trữ cục bộ bền vững theo [báo cáo kiểm chứng](t08/review-and-verification.md); T09 hoàn thành account/session/local-vault theo [báo cáo kiểm chứng](t09/review-and-verification.md). T10–T36 còn lại; đồng bộ dữ liệu, cache offline và email tới inbox production chưa hoàn tất (email thật thuộc T30/T32).**
 
 ## 1. Cách dùng kế hoạch
 
@@ -20,7 +20,7 @@ Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hi
 - Mỗi task chỉ mô tả ngắn đầu việc; không liệt kê file code, chữ ký hàm hoặc lệnh thực hiện ở giai đoạn này, theo yêu cầu người dùng.
 - Mỗi task lập trình bao gồm kiểm chứng hành vi mình tạo ra và cập nhật tài liệu chịu ảnh hưởng. T28 là kiểm thử tích hợp/nghiệm thu, không thay cho việc kiểm tra từng task.
 - Đánh dấu xong khi có kết quả chạy/kiểm chứng được, không chỉ khi viết xong code.
-- Người dùng đã duyệt [Thiết kế T01](t01/design.md) và [Đặc tả T02 1.0](t02/design.md). [T03](t03/design.md) khóa hợp đồng dữ liệu/API và thuật toán theo quyền chọn kỹ thuật đã giao trong T01/T02; có rà soát và kiểm chứng schema, không diễn giải thành một lần phê duyệt riêng của người dùng. T01–T03 hoàn thành về thiết kế/hợp đồng. T04 hoàn thành bộ khung và hướng dẫn local; T06 hoàn thành shell lịch/widget và callback trung tính. Các luồng dữ liệu, tài khoản và offline thực chưa được triển khai; xem [kết quả và giới hạn T06](t06/review-and-verification.md).
+- Người dùng đã duyệt [Thiết kế T01](t01/design.md) và [Đặc tả T02 1.0](t02/design.md). [T03](t03/design.md) khóa hợp đồng dữ liệu/API và thuật toán theo quyền chọn kỹ thuật đã giao trong T01/T02; có rà soát và kiểm chứng schema, không diễn giải thành một lần phê duyệt riêng của người dùng. T01–T03 hoàn thành về thiết kế/hợp đồng. T04 hoàn thành bộ khung và hướng dẫn local; T06 hoàn thành shell lịch/widget; T08 hoàn thành lưu trữ cục bộ mã hóa; T09 hoàn thành tài khoản, session và lifecycle mở/khóa vault local. Đồng bộ dữ liệu và cache offline vẫn thuộc các task sau; xem các báo cáo T06, T08 và T09.
 
 ## 2. Ràng buộc chung
 
@@ -74,13 +74,13 @@ Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hi
 ### Nhóm 3 — Làm nền offline và đồng bộ · T08–T13
 
 - [x] **T08 — Lưu dữ liệu cục bộ bền vững.** Hoàn thành ngày **31/10/2026**: dựng IndexedDB native adapter, mã hóa AES-256-GCM với AAD theo owner, migration có versioning bảo toàn zero-deletion, unit of work commit nguyên tử (outbox + overlays + sequence + clock), và xử lý lỗi quota/blocked/unavailable. Đạt 20/20 kịch bản kiểm thử ST-01 đến ST-20 và 89 tests Playwright. Xem [kế hoạch chi tiết](t08/plan.md) và [báo cáo kiểm chứng](t08/review-and-verification.md).
-- [ ] **T09 — Làm tài khoản và phiên đăng nhập.** Email/mật khẩu, xác minh, login/session và bảo vệ API; làm signup/reset/ghi nhớ phiên theo thiết kế được duyệt, adapter gửi email và kiểm thử liên kết qua hộp thư phát triển. Giao thư thật kiểm chứng tại T30/T32.
+- [x] **T09 — Làm tài khoản và phiên đăng nhập.** Hoàn thành ngày **01/11/2026**: account email/mật khẩu một owner, xác minh/reset, session có CSRF/Origin protection, Mailpit SMTP adapter, login/remember, local-key gate và local logout liên tab/offline giữ nguyên dữ liệu mã hóa. Chạy 60 kiểm thử MySQL, 132 browser tests, production callback/auth 14 tests và build thành công; Mailpit delivery/link đã smoke-test. Email tới inbox thật vẫn thuộc T30/T32. Xem [plan](t09/plan.md), [runbook](../development.md) và [báo cáo kiểm chứng](t09/review-and-verification.md).
 - [ ] **T10 — Xây API đồng bộ phía máy chủ.** Làm snapshot, push/pull, revision/cursor, chống gửi trùng, dấu xóa và giao dịch nguyên tử; kiểm chứng không bỏ sót thay đổi đã commit.
 - [ ] **T11 — Xây bộ đồng bộ phía client.** Tự gửi/nhận khi app mở có kết nối hoặc mở lại; xử lý retry, thứ tự phụ thuộc, nhiều tab và phản hồi trễ theo LWW, không lấy bản cũ đè bản mới.
 - [ ] **T12 — Làm LWW và khôi phục đồng bộ.** Tự giữ bản sửa mới nhất theo lúc chỉnh, xử lý sửa–sửa, xóa–sửa và nhóm chuỗi theo T03; không có bước chọn conflict thủ công, không để ACK/retry cũ thắng bản mới.
 - [ ] **T13 — Làm cache offline cho Next.js server.** Cache shell/tài nguyên hai lịch để xem/sửa khi mở lại mất mạng; loại phản hồi auth/email callback/API riêng khỏi cache dùng chung, local tách theo owner; nâng cache không mất pending/bản nháp.
 
-**Kết quả nhóm:** đăng nhập cùng tài khoản đã xác minh trên hai thiết bị, sửa offline → reload → có mạng → thiết bị khác nhận đúng; retry không sinh trùng, LWW giữ bản chỉnh mới nhất. Kiểm chứng token/link qua hộp thư phát triển và cách ly owner; email production tới inbox được nghiệm thu sau ở T30/T32.
+**Kết quả nhóm khi hoàn thành T08–T13:** đăng nhập cùng tài khoản đã xác minh trên hai thiết bị, sửa offline → reload → có mạng → thiết bị khác nhận đúng; retry không sinh trùng, LWW giữ bản chỉnh mới nhất. T09 đã kiểm chứng token/link qua hộp thư phát triển và cách ly owner; email production tới inbox được nghiệm thu sau ở T30/T32.
 
 **Phụ thuộc chính:** T08 cần T03/T06; T09 cần T03/T05/T06 và email adapter/hộp thư phát triển, không phụ thuộc lựa chọn nhà cung cấp production ở T29/T30; T10 cần T03/T05/T09; T11 cần T08/T10; T12 cần T11; T13 cần T06/T08/T09 và được kiểm chứng cùng T11.
 

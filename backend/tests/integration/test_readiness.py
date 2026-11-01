@@ -74,7 +74,16 @@ async def query(settings, statement):
 @pytest.fixture
 def isolated_schema(mysql_test_settings):
     def reset():
-        for table in ("workspace_settings", "users", "alembic_version"):
+        for table in (
+            "email_delivery_jobs",
+            "auth_rate_limits",
+            "owner_local_keys",
+            "email_tokens",
+            "sessions",
+            "workspace_settings",
+            "users",
+            "alembic_version",
+        ):
             asyncio.run(query(mysql_test_settings, f"DROP TABLE IF EXISTS {table}"))
 
     reset()

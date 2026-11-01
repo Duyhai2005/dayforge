@@ -2,7 +2,7 @@
 
 This guide starts the T04 local environment, T05 backend and T06 Next.js shell from the repository root in Windows PowerShell 5.1 or PowerShell 7. It runs Next.js and FastAPI on the host and MySQL in Docker Desktop. First-time setup needs internet access to download packages, the browser test engine and the MySQL image.
 
-T05 adds validated settings, async MySQL sessions, Alembic migrations, strict request validation, private error/log handling, and public health/version endpoints. T06 provides the work and milestone calendar shells, navigation widget, account placeholder and email callback shells. Calendar records, real authentication, owner storage, sync, offline support and production deployment remain later tasks. See the [T05 verification report](tasks/t05/review-and-verification.md) and the [T06 verification report](tasks/t06/review-and-verification.md) for results and remaining acceptance checks.
+T05 adds validated settings, async MySQL sessions, Alembic migrations, strict request validation, private error/log handling, and public health/version endpoints. T06 provides the work and milestone calendar shells and navigation widget. T08 adds persistent encrypted local storage, and T09 completes the owner account, email verification, password, server session and local vault lifecycle. Calendar data/sync, offline shell caching and production deployment remain later tasks. See the T05, T06, T08 and T09 verification reports for results and remaining acceptance checks.
 
 ## 1. Install the pinned tools
 
@@ -67,7 +67,7 @@ uv python find 3.14.10
 pnpm setup:local
 ```
 
-The frozen pnpm install and locked uv sync must finish without changing either lockfile. `setup:local` creates `.env`, `backend/.env` and `frontend/.env.local`. It generates independent database app/root passwords, uses the same app password in the two server-side locations that need it, and does not print password values.
+The frozen pnpm install and locked uv sync must finish without changing either lockfile. setup:local creates .env, backend/.env and frontend/.env.local. It generates independent database app/root passwords, uses the same app password in the two server-side locations that need it, and does not print password values. For T09 it also generates per-checkout local-key, logout-ticket, rate-limit and encrypted email-outbox secrets in backend/.env; set OWNER_EMAIL there yourself to the single permitted owner address.
 
 The setup command refuses a partial set of local environment files instead of overwriting existing files. If it reports missing files, restore only the missing file from its matching `*.env.example` and deliberately configure the generated database credential values to match, or recover the original local configuration. Do not copy real `.env` files into Git.
 
@@ -166,9 +166,9 @@ pnpm test:api:mysql
 
 Request session dependencies close their sessions but never auto-commit. A service owns its write transaction with `async with session.begin():`; an error rolls it back. Each background or concurrent task needs its own session. API shutdown disposes the engine/pool; stop the API with Ctrl+C before routine database shutdown.
 
-T09 must create a verified `User` and its fixed `WorkspaceSettings` in one transaction. T10 adds the owner lock, event store and domain data through Alembic; it must preserve User IDs and keep domain writes on the sync path instead of introducing bypass CRUD routes. The backend development user has schema privileges for local migration. Separate production migration/runtime privileges belong to T29.
+T09 creates a verified User and its fixed WorkspaceSettings in one transaction. T10 adds the owner lock, event store and domain data through Alembic; it must preserve User IDs and keep domain writes on the sync path instead of introducing bypass CRUD routes. The backend development user has schema privileges for local migration. Separate production migration/runtime privileges belong to T29.
 
-## 5. Verify T06 routes and the production Next.js server
+## 5. Verify app routes and the production Next.js server
 
 The public T06 shell has these routes:
 
@@ -177,8 +177,8 @@ The public T06 shell has these routes:
 | `/` | Redirects to `/work`. |
 | `/work?date=YYYY-MM-DD` | Work calendar shell; week view. |
 | `/milestones?date=YYYY-MM-DD&scale=week\|month\|year` | Milestone calendar shell with the requested scale. |
-| `/account` | Explicit account placeholder. |
-| `/verify-email#token=...`, `/reset-password#token=...` | Remove the full fragment into component memory and show a neutral placeholder; no token submission. |
+| /account | Login, initial account email request for the configured owner, verification resend and password-reset request; responses use neutral eligibility copy. Auth requests use same-origin, no-store fetches. |
+| /verify-email#token=..., /reset-password#token=... | Scrub the fragment before rendering and keep a valid token in component memory. Submit only after explicit user confirmation; GET/scanner requests do not consume tokens. Production responses use private no-store, Pragma: no-cache and Referrer-Policy: no-referrer. |
 
 After the HTTPS smoke finishes, stop the terminal running `pnpm dev:web` with Ctrl+C. Playwright starts its own Next.js dev server on port `3010`, so do not keep `dev:web` running in the same checkout. Install the Playwright Chromium engine once, then run the browser suite before building production:
 
@@ -210,7 +210,7 @@ Remove-Item Env:PLAYWRIGHT_BASE_URL
 
 The probe should print `200` and `True`. With `PLAYWRIGHT_BASE_URL` set to the built production server, both callback routes must return `Cache-Control` containing `private` and `no-store`, `Pragma: no-cache` and `Referrer-Policy: no-referrer`. Next.js dev forces its own `Cache-Control: no-store`, so the default dev suite checks that directive and the remaining headers; the production run enforces `private` too. Stop the production server with Ctrl+C after verification.
 
-The widget starts collapsed. Calendar date/scale and scroll preferences use separate `sessionStorage` keys, `dayforge:view:v1:work` and `dayforge:view:v1:milestones`; they contain UI preferences only. T08/T09 must move this temporary state to the device/owner model. Add controls remain disabled and explain that saving is unavailable. T06 adds no real account flow, calendar data, IndexedDB, sync or service worker; T13 must implement offline shell caching and exclude callbacks/private APIs.
+The widget starts collapsed. Calendar date/scale and scroll preferences use separate sessionStorage keys, dayforge:view:v1:work and dayforge:view:v1:milestones; they contain UI preferences only. T09 now provides account and local-vault lifecycle, while calendar records and sync-backed saving remain for later tasks. Add controls remain disabled while calendar persistence is not implemented. T13 must implement offline shell caching and exclude auth APIs and callback routes from shared caches.
 
 ## 6. Stop services and keep local data
 
@@ -248,12 +248,12 @@ pnpm test:web:prod  # Playwright production suite (manages prod server on port 3
 
 ### IndexedDB local persistent storage
 
-T08 provides the browser IndexedDB persistence foundation (`frontend/lib/storage/`). All sensitive records, outbox envelopes, and view preferences are AES-256-GCM encrypted per owner before writing to IndexedDB.
+T08 provides the browser IndexedDB persistence foundation (frontend/lib/storage/). All sensitive records, outbox envelopes, and view preferences are AES-256-GCM encrypted per owner before writing to IndexedDB. T09 advances IndexedDB to schema v2 with an auth_state store for a pending logout-revocation ticket and minimal metadata; migration preserves every T08 store, encrypted outbox envelope and draft.
 
 To run the local storage test suites:
 
 ```powershell
-# Run all browser tests (including 57 storage tests across ST-01 to ST-20)
+# Run the full browser suite, including T08 storage and T09 account/auth tests
 pnpm test:web
 
 # Run focused storage test suites
@@ -263,6 +263,9 @@ pnpm --filter @dayforge/frontend exec playwright test tests/storage-security.spe
 pnpm --filter @dayforge/frontend exec playwright test tests/storage-migrations.spec.ts
 pnpm --filter @dayforge/frontend exec playwright test tests/storage-view-state.spec.ts
 pnpm --filter @dayforge/frontend exec playwright test tests/storage-failures.spec.ts
+
+# Focused T09 account, callback and auth-state migration coverage
+pnpm --filter @dayforge/frontend exec playwright test tests/auth-session.spec.ts tests/auth-routes.spec.ts tests/storage-migrations.spec.ts
 ```
 
 Key storage characteristics:
