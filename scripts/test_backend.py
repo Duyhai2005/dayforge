@@ -167,9 +167,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 EMAIL_SMTP_PORT="1025",
                 EMAIL_FROM="dayforge@example.test",
             )
-            exit_code = subprocess.run(
-                pytest, check=False, cwd=BACKEND, env=test_environ
-            ).returncode
+            exit_code = subprocess.run(pytest, cwd=BACKEND, env=test_environ).returncode
         except RunnerError, OSError:
             print(
                 "Isolated MySQL test runner failed; Docker details suppressed to protect credentials.",
