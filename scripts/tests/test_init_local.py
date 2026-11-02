@@ -8,7 +8,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.init_local import initialize_local
+from scripts.init_local import initialize_local  # noqa: E402
 
 TEMPLATES = (
     (".env.example", ".env"),
@@ -54,7 +54,9 @@ class InitializeLocalTests(unittest.TestCase):
 
         self.assertEqual(compose_env["MYSQL_PASSWORD"], backend_env["DB_PASSWORD"])
         self.assertGreaterEqual(len(compose_env["MYSQL_PASSWORD"]), 32)
-        self.assertNotEqual(compose_env["MYSQL_PASSWORD"], compose_env["MYSQL_ROOT_PASSWORD"])
+        self.assertNotEqual(
+            compose_env["MYSQL_PASSWORD"], compose_env["MYSQL_ROOT_PASSWORD"]
+        )
         self.assertNotIn("MYSQL_ROOT_PASSWORD", backend_env)
         self.assertEqual(backend_env["OWNER_EMAIL"], "")
         auth_keys = [
@@ -64,10 +66,17 @@ class InitializeLocalTests(unittest.TestCase):
             "AUTH_EMAIL_OUTBOX_KEY_B64",
             "SYNC_PAGE_TOKEN_KEY_B64",
         ]
-        decoded_keys = [base64.urlsafe_b64decode(backend_env[field] + "=") for field in auth_keys]
+        decoded_keys = [
+            base64.urlsafe_b64decode(backend_env[field] + "=") for field in auth_keys
+        ]
         self.assertTrue(all(len(key) == 32 for key in decoded_keys))
         self.assertEqual(len(set(decoded_keys)), len(auth_keys))
-        self.assertTrue(all(backend_env[field] != "" for field in ("EMAIL_SMTP_HOST", "EMAIL_SMTP_PORT", "EMAIL_FROM")))
+        self.assertTrue(
+            all(
+                backend_env[field] != ""
+                for field in ("EMAIL_SMTP_HOST", "EMAIL_SMTP_PORT", "EMAIL_FROM")
+            )
+        )
         self.assertEqual(frontend_env, {"API_INTERNAL_ORIGIN": "http://127.0.0.1:8000"})
 
     def test_rerun_preserves_all_existing_bytes(self) -> None:
@@ -84,7 +93,12 @@ class InitializeLocalTests(unittest.TestCase):
         backend_path = paths[1]
         previous = backend_path.read_text(encoding="utf-8")
         backend_path.write_text(
-            "\n".join(line for line in previous.splitlines() if not line.startswith("SYNC_PAGE_TOKEN_KEY_B64=")) + "\n",
+            "\n".join(
+                line
+                for line in previous.splitlines()
+                if not line.startswith("SYNC_PAGE_TOKEN_KEY_B64=")
+            )
+            + "\n",
             encoding="utf-8",
         )
         other_contents = (paths[0].read_bytes(), paths[2].read_bytes())
@@ -94,7 +108,9 @@ class InitializeLocalTests(unittest.TestCase):
         backend_env = read_env(backend_path)
         new_key = base64.urlsafe_b64decode(backend_env["SYNC_PAGE_TOKEN_KEY_B64"] + "=")
         self.assertEqual(len(new_key), 32)
-        self.assertNotEqual(new_key, base64.urlsafe_b64decode(backend_env["LOCAL_KEY_KEK_B64"] + "="))
+        self.assertNotEqual(
+            new_key, base64.urlsafe_b64decode(backend_env["LOCAL_KEY_KEK_B64"] + "=")
+        )
         self.assertEqual((paths[0].read_bytes(), paths[2].read_bytes()), other_contents)
 
     def test_partial_configuration_refuses_without_writing(self) -> None:
