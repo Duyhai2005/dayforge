@@ -82,7 +82,10 @@ class OperationReceipt(Base):
             ondelete="RESTRICT",
         ),
         CheckConstraint("recorded IN (0, 1)", name="recorded_boolean"),
-        CheckConstraint("effect_at_commit IN ('applied', 'superseded', 'no_op')", name="effect_valid"),
+        CheckConstraint(
+            "effect_at_commit IN ('applied', 'superseded', 'no_op', 'not_evaluated')",
+            name="effect_valid",
+        ),
         CheckConstraint(
             "reason_at_commit IS NULL OR reason_at_commit IN "
             "('duplicate_target', 'reference_unavailable', 'target_retired', 'precondition_failed', "

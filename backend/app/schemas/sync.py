@@ -47,7 +47,7 @@ class OperationReceiptView(ContractModel):
     request_hash: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
     recorded: Literal[True]
     commit_cursor: DeviceSequence
-    effect_at_commit: Literal["applied", "superseded", "no_op"]
+    effect_at_commit: Literal["applied", "superseded", "no_op", "not_evaluated"]
     reason_at_commit: (
         Literal[
             "duplicate_target",

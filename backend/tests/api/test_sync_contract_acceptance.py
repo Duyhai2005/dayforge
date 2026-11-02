@@ -50,7 +50,7 @@ def test_push_duplicate_returns_the_same_receipt_and_never_logs_payload(
             operation_id=operation.operation_id,
             request_hash=operation.request_hash,
             commit_cursor=1,
-            effect_at_commit="applied",
+            effect_at_commit="not_evaluated",
             reason_at_commit=None,
         )
         return OperationWriteResult(
@@ -107,7 +107,7 @@ def test_unknown_newline_field_does_not_abort_an_independent_push(settings_facto
             operation_id=operation.operation_id,
             request_hash=operation.request_hash,
             commit_cursor=1,
-            effect_at_commit="applied",
+            effect_at_commit="not_evaluated",
             reason_at_commit=None,
         )
         return OperationWriteResult(

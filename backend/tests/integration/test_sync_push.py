@@ -74,6 +74,8 @@ def test_push_retry_returns_original_receipt_and_different_hash_is_rejected(migr
             assert first.status == "recorded"
             assert duplicate.status == "duplicate"
             assert duplicate.receipt == first.receipt
+            assert first.receipt.effect_at_commit == "not_evaluated"
+            assert first.receipt.reason_at_commit is None
             assert first.head_cursor == duplicate.head_cursor == 1
 
             changed = operation_for(owner.id)
@@ -226,6 +228,68 @@ def test_push_rejects_owner_assertion_and_nonincreasing_dependency_order(migrate
             assert order.value.code == "invalid_causality"
 
             async with database.sessions() as session:
+                assert await session.scalar(select(func.count()).select_from(RecordedOperation)) == 1
+        finally:
+            await database.engine.dispose()
+
+    asyncio.run(run())
+
+
+def test_push_rejects_dependency_with_equal_hlc_even_when_k_tie_breakers_increase(migrated, user_factory):
+    async def run():
+        database = create_database(migrated)
+        owner = user_factory()
+        try:
+            async with database.sessions() as session:
+                async with session.begin():
+                    session.add(owner)
+
+            dependency = operation_for(owner.id)
+            dependency["device_id"] = "33333333-3333-4333-8333-333333333333"
+            dependency["operation_id"] = "44444444-4444-4444-8444-444444444444"
+            await record_operation(database, owner.id, validate_operation(dependency), now=TEST_NOW)
+
+            cases = (
+                {
+                    "name": "delete_rank",
+                    "operation_id": "11111111-1111-4111-8111-111111111111",
+                    "device_id": dependency["device_id"],
+                    "action": "single.delete",
+                    "payload": {},
+                },
+                {
+                    "name": "device_id",
+                    "operation_id": "11111111-1111-4111-8111-111111111112",
+                    "device_id": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+                    "action": "work_item.create_single",
+                    "payload": dependency["commands"][0]["payload"],
+                },
+                {
+                    "name": "operation_id",
+                    "operation_id": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+                    "device_id": dependency["device_id"],
+                    "action": "work_item.create_single",
+                    "payload": dependency["commands"][0]["payload"],
+                },
+            )
+            for case in cases:
+                dependent = operation_for(owner.id)
+                dependent["operation_id"] = case["operation_id"]
+                dependent["device_id"] = case["device_id"]
+                dependent["dependencies"] = [dependency["operation_id"]]
+                dependent["commands"][0]["action"] = case["action"]
+                dependent["commands"][0]["payload"] = case["payload"]
+                dependent["edit_time"]["physical_ms"] = dependency["edit_time"]["physical_ms"]
+                dependent["edit_time"]["logical"] = dependency["edit_time"]["logical"]
+                dependent["edit_time"]["raw_wall_ms"] = dependency["edit_time"]["raw_wall_ms"]
+
+                with pytest.raises(SyncOperationError) as causality:
+                    await record_operation(database, owner.id, validate_operation(dependent), now=TEST_NOW)
+                assert causality.value.code == "invalid_causality", case["name"]
+
+            async with database.sessions() as session:
+                state = await session.get(OwnerSyncState, owner.id)
+                assert state is not None and state.head_cursor == 1
                 assert await session.scalar(select(func.count()).select_from(RecordedOperation)) == 1
         finally:
             await database.engine.dispose()

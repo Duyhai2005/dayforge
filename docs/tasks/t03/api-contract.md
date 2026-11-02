@@ -1,4 +1,4 @@
-# T03 — HTTP API contract 1.0
+# T03 — HTTP API contract 1.1
 
 Ngày: **28/10/2026** · Nguồn liên quan: [dữ liệu](data-contract.md), [tài khoản](auth-contract.md), [đồng bộ](sync-contract.md).
 
@@ -90,7 +90,7 @@ Vỏ request sai JSON hoặc vượt giới hạn trả `400`/`413`, không ghi 
         "request_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "recorded": true,
         "commit_cursor": "26",
-        "effect_at_commit": "applied",
+        "effect_at_commit": "not_evaluated",
         "reason_at_commit": null
       }
     }
@@ -99,6 +99,8 @@ Vỏ request sai JSON hoặc vượt giới hạn trả `400`/`413`, không ghi 
 ```
 
 Mỗi item request có đúng một result theo cùng thứ tự, với `status: recorded|duplicate|deferred|rejected`. Hai trạng thái đầu có receipt; hai trạng thái sau có `problem` theo mục 6 và không ACK operation. `operation_id:null` chỉ dùng khi item sai cấu trúc đến mức không đọc được ID hợp lệ. `HTTP 200` không đồng nghĩa mọi operation đã ghi hoặc luôn thắng.
+
+Contract 1.1 bổ sung `effect_at_commit: "not_evaluated"` cho server chưa chạy reducer nghiệp vụ. Giá trị này chỉ xác nhận event đã được ghi; client không được suy ra operation đã áp dụng hay bị no-op. Server chỉ trả `applied`, `superseded` hoặc `no_op` khi reducer đã tính được outcome. Đây là cập nhật trước khi API T03 được phát hành; API major và protocol version vẫn là 1.
 
 Operation trùng ID/hash trả receipt cũ, không cấp cursor mới. Trùng ID khác hash trả `operation_id_reused`. Receipt xác nhận event bền vững; client phải pull đến khi event đó có trong shadow trước khi bỏ lớp `ack_waiting_pull`. `head_cursor` không được gán trực tiếp cho pull cursor.
 

@@ -86,3 +86,13 @@ def test_recorded_push_wire_omits_unset_problem_but_keeps_null_receipt_reason(co
     contract_validator("PushResponse").validate(wire)
     assert "problem" not in wire["results"][0]
     assert wire["results"][0]["receipt"]["reason_at_commit"] is None
+
+    not_evaluated = {
+        "operation_id": operation_id,
+        "request_hash": "a" * 64,
+        "recorded": True,
+        "commit_cursor": "1",
+        "effect_at_commit": "not_evaluated",
+        "reason_at_commit": None,
+    }
+    contract_validator("Receipt").validate(not_evaluated)

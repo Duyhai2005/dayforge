@@ -18,6 +18,46 @@ def operation_example():
     )
 
 
+def recurrence_operation():
+    operation = operation_example()
+    operation["commands"][0]["action"] = "work_item.create_recurrence"
+    operation["commands"][0]["payload"] = {
+        "start_date": "2026-10-28",
+        "rule": {"weekdays": [1, 3, 5]},
+        "template": {
+            "title": "Ôn thi giữa kỳ",
+            "period": "morning",
+            "duration_minutes": None,
+            "plan_id": None,
+            "standalone_color_id": "neutral",
+            "order_key": "1024",
+        },
+    }
+    return operation
+
+
+def operation_with_command_fixture(name):
+    document = json.loads(EXAMPLES_PATH.read_text(encoding="utf-8"))
+    command = next(
+        item["value"]
+        for item in document["fixtures"]
+        if item["definition"] == "Command" and item["valid"] and item["name"] == name
+    )
+    operation = operation_example()
+    operation["commands"][0] = command
+    return operation
+
+
+def assert_invalid_semantic_value(operation, expected_path):
+    module = sync_wire()
+    with pytest.raises(module.SyncWireError) as error:
+        module.validate_operation(operation)
+
+    assert error.value.code == "validation_failed"
+    assert error.value.field_errors is not None
+    assert expected_path in {item.path for item in error.value.field_errors}
+
+
 def sync_wire():
     module_spec = importlib.util.find_spec("app.services.sync_wire")
     assert module_spec is not None, "T10 sync wire validator is not implemented"
@@ -136,6 +176,71 @@ def test_device_sequence_must_fit_unsigned_64_bit():
     with pytest.raises(module.SyncWireError) as error:
         module.validate_operation(operation)
     assert error.value.code == "validation_failed"
+
+
+@pytest.mark.parametrize("order_key", ["-9223372036854775808", "9223372036854775807"])
+def test_task_order_key_accepts_signed_int64_boundaries(order_key):
+    operation = operation_example()
+    operation["commands"][0]["payload"]["data"]["order_key"] = order_key
+
+    result = sync_wire().validate_operation(operation)
+    assert result.envelope["commands"][0]["payload"]["data"]["order_key"] == order_key
+
+
+@pytest.mark.parametrize("order_key", ["-9223372036854775809", "9223372036854775808"])
+def test_task_order_key_rejects_values_outside_signed_int64(order_key):
+    operation = operation_example()
+    operation["commands"][0]["payload"]["data"]["order_key"] = order_key
+
+    assert_invalid_semantic_value(operation, "/commands/0/payload/data/order_key")
+
+
+@pytest.mark.parametrize(
+    ("fixture", "order_key_path"),
+    [
+        ("command-work_item.create_recurrence", ("template", "order_key")),
+        ("command-set_order", ("order_key",)),
+    ],
+)
+@pytest.mark.parametrize("order_key", ["-9223372036854775809", "9223372036854775808"])
+def test_template_and_reorder_keys_reject_values_outside_signed_int64(fixture, order_key_path, order_key):
+    operation = operation_with_command_fixture(fixture)
+    field = operation["commands"][0]["payload"]
+    for part in order_key_path[:-1]:
+        field = field[part]
+    field[order_key_path[-1]] = order_key
+
+    expected_path = "/commands/0/payload/" + "/".join(order_key_path)
+    assert_invalid_semantic_value(operation, expected_path)
+
+
+@pytest.mark.parametrize("title", ["   ", "Cafe\u0301", "title\u2028continued"])
+def test_task_title_must_be_trimmed_and_nfc(title):
+    operation = operation_example()
+    operation["commands"][0]["payload"]["data"]["title"] = title
+
+    assert_invalid_semantic_value(operation, "/commands/0/payload/data/title")
+
+
+def test_recurrence_weekdays_must_be_ascending():
+    unsorted = recurrence_operation()
+    unsorted["commands"][0]["payload"]["rule"]["weekdays"] = [3, 1]
+    assert_invalid_semantic_value(unsorted, "/commands/0/payload/rule/weekdays")
+
+
+def test_new_recurrence_can_start_before_its_first_matching_weekday():
+    operation = recurrence_operation()
+    operation["commands"][0]["payload"]["rule"]["weekdays"] = [1, 5]
+
+    result = sync_wire().validate_operation(operation)
+    assert result.envelope["commands"][0]["payload"]["start_date"] == "2026-10-28"
+
+
+def test_enable_recurrence_date_must_match_a_selected_weekday():
+    operation = operation_with_command_fixture("command-work_item.enable_recurrence")
+    operation["commands"][0]["payload"]["rule"]["weekdays"] = [1, 5]
+
+    assert_invalid_semantic_value(operation, "/commands/0/payload/rule/weekdays")
 
 
 def test_operation_size_is_capped_before_command_schema_validation():

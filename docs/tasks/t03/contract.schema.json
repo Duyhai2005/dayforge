@@ -1675,7 +1675,8 @@
           "enum": [
             "applied",
             "superseded",
-            "no_op"
+            "no_op",
+            "not_evaluated"
           ]
         },
         "reason_at_commit": {

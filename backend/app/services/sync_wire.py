@@ -2,7 +2,9 @@
 
 import hashlib
 import json
+import unicodedata
 from dataclasses import dataclass
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -17,6 +19,11 @@ from app.schemas.sync import OperationEnvelope
 OPERATION_BYTES_LIMIT = 2_097_152
 MAX_SAFE_INTEGER = 9_007_199_254_740_991
 MAX_DEVICE_SEQUENCE = 18_446_744_073_709_551_615
+_JS_WHITESPACE = (
+    "\u0009\u000a\u000b\u000c\u000d\u0020\u00a0\u1680"
+    "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
+    "\u2028\u2029\u202f\u205f\u3000\ufeff"
+)
 SCHEMA_PATH = Path(__file__).resolve().parents[3] / "docs" / "tasks" / "t03" / "contract.schema.json"
 
 
@@ -169,6 +176,88 @@ def _delete_rank(envelope: dict[str, Any]) -> int:
     return 0
 
 
+def _semantic_field_error(path: str) -> FieldError:
+    return FieldError(path=path, code="invalid_value")
+
+
+def _is_canonical_single_line(value: str) -> bool:
+    normalized = unicodedata.normalize("NFC", value)
+    return (
+        value == normalized
+        and value == value.strip(_JS_WHITESPACE)
+        and not any(line_break in value for line_break in ("\n", "\r", "\u2028", "\u2029"))
+    )
+
+
+def _is_canonical_note(value: str) -> bool:
+    normalized_newlines = value.replace("\r\n", "\n").replace("\r", "\n")
+    return value == unicodedata.normalize("NFC", normalized_newlines)
+
+
+def _is_int64(value: str) -> bool:
+    if len(value) > 20:
+        return False
+    number = int(value)
+    return -(1 << 63) <= number <= (1 << 63) - 1
+
+
+def _command_semantic_errors(envelope: dict[str, Any]) -> list[FieldError]:
+    errors: list[FieldError] = []
+    task_data_actions = {
+        "work_item.create_single",
+        "work_item.enable_recurrence",
+        "single.replace",
+        "occurrence.replace",
+        "detached.replace",
+    }
+    template_actions = {"work_item.create_recurrence", "series.edit_future"}
+
+    for index, command in enumerate(envelope["commands"]):
+        action = command["action"]
+        payload = command["payload"]
+        prefix = f"/commands/{index}/payload"
+
+        if action in ("plan.create", "plan.replace"):
+            name = payload["data"]["name"]
+            if not _is_canonical_single_line(name):
+                errors.append(_semantic_field_error(f"{prefix}/data/name"))
+        elif action in ("milestone.create", "milestone.replace"):
+            data = payload["data"]
+            if not _is_canonical_single_line(data["title"]):
+                errors.append(_semantic_field_error(f"{prefix}/data/title"))
+            if not _is_canonical_note(data["note"]):
+                errors.append(_semantic_field_error(f"{prefix}/data/note"))
+
+        if action in task_data_actions:
+            data = payload["data"]
+            if not _is_canonical_single_line(data["title"]):
+                errors.append(_semantic_field_error(f"{prefix}/data/title"))
+            if not _is_int64(data["order_key"]):
+                errors.append(_semantic_field_error(f"{prefix}/data/order_key"))
+
+        if action in template_actions:
+            template = payload["template"]
+            if not _is_canonical_single_line(template["title"]):
+                errors.append(_semantic_field_error(f"{prefix}/template/title"))
+            if not _is_int64(template["order_key"]):
+                errors.append(_semantic_field_error(f"{prefix}/template/order_key"))
+
+        if action == "set_order" and not _is_int64(payload["order_key"]):
+            errors.append(_semantic_field_error(f"{prefix}/order_key"))
+
+        if action in template_actions | {"work_item.enable_recurrence"}:
+            weekdays = payload["rule"]["weekdays"]
+            if any(current <= previous for previous, current in zip(weekdays, weekdays[1:])):
+                errors.append(_semantic_field_error(f"{prefix}/rule/weekdays"))
+            if (
+                action == "work_item.enable_recurrence"
+                and date.fromisoformat(payload["data"]["date"]).isoweekday() not in weekdays
+            ):
+                errors.append(_semantic_field_error(f"{prefix}/rule/weekdays"))
+
+    return errors[:50]
+
+
 def validate_operation(value: Any) -> ValidatedOperation:
     if not isinstance(value, dict):
         raise SyncWireError("validation_failed")
@@ -192,6 +281,10 @@ def validate_operation(value: Any) -> ValidatedOperation:
     )
     if schema_errors:
         raise SyncWireError("validation_failed", _schema_field_errors(schema_errors))
+
+    semantic_errors = _command_semantic_errors(value)
+    if semantic_errors:
+        raise SyncWireError("validation_failed", semantic_errors)
 
     sequence = int(wire.device_sequence)
     if sequence > MAX_DEVICE_SEQUENCE:

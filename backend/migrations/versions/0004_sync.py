@@ -92,7 +92,7 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint("recorded IN (0, 1)", name=op.f("ck_operation_receipts_recorded_boolean")),
         sa.CheckConstraint(
-            "effect_at_commit IN ('applied', 'superseded', 'no_op')",
+            "effect_at_commit IN ('applied', 'superseded', 'no_op', 'not_evaluated')",
             name=op.f("ck_operation_receipts_effect_valid"),
         ),
         sa.CheckConstraint(

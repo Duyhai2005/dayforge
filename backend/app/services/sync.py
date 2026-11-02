@@ -295,26 +295,6 @@ async def ensure_owner_sync_state(
     return state
 
 
-def _operation_order(operation: ValidatedOperation) -> tuple[int, int, int, bytes, bytes]:
-    return (
-        operation.physical_ms,
-        operation.logical,
-        operation.delete_rank,
-        operation.device_id.bytes,
-        operation.operation_id.bytes,
-    )
-
-
-def _recorded_order(operation: RecordedOperation) -> tuple[int, int, int, bytes, bytes]:
-    return (
-        operation.physical_ms,
-        operation.logical_clock,
-        operation.delete_rank,
-        operation.device_id.bytes,
-        operation.operation_id.bytes,
-    )
-
-
 def _receipt_data(receipt: OperationReceipt) -> ReceiptData:
     return ReceiptData(
         operation_id=receipt.operation_id,
@@ -361,7 +341,9 @@ async def record_operation(
                     dependency = await session.get(RecordedOperation, (owner_id, dependency_id))
                     if dependency is None:
                         raise SyncOperationError("dependency_missing", 409, deferred=True)
-                    if _recorded_order(dependency) >= _operation_order(operation):
+                    dependency_hlc = (dependency.physical_ms, dependency.logical_clock)
+                    operation_hlc = (operation.physical_ms, operation.logical)
+                    if dependency_hlc >= operation_hlc:
                         raise SyncOperationError("invalid_causality", 422)
 
                 if now is None:
@@ -410,7 +392,7 @@ async def record_operation(
                     request_hash=operation.request_hash,
                     recorded=True,
                     commit_cursor=cursor,
-                    effect_at_commit="applied",
+                    effect_at_commit="not_evaluated",
                     reason_at_commit=None,
                 )
                 session.add(receipt)
@@ -434,7 +416,7 @@ async def record_operation(
                         operation_id=operation.operation_id,
                         request_hash=operation.request_hash,
                         commit_cursor=cursor,
-                        effect_at_commit="applied",
+                        effect_at_commit="not_evaluated",
                         reason_at_commit=None,
                     ),
                 )
