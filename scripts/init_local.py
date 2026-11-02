@@ -18,12 +18,25 @@ def _encoded_key() -> str:
     )
 
 
+def _upgrade_existing_backend_env(path: Path) -> None:
+    contents = path.read_text(encoding="utf-8")
+    if any(
+        line.partition("=")[0] == "SYNC_PAGE_TOKEN_KEY_B64"
+        for line in contents.splitlines()
+    ):
+        return
+    prefix = "" if not contents or contents.endswith(("\n", "\r")) else "\n"
+    with path.open("a", encoding="utf-8", newline="\n") as local_file:
+        local_file.write(f"{prefix}SYNC_PAGE_TOKEN_KEY_B64={_encoded_key()}\n")
+
+
 def initialize_local(repo_root: Path) -> tuple[Path, Path, Path]:
     root = Path(repo_root)
     outputs = tuple(root / output for _, output in TEMPLATE_OUTPUTS)
     existing = tuple(path.exists() for path in outputs)
 
     if all(existing):
+        _upgrade_existing_backend_env(outputs[1])
         return outputs
 
     if any(existing):
@@ -49,6 +62,7 @@ def initialize_local(repo_root: Path) -> tuple[Path, Path, Path]:
         "__GENERATE_LOGOUT_TICKET_KEY_B64__": _encoded_key(),
         "__GENERATE_AUTH_RATE_LIMIT_KEY_B64__": _encoded_key(),
         "__GENERATE_AUTH_EMAIL_OUTBOX_KEY_B64__": _encoded_key(),
+        "__GENERATE_SYNC_PAGE_TOKEN_KEY_B64__": _encoded_key(),
     }
     replacements = (
         {

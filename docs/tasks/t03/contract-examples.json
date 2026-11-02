@@ -1,5 +1,5 @@
 {
-  "contract_version": "1.0",
+  "contract_version": "1.1",
   "fixtures": [
     {
       "name": "task-with-null-duration",
@@ -163,7 +163,7 @@
         "request_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "recorded": true,
         "commit_cursor": "1",
-        "effect_at_commit": "applied",
+        "effect_at_commit": "not_evaluated",
         "reason_at_commit": null
       }
     },
@@ -183,7 +183,7 @@
               "request_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
               "recorded": true,
               "commit_cursor": "1",
-              "effect_at_commit": "applied",
+              "effect_at_commit": "not_evaluated",
               "reason_at_commit": null
             }
           }

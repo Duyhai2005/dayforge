@@ -28,9 +28,10 @@ def _docker(arguments: list[str], environ: dict[str, str]) -> str:
             env=environ,
             capture_output=True,
             text=True,
+            check=False,
             timeout=180,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         raise RunnerError("Docker command unavailable or timed out") from None
     if result.returncode:
         # Docker output may contain interpolated credentials; never forward it.
@@ -54,7 +55,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         *arguments,
     ]
     if not mysql:
-        return subprocess.run(pytest, cwd=BACKEND).returncode
+        return subprocess.run(pytest, check=False, cwd=BACKEND).returncode
 
     run_id = uuid4().hex
     project = f"dayforge-test-{run_id}"
@@ -157,12 +158,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 .rstrip(b"=")
                 .decode("ascii"),
+                SYNC_PAGE_TOKEN_KEY_B64=base64.urlsafe_b64encode(
+                    secrets.token_bytes(32)
+                )
+                .rstrip(b"=")
+                .decode("ascii"),
                 EMAIL_SMTP_HOST="127.0.0.1",
                 EMAIL_SMTP_PORT="1025",
                 EMAIL_FROM="dayforge@example.test",
             )
             exit_code = subprocess.run(pytest, cwd=BACKEND, env=test_environ).returncode
-        except (RunnerError, OSError):
+        except RunnerError, OSError:
             print(
                 "Isolated MySQL test runner failed; Docker details suppressed to protect credentials.",
                 file=sys.stderr,

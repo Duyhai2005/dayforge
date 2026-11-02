@@ -1,6 +1,6 @@
 # DAYFORGE — hợp đồng đồng bộ T03
 
-Ngày: **28/10/2026** · Phiên bản kỹ thuật **1.0** · Trạng thái: **lựa chọn kỹ thuật T03 theo phạm vi được giao; chưa phải phê duyệt T03 hoặc kết quả chạy sản phẩm**.
+Ngày: **28/10/2026** · Phiên bản kỹ thuật **1.1** · Trạng thái: **lựa chọn kỹ thuật T03 theo phạm vi được giao; chưa phải phê duyệt T03 hoặc kết quả chạy sản phẩm**.
 
 Tài liệu này dùng cùng [hợp đồng dữ liệu](data-contract.md) và [hợp đồng tài khoản](auth-contract.md).
 T01/T02 đã duyệt: sửa offline, tự sync khi mở, lấy mốc sửa thay vì thứ tự nhận, tự phân xử, nhóm lặp nguyên tử, giữ pending và hoàn tác an toàn.
@@ -257,13 +257,13 @@ Sync đọc từ primary; không dùng `SKIP LOCKED` hoặc replica có thể la
   "receipt": {
     "operation_id": "uuid", "request_hash": "sha256",
     "recorded": true, "commit_cursor": "251",
-    "effect_at_commit": "applied", "reason_at_commit": null
+    "effect_at_commit": "not_evaluated", "reason_at_commit": null
   }
 }
 ```
 
 `recorded` xác nhận event bền vững, không hứa hiệu lực thắng mãi.
-`effect_at_commit`: `applied` nếu thêm event đổi projection hiện hành; `superseded` nếu event hợp lệ đã bị thay thế trong kết quả; `no_op` nếu reducer không áp dụng do target/precondition.
+`effect_at_commit`: `applied` nếu thêm event đổi projection hiện hành; `superseded` nếu event hợp lệ đã bị thay thế trong kết quả; `no_op` nếu reducer không áp dụng do target/precondition. Contract 1.1 bổ sung `not_evaluated` cho server chưa tích hợp reducer; giá trị này không khẳng định hiệu lực nghiệp vụ và luôn đi với `reason_at_commit: null`.
 `reason_at_commit` bắt buộc nhưng nullable; khi `no_op` dùng enum `duplicate_target|reference_unavailable|target_retired|precondition_failed|undo_not_applicable`.
 Chẩn đoán này chỉ tại commit; event khác tới trễ có thể đổi ảnh hưởng hiện hành.
 Retry cùng ID/hash trả cùng receipt; ID khác hash trả `409 operation_id_reused`, không sửa event.

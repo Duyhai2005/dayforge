@@ -65,11 +65,13 @@ def test_upgrade_from_empty_and_repeat_upgrade(migrated):
         "auth_rate_limits",
         "email_delivery_jobs",
         "auth_audit_events",
+        "owner_sync_states",
+        "recorded_operations",
+        "operation_receipts",
+        "change_log",
     }
-    assert asyncio.run(query(migrated, "SELECT version_num FROM alembic_version")) == [
-        ("0003_auth_lifecycle_hardening",)
-    ]
-    assert "0003_auth_lifecycle_hardening" in alembic("current")
+    assert asyncio.run(query(migrated, "SELECT version_num FROM alembic_version")) == [("0004_sync",)]
+    assert "0004_sync" in alembic("current")
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM users")) == [(0,)]
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM workspace_settings")) == [(0,)]
     alembic("upgrade", "head")
@@ -83,9 +85,36 @@ def test_upgrade_from_empty_and_repeat_upgrade(migrated):
         "auth_rate_limits",
         "email_delivery_jobs",
         "auth_audit_events",
+        "owner_sync_states",
+        "recorded_operations",
+        "operation_receipts",
+        "change_log",
     }
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM users")) == [(0,)]
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM workspace_settings")) == [(0,)]
+
+
+def test_sync_tables_have_owner_keys_and_cursor_constraints(migrated):
+    tables = {row[0] for row in schema(migrated)}
+    assert {"owner_sync_states", "recorded_operations", "operation_receipts", "change_log"} <= tables
+    state = asyncio.run(query(migrated, "SHOW COLUMNS FROM owner_sync_states"))
+    assert {row[0] for row in state} >= {"owner_id", "epoch", "head_cursor", "created_at", "updated_at"}
+    operations = asyncio.run(query(migrated, "SHOW COLUMNS FROM recorded_operations"))
+    assert {row[0] for row in operations} >= {
+        "owner_id",
+        "operation_id",
+        "epoch",
+        "commit_cursor",
+        "request_hash",
+        "envelope",
+        "committed_at",
+    }
+    assert {row[0] for row in asyncio.run(query(migrated, "SHOW COLUMNS FROM operation_receipts"))} >= {
+        "request_hash",
+        "commit_cursor",
+        "effect_at_commit",
+        "reason_at_commit",
+    }
 
 
 def insert_owner(settings, owner, **overrides):
@@ -237,6 +266,10 @@ def test_downgrade_upgrade_on_disposable_db(migrated):
         "auth_rate_limits",
         "email_delivery_jobs",
         "auth_audit_events",
+        "owner_sync_states",
+        "recorded_operations",
+        "operation_receipts",
+        "change_log",
     }
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM users")) == [(0,)]
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM workspace_settings")) == [(0,)]

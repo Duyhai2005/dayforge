@@ -64,6 +64,7 @@ class InitializeLocalTests(unittest.TestCase):
             "LOGOUT_TICKET_KEY_B64",
             "AUTH_RATE_LIMIT_KEY_B64",
             "AUTH_EMAIL_OUTBOX_KEY_B64",
+            "SYNC_PAGE_TOKEN_KEY_B64",
         ]
         decoded_keys = [
             base64.urlsafe_b64decode(backend_env[field] + "=") for field in auth_keys
@@ -86,6 +87,31 @@ class InitializeLocalTests(unittest.TestCase):
 
         self.assertEqual(rerun_paths, paths)
         self.assertEqual(tuple(path.read_bytes() for path in paths), before)
+
+    def test_existing_local_configuration_gets_new_sync_signing_key(self) -> None:
+        paths = initialize_local(self.root)
+        backend_path = paths[1]
+        previous = backend_path.read_text(encoding="utf-8")
+        backend_path.write_text(
+            "\n".join(
+                line
+                for line in previous.splitlines()
+                if not line.startswith("SYNC_PAGE_TOKEN_KEY_B64=")
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        other_contents = (paths[0].read_bytes(), paths[2].read_bytes())
+
+        initialize_local(self.root)
+
+        backend_env = read_env(backend_path)
+        new_key = base64.urlsafe_b64decode(backend_env["SYNC_PAGE_TOKEN_KEY_B64"] + "=")
+        self.assertEqual(len(new_key), 32)
+        self.assertNotEqual(
+            new_key, base64.urlsafe_b64decode(backend_env["LOCAL_KEY_KEK_B64"] + "=")
+        )
+        self.assertEqual((paths[0].read_bytes(), paths[2].read_bytes()), other_contents)
 
     def test_partial_configuration_refuses_without_writing(self) -> None:
         existing = self.root / ".env"

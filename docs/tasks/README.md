@@ -14,7 +14,7 @@ Ngày cập nhật: **02/11/2026** · Trạng thái: **T01–T03 hoàn thành th
 
 ## 1. Cách dùng kế hoạch
 
-Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hiện có: [T01 — Thiết kế đã duyệt](t01/design.md), [T02 — UI và tương tác đã duyệt](t02/design.md), [T03 — Hợp đồng kỹ thuật 1.0](t03/design.md). Các task tiếp theo dùng cùng quy ước khi có tài liệu.
+Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hiện có: [T01 — Thiết kế đã duyệt](t01/design.md), [T02 — UI và tương tác đã duyệt](t02/design.md), [T03 — Hợp đồng dữ liệu 1.0, API/sync 1.1](t03/design.md). Các task tiếp theo dùng cùng quy ước khi có tài liệu.
 
 - Có **36 task**, chia thành **8 nhóm**, đi từ dự án hiện chỉ có tài liệu đến bản production được kiểm chứng.
 - Mỗi task chỉ mô tả ngắn đầu việc; không liệt kê file code, chữ ký hàm hoặc lệnh thực hiện ở giai đoạn này, theo yêu cầu người dùng.
@@ -58,7 +58,7 @@ Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hi
 
 - [x] **T01 — Duyệt thiết kế tổng hợp.** Người dùng đã duyệt [thiết kế T01](t01/design.md) cùng các mặc định được nêu và yêu cầu đánh dấu hoàn thành ngày **28/10/2026**. Kiến trúc B, tài khoản, LWW và quy tắc dấu mốc/lặp đã chốt; host/email provider để T29/T30.
 - [x] **T02 — Chốt giao diện để triển khai.** Người dùng đã duyệt [đặc tả tổng hợp 1.0](t02/design.md) bằng xác nhận “được rồi chốt T02” ngày 28/10/2026. Có [bản xem chung](t02/prototypes/t02-consolidated-preview-v3.html) và [rà soát/kiểm tra](t02/review-and-verification.md); chỉ hoàn thành thiết kế, chưa nghiệm thu sản phẩm.
-- [x] **T03 — Chốt hợp đồng dữ liệu, tài khoản và API.** Hoàn thành [hợp đồng 1.0](t03/design.md) ngày **28/10/2026**: ngày/buổi/limits/ID, recurrence và Undo, typed command replay theo edit-time, clock repair, receipt/cursor/bootstrap/ACK, auth/session/local vault, HTTP và tương thích. Có JSON Schema, fixture và [rà soát/kiểm chứng](t03/review-and-verification.md). Đây là hoàn thành đặc tả kỹ thuật, chưa phải code hoặc nghiệm thu sản phẩm.
+- [x] **T03 — Chốt hợp đồng dữ liệu, tài khoản và API.** Hoàn thành [hợp đồng 1.0](t03/design.md) ngày **28/10/2026**, API/sync được cập nhật lên 1.1 trước phát hành để biểu diễn receipt `not_evaluated`: ngày/buổi/limits/ID, recurrence và Undo, typed command replay theo edit-time, clock repair, receipt/cursor/bootstrap/ACK, auth/session/local vault, HTTP và tương thích. Có JSON Schema, fixture và [rà soát/kiểm chứng](t03/review-and-verification.md). Đây là hoàn thành đặc tả kỹ thuật, chưa phải code hoặc nghiệm thu sản phẩm.
 
 **Kết quả nhóm:** thiết kế đủ rõ để triển khai, không còn lựa chọn nghiệp vụ hoặc kiến trúc quan trọng bị bỏ cho người lập trình tự đoán. T02 và T03 có thể làm song song sau T01.
 
@@ -75,7 +75,7 @@ Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hi
 
 - [x] **T08 — Lưu dữ liệu cục bộ bền vững.** Hoàn thành ngày **31/10/2026**: dựng IndexedDB native adapter, mã hóa AES-256-GCM với AAD theo owner, migration có versioning bảo toàn zero-deletion, unit of work commit nguyên tử (outbox + overlays + sequence + clock), và xử lý lỗi quota/blocked/unavailable. Đạt 20/20 kịch bản kiểm thử ST-01 đến ST-20 và 89 tests Playwright. Xem [kế hoạch chi tiết](t08/plan.md) và [báo cáo kiểm chứng](t08/review-and-verification.md).
 - [x] **T09 — Làm tài khoản và phiên đăng nhập.** Hoàn thành ngày **01/11/2026**: account email/mật khẩu một owner, xác minh/reset, session có CSRF/Origin protection, Mailpit SMTP adapter, login/remember, local-key gate và local logout liên tab/offline giữ nguyên dữ liệu mã hóa. Chạy 60 kiểm thử MySQL, 132 browser tests, production callback/auth 14 tests và build thành công; Mailpit delivery/link đã smoke-test. Email tới inbox thật vẫn thuộc T30/T32. Xem [plan](t09/plan.md), [runbook](../development.md) và [báo cáo kiểm chứng](t09/review-and-verification.md).
-- [ ] **T10 — Xây API đồng bộ phía máy chủ.** Làm snapshot, push/pull, revision/cursor, chống gửi trùng, dấu xóa và giao dịch nguyên tử; kiểm chứng không bỏ sót thay đổi đã commit.
+- [ ] **T10 — Xây API đồng bộ phía máy chủ.** Đã có clock, push idempotent, bootstrap/pull theo watermark và lưu event/receipt/cursor nguyên tử; API suite đạt 115/115, backend thường 289/289 và MySQL suite 87/87 trước follow-up T03 1.1. Xem [kế hoạch](t10/plan.md), [tài liệu API/server](t10/sync-api.md) và [báo cáo kiểm chứng/handoff](t10/review-and-verification.md). Receipt ghi `not_evaluated` rõ ràng đến khi reducer T12 tính được outcome thật.
 - [ ] **T11 — Xây bộ đồng bộ phía client.** Tự gửi/nhận khi app mở có kết nối hoặc mở lại; xử lý retry, thứ tự phụ thuộc, nhiều tab và phản hồi trễ theo LWW, không lấy bản cũ đè bản mới.
 - [ ] **T12 — Làm LWW và khôi phục đồng bộ.** Tự giữ bản sửa mới nhất theo lúc chỉnh, xử lý sửa–sửa, xóa–sửa và nhóm chuỗi theo T03; không có bước chọn conflict thủ công, không để ACK/retry cũ thắng bản mới.
 - [ ] **T13 — Làm cache offline cho Next.js server.** Cache shell/tài nguyên hai lịch để xem/sửa khi mở lại mất mạng; loại phản hồi auth/email callback/API riêng khỏi cache dùng chung, local tách theo owner; nâng cache không mất pending/bản nháp.
