@@ -1,6 +1,7 @@
 """Verified-owner clock and sync endpoints."""
 
 from datetime import datetime, timezone
+from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Query, Request, Response
@@ -19,7 +20,7 @@ from app.services.sync import (
     unix_milliseconds,
 )
 from app.services.sync_tokens import PageToken, PageTokenError, verify_page_token
-from app.services.sync_wire import SyncWireError, validate_operation
+from app.services.sync_wire import SyncWireError, ValidatedOperation, validate_operation
 
 router = APIRouter(prefix="/api/v1/sync")
 
@@ -42,11 +43,14 @@ async def sync_clock(
     )
 
 
-def _read_operation_id(value) -> str | None:
+def _read_operation_id(value: Any) -> str | None:
     if not isinstance(value, dict):
         return None
+    operation_id = value.get("operation_id")
+    if not isinstance(operation_id, str):
+        return None
     try:
-        return str(parse_wire_uuid(value.get("operation_id")))
+        return str(parse_wire_uuid(operation_id))
     except ValueError:
         return None
 
@@ -66,7 +70,7 @@ def _problem_result(request: Request, operation_id: str | None, error, *, status
     }
 
 
-def _request_operations(payload) -> list:
+def _request_operations(payload: Any) -> list[Any]:
     if not isinstance(payload, dict) or set(payload) != {"operations"}:
         raise ProblemHTTPException(status_code=400, code="malformed_request")
     operations = payload.get("operations")
@@ -179,12 +183,15 @@ async def sync_pull(
     return page
 
 
-def _assert_owner_scope(operations: list, owner_id: UUID) -> None:
+def _assert_owner_scope(operations: list[Any], owner_id: UUID) -> None:
     for operation in operations:
         if not isinstance(operation, dict):
             continue
+        asserted_owner = operation.get("owner_id")
+        if not isinstance(asserted_owner, str):
+            continue
         try:
-            asserted_owner_id = parse_wire_uuid(operation.get("owner_id"))
+            asserted_owner_id = parse_wire_uuid(asserted_owner)
         except ValueError:
             continue
         if asserted_owner_id != owner_id:
@@ -209,7 +216,7 @@ async def push_operations(
     owner_id = context.user.id
     _assert_owner_scope(raw_operations, owner_id)
 
-    prepared = []
+    prepared: list[tuple[str | None, ValidatedOperation | None, SyncWireError | None]] = []
     for raw_operation in raw_operations:
         operation_id = _read_operation_id(raw_operation)
         try:
@@ -236,6 +243,7 @@ async def push_operations(
                 )
             )
             continue
+        assert operation is not None
         try:
             outcome = await record_operation(request.app.state.database, owner_id, operation)
         except SyncOperationError as error:

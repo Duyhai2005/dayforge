@@ -19,7 +19,7 @@ from app.core.errors import ProblemHTTPException
 from app.core.values import format_utc_timestamp
 from app.models.owner import User
 from app.models.sync import ChangeLog, OperationReceipt, OwnerSyncState, RecordedOperation
-from app.schemas.sync import SyncPage
+from app.schemas.sync import SyncPage, SyncPageGroup
 from app.services.sync_clock import SERVER_CLOCK_MONITOR, validate_operation_time
 from app.services.sync_tokens import PageToken, create_page_token
 from app.services.sync_wire import ValidatedOperation
@@ -233,11 +233,13 @@ async def read_sync_page(
 
     has_more = len(selected) < len(candidates)
     groups = [
-        {
-            "cursor": str(candidate.cursor),
-            "committed_at": format_utc_timestamp(envelopes_by_cursor[candidate.cursor][0]),
-            "operation": envelopes_by_cursor[candidate.cursor][1],
-        }
+        SyncPageGroup.model_validate(
+            {
+                "cursor": str(candidate.cursor),
+                "committed_at": format_utc_timestamp(envelopes_by_cursor[candidate.cursor][0]),
+                "operation": envelopes_by_cursor[candidate.cursor][1],
+            }
+        )
         for candidate in selected
     ]
     if has_more:
