@@ -1047,7 +1047,9 @@ test("ownerCanMoveAndReorderTasksInsideABucketWithRecurringOccurrences", async (
   await expect(entries).toHaveCount(2);
   await expect(entries.nth(0)).toContainText("Lần lặp");
   await expect(entries.nth(1)).toContainText("Việc đơn");
-  await entries.nth(1).getByRole("button", { name: "Đưa Việc đơn lên trước" }).click();
+  const moveEarlier = entries.nth(1).getByRole("button", { name: "Đưa Việc đơn lên trước" });
+  await moveEarlier.focus();
+  await page.keyboard.press("Enter");
   await expect(entries.nth(0)).toContainText("Việc đơn");
   await expect(entries.nth(1)).toContainText("Lần lặp");
 });
