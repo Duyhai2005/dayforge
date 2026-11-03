@@ -132,13 +132,19 @@ export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone
     const grouped = new Map<string, WorkCard[]>();
     for (const card of cards) {
       const key = `${card.data.date}:${card.data.period}`;
-      grouped.set(key, [...(grouped.get(key) ?? []), card]);
+      const bucket = grouped.get(key);
+      if (bucket) bucket.push(card);
+      else grouped.set(key, [card]);
     }
     return grouped;
   }, [cards]);
   const milestonesByDate = useMemo(() => {
     const grouped = new Map<string, WorkMilestone[]>();
-    for (const milestone of milestones) grouped.set(milestone.data.date, [...(grouped.get(milestone.data.date) ?? []), milestone]);
+    for (const milestone of milestones) {
+      const bucket = grouped.get(milestone.data.date);
+      if (bucket) bucket.push(milestone);
+      else grouped.set(milestone.data.date, [milestone]);
+    }
     return grouped;
   }, [milestones]);
   const ready = account.state === "unlocked" && account.calendarReady;

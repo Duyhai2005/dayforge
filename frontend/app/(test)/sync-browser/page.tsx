@@ -4,8 +4,6 @@ import { SyncBrowserHarness } from "../../../components/test/sync-browser-harnes
 export const dynamic = "force-dynamic";
 
 export default function SyncBrowserTestPage(): React.JSX.Element {
-  if (process.env.NODE_ENV === "production" || process.env.DAYFORGE_SYNC_TEST_HARNESS !== "1") {
-    notFound();
-  }
+  if (process.env.DAYFORGE_SYNC_TEST_HARNESS !== "1") notFound();
   return <SyncBrowserHarness />;
 }

@@ -6,7 +6,7 @@ export default defineConfig({
   outputDir: "./.test-artifacts/web-prod",
   use: {
     baseURL: "http://127.0.0.1:3001",
-    trace: "retain-on-failure",
+    trace: process.env.DAYFORGE_RUN_DENSITY_BENCHMARK === "1" ? "off" : "retain-on-failure",
     serviceWorkers: "block",
   },
   webServer: {
@@ -15,6 +15,7 @@ export default defineConfig({
     env: {
       API_INTERNAL_ORIGIN: "http://127.0.0.1:8000",
       DAYFORGE_PLAYWRIGHT_MOCK_API: "1",
+      DAYFORGE_SYNC_TEST_HARNESS: "1",
     },
     reuseExistingServer: false,
     timeout: 120_000,

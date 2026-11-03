@@ -1,8 +1,14 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { nextOrderKeyForBucket, replayOperations, workItemsForDates } from "../lib/sync/reducer";
+import { nextOrderKeyForBucket, replayOperations, workItemsForDates, type MilestoneRoot } from "../lib/sync/reducer";
 import { assertSyncPage, compareDecimal, type Operation, type UUID } from "../lib/sync/protocol";
+import {
+  buildDenseWorkWeekOperations,
+  buildDensityMilestoneOperations,
+  DENSITY_OWNER_ID,
+  expectedDensityYearCounts,
+} from "./helpers/calendar-density-fixture";
 
 function permutations<T>(values: readonly T[]): T[][] {
   if (values.length <= 1) return [[...values]];
@@ -67,6 +73,35 @@ test("work-week expansion keeps moved occurrences and detached tasks in the requ
     { date: "2026-11-12", period: "evening", title: "Rescheduled detached", kind: "detached" },
   ]);
   expect(new Set(cards.map((card) => `${card.root_id}:${card.id}`)).size).toBe(cards.length);
+});
+
+test("denseWorkWeekKeepsMovedAndDetachedOccurrencesExactlyOnce", async () => {
+  const operations = await buildDenseWorkWeekOperations();
+  const { state, outcomes } = await replayOperations(operations, DENSITY_OWNER_ID);
+  expect(outcomes.every((outcome) => outcome.effect === "applied" && outcome.reason === null)).toBe(true);
+
+  const cards = await workItemsForDates(state, [
+    "2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06", "2026-11-07", "2026-11-08",
+  ]);
+  const moved = cards.filter((card) => card.data.title === "Moved dense occurrence");
+  expect(cards).toHaveLength(168);
+  expect(new Set(cards.map((card) => `${card.root_id}:${card.id}`)).size).toBe(168);
+  expect(moved).toHaveLength(1);
+  expect(moved[0]).toMatchObject({ data: { date: "2026-11-04" }, target: { kind: "detached" } });
+  expect(cards.filter((card) => card.root_id === moved[0].root_id)).toHaveLength(7);
+});
+
+test("denseMilestoneFixtureReplaysAllMarkersAndKeepsYearBoundaries", async () => {
+  const operations = buildDensityMilestoneOperations();
+  const { state, outcomes } = await replayOperations(operations, DENSITY_OWNER_ID);
+  const milestones = Object.values(state.roots).filter((root): root is MilestoneRoot => !("kind" in root) && "date" in root.data);
+  const sameDay = milestones.filter((root) => !root.deleted && root.data.date === "2026-11-04");
+  const outOfYear = milestones.filter((root) => !root.deleted && !root.data.date.startsWith("2026-"));
+  expect(outcomes.every((outcome) => outcome.effect === "applied" && outcome.reason === null)).toBe(true);
+  expect(milestones).toHaveLength(1_200);
+  expect(sameDay).toHaveLength(20);
+  expect(outOfYear.map((root) => root.data.date).sort()).toEqual(["2025-12-31", "2027-01-01"]);
+  expect([...expectedDensityYearCounts().values()].reduce((total, count) => total + count, 0)).toBe(1_198);
 });
 
 test("TypeScript reducer matches the shared undo fixture", async () => {
