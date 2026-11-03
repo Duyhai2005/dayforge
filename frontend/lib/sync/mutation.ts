@@ -2,6 +2,14 @@ import type { BuildGate, OwnerCommitResult, OwnerSnapshot } from "../storage/vau
 import { encryptProjectionRows, rebuildOwnerProjection } from "./projection";
 import { persistLocalOperation, prepareLocalOperation, type LocalOperationDraft } from "./outbox";
 import type { Operation } from "./protocol";
+import type { NoOpReason } from "./reducer";
+
+export class LocalMutationNoOp extends Error {
+  constructor(readonly reason: NoOpReason) {
+    super(reason);
+    this.name = "LocalMutationNoOp";
+  }
+}
 
 export interface LocalMutationResult {
   operation: Operation;
@@ -21,12 +29,19 @@ export async function commitLocalMutation(input: {
   gate: BuildGate;
   expectedBuild: string;
   draft: LocalOperationDraft;
+  requireApplied?: boolean;
 }): Promise<LocalMutationResult> {
   const operation = prepareLocalOperation(input.snapshot, input.draft);
   const { replay } = await rebuildOwnerProjection({
     snapshot: input.snapshot,
     additionalOperations: [operation],
   });
+  if (input.requireApplied) {
+    const outcome = replay.outcomes.find((entry) => entry.operation_id === operation.operation_id);
+    if (!outcome || outcome.effect !== "applied") {
+      throw new LocalMutationNoOp(outcome?.reason ?? "target_retired");
+    }
+  }
   const projectionWrites = await encryptProjectionRows(input.snapshot, replay.state);
   const committed = await persistLocalOperation({
     database: input.database,

@@ -407,6 +407,54 @@ test("accountLoginDefaultsRememberMeAndUnlocksOwner", async ({ page }) => {
   });
 });
 
+test("ownerCanCreateAndEditAPlanThroughTheCalendarWidget", async ({ page }) => {
+  await mockAuthApi(page);
+  await page.goto("/account");
+  await page.getByLabel("Email").fill("owner@example.test");
+  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
+  await page.getByRole("button", { name: "Đăng nhập và mở kho local", exact: true }).click();
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
+
+  await page.goto("/work?date=2026-11-03");
+  await page.getByRole("button", { name: "Mở hoặc đóng điều hướng lịch" }).click();
+  await page.getByRole("button", { name: "Quản lý kế hoạch", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Kế hoạch" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Tạo kế hoạch", exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "Tạo kế hoạch", exact: true }).click();
+  await dialog.getByLabel("Tên kế hoạch").fill("Ôn thi giữa kỳ");
+  await dialog.getByRole("radio", { name: "Xanh lá" }).check();
+  await dialog.getByRole("button", { name: "Lưu kế hoạch", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole("status")).toContainText("Đã lưu kế hoạch trên thiết bị");
+
+  await page.getByRole("button", { name: "Mở hoặc đóng điều hướng lịch" }).click();
+  await page.getByRole("button", { name: "Quản lý kế hoạch", exact: true }).click();
+  const updatedDialog = page.getByRole("dialog", { name: "Kế hoạch" });
+  await expect(updatedDialog.getByRole("list", { name: "Kế hoạch đã lưu" })).toContainText("Ôn thi giữa kỳ");
+  await updatedDialog.getByRole("button", { name: "Sửa Ôn thi giữa kỳ" }).click();
+  await updatedDialog.getByLabel("Tên kế hoạch").fill("Ôn thi cuối kỳ");
+  await updatedDialog.getByRole("button", { name: "Lưu kế hoạch", exact: true }).click();
+  await expect(updatedDialog).toBeHidden();
+
+  await page.getByRole("button", { name: "Mở hoặc đóng điều hướng lịch" }).click();
+  await page.getByRole("button", { name: "Quản lý kế hoạch", exact: true }).click();
+  const draftDialog = page.getByRole("dialog", { name: "Kế hoạch" });
+  await draftDialog.getByRole("button", { name: "Tạo kế hoạch", exact: true }).click();
+  await draftDialog.getByLabel("Tên kế hoạch").fill("Bản nháp chưa lưu");
+  await draftDialog.getByRole("button", { name: "Đóng kế hoạch" }).click();
+  const discardDialog = page.getByRole("alertdialog", { name: "Bỏ thay đổi chưa lưu?" });
+  await expect(discardDialog).toBeVisible();
+  await discardDialog.getByRole("button", { name: "Tiếp tục sửa", exact: true }).click();
+  await expect(draftDialog.getByLabel("Tên kế hoạch")).toHaveValue("Bản nháp chưa lưu");
+  await draftDialog.getByRole("button", { name: "Đóng kế hoạch" }).click();
+  await page.getByRole("alertdialog", { name: "Bỏ thay đổi chưa lưu?" }).getByRole("button", { name: "Bỏ thay đổi", exact: true }).click();
+  await expect(draftDialog).toBeHidden();
+
+  const outbox = await readEncryptedOutbox(page);
+  expect(outbox).toHaveLength(2);
+});
+
 test("loginRecoversFromExpiredCsrfByRefreshingAndRetryingOnce", async ({ page }) => {
   const api = await mockAuthApi(page);
   await page.goto("/account");

@@ -6,6 +6,7 @@ import { useBuildGate } from "../offline/offline-bootstrap";
 import { shouldUseDocumentNavigation } from "../../lib/offline/navigation";
 import { parseViewState, readPreference, serializeViewState, writePreference, type CalendarKind, type ViewState } from "../../lib/calendar/view-state";
 import { CalendarWidget, currentPeriod } from "./calendar-widget";
+import { PlanManager } from "./plan-manager";
 
 export type CalendarViewProps = { calendar: CalendarKind };
 
@@ -15,6 +16,7 @@ export function CalendarView({ calendar }: CalendarViewProps): React.JSX.Element
   const router = useRouter();
   const { gate } = useBuildGate();
   const [view, setView] = useState<ViewState | null>(null);
+  const [planManagerOpen, setPlanManagerOpen] = useState(false);
   const query = search.toString();
 
   useEffect(() => {
@@ -96,6 +98,7 @@ export function CalendarView({ calendar }: CalendarViewProps): React.JSX.Element
       <h1 id="calendar-title">{calendar === "work" ? "Lịch công việc" : "Lịch dấu mốc"}</h1>
       {view && <p key={`${calendar}:${view.anchor}:${view.scale}`} className="calendar-period" aria-label="Khoảng đang xem" aria-live="polite">{currentPeriod(view)}</p>}
     </header>
-    {view && <CalendarWidget calendar={calendar} view={view} onNavigate={navigate} onSwitch={switchCalendar} />}
+    {view && <CalendarWidget calendar={calendar} view={view} onNavigate={navigate} onSwitch={switchCalendar} onOpenPlans={() => setPlanManagerOpen(true)} />}
+    <PlanManager open={planManagerOpen} onClose={() => setPlanManagerOpen(false)} />
   </>;
 }
