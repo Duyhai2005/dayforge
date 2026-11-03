@@ -585,7 +585,7 @@ test("reloadRestoresUnlockedOwnerWhenSessionApiIsUnavailable", async ({ page }) 
   await page.getByRole("button", { name: "Đăng nhập và mở kho local", exact: true }).click();
   await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
   await page.getByRole("link", { name: "Quay lại lịch công việc" }).click();
-  await expect(page.getByRole("status")).toContainText("Đã mở kho local");
+  await expect(page.locator(".widget-summary span[role='status']")).toContainText("Đã mở kho local");
 
   await page.goto("/account");
   api.failSession = true;
