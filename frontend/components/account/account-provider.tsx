@@ -58,6 +58,10 @@ export type TaskUndoAction = {
   createdAt: number;
 };
 
+type UndoableTaskCommand =
+  | { action: "single.replace"; payload: { data: TaskData } }
+  | { action: "single.delete"; payload: Record<string, never> };
+
 type StoredTaskUndoAction = { ownerId: UUID; action: TaskUndoAction };
 
 function taskContentMatches(left: TaskData, right: TaskData): boolean {
@@ -118,6 +122,8 @@ interface AccountContextValue {
   deleteMilestone(id: UUID, expectedRootHash: string): Promise<LocalMutationResult>;
   createTask(id: UUID, data: TaskData): Promise<LocalMutationResult>;
   replaceTask(id: UUID, data: TaskData, expectedRootHash: string): Promise<LocalMutationResult>;
+  changeTaskStatus(id: UUID, data: TaskData, expectedRootHash: string): Promise<LocalMutationResult>;
+  deleteTask(id: UUID, title: string, expectedRootHash: string): Promise<LocalMutationResult>;
   repositionTask(id: UUID, data: TaskData, expectedRootHash: string, beforeTaskId: UUID | null): Promise<LocalMutationResult>;
   undoTask(action: TaskUndoAction): Promise<void>;
 }
@@ -676,6 +682,117 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
     return writeTask(id, "single.replace", data, expectedRootHash);
   }, [calendarProjection, writeTask]);
 
+  const mutateUndoableTask = useCallback(async (
+    id: UUID,
+    expectedRootHash: string,
+    command: UndoableTaskCommand,
+    message: string,
+    notice: string,
+  ): Promise<LocalMutationResult> => {
+    const db = databaseRef.current;
+    const ownerId = owner?.id;
+    if (!db || !ownerId || state !== "unlocked") throw new Error("Hãy mở khóa kho local trước khi thay đổi công việc.");
+    const operationId = crypto.randomUUID() as UUID;
+    const root = { kind: "work_item" as const, id };
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const gate = await readBuildGate(db);
+      if (!gate) throw new Error("Trạng thái cập nhật offline chưa sẵn sàng.");
+      const snapshot = await readOwnerSnapshot(db, ownerId, build.buildId);
+      const projection = (await rebuildOwnerProjection({ snapshot })).replay.state;
+      const current = projection.roots["work_item:" + id];
+      const actualRootHash = await semanticRootHash(root, current ?? null);
+      if (actualRootHash !== expectedRootHash) {
+        throw new Error("Công việc đã thay đổi ở nơi khác. Hãy tải lại lịch rồi thử lại.");
+      }
+      if (!current || !("kind" in current) || current.kind !== "single" || current.deleted) {
+        throw new Error("Chỉ có thể thay đổi trạng thái hoặc xóa công việc một lần còn trong lịch.");
+      }
+      if (command.action === "single.replace" && command.payload.data.status === current.single.status) {
+        throw new Error("Công việc đã ở trạng thái này.");
+      }
+
+      let result: LocalMutationResult;
+      try {
+        result = await commitLocalMutation({
+          database: db,
+          snapshot,
+          gate,
+          expectedBuild: build.buildId,
+          requireApplied: true,
+          draft: {
+            operationId,
+            commands: [{
+              root,
+              action: command.action,
+              payload: command.payload,
+              precondition: { expected_root_hash: expectedRootHash },
+            }],
+          },
+        });
+      } catch (cause) {
+        if (cause instanceof LocalMutationNoOp) {
+          if (cause.reason === "precondition_failed") {
+            throw new Error("Công việc đã thay đổi ở nơi khác. Hãy tải lại lịch rồi thử lại.");
+          }
+          if (cause.reason === "target_retired" || cause.reason === "reference_unavailable") {
+            throw new Error("Công việc không còn khả dụng. Hãy tải lại lịch rồi thử tiếp.");
+          }
+        }
+        throw cause;
+      }
+      if (!result.result.committed) {
+        if (result.result.reason === "stale_snapshot") continue;
+        throw new Error("Không thể thay đổi công việc khi kho local hoặc bản cập nhật đang đổi.");
+      }
+      if (owner?.id !== ownerId || databaseRef.current !== db) {
+        throw new Error("Kho local đã khóa trong lúc thay đổi công việc.");
+      }
+
+      const afterHash = await semanticRootHash(root, result.projection.roots["work_item:" + id] ?? null);
+      if (afterHash === expectedRootHash) throw new Error("Thay đổi công việc không tạo ra trạng thái mới.");
+      setCalendarProjection(result.projection);
+      setCalendarReady(true);
+      setCalendarError(null);
+      setStoredTaskUndo({
+        ownerId,
+        action: {
+          operationId: result.operation.operation_id,
+          taskId: id,
+          expectedRootHash: afterHash,
+          expectedStates: [{ root, hash: afterHash }],
+          message,
+          createdAt: Date.now(),
+        },
+      });
+      coordinatorRef.current?.wake();
+      setError(null);
+      setInfo(notice);
+      return result;
+    }
+    throw new Error("Dữ liệu lịch liên tục thay đổi ở tab khác. Hãy thử lại.");
+  }, [build.buildId, owner?.id, state]);
+
+  const changeTaskStatus = useCallback((id: UUID, data: TaskData, expectedRootHash: string) => {
+    const message = data.status === "completed"
+      ? "Đã hoàn thành “" + data.title + "”."
+      : "Đã đánh dấu “" + data.title + "” chưa hoàn thành.";
+    return mutateUndoableTask(
+      id,
+      expectedRootHash,
+      { action: "single.replace", payload: { data } },
+      message,
+      "Đã lưu trạng thái công việc trên thiết bị. Trạng thái đồng bộ được hiển thị riêng.",
+    );
+  }, [mutateUndoableTask]);
+
+  const deleteTask = useCallback((id: UUID, title: string, expectedRootHash: string) => mutateUndoableTask(
+    id,
+    expectedRootHash,
+    { action: "single.delete", payload: {} },
+    "Đã xóa “" + title + "” khỏi lịch.",
+    "Đã gỡ công việc khỏi lịch trên thiết bị. Có thể hoàn tác thao tác này.",
+  ), [mutateUndoableTask]);
+
   const repositionTask = useCallback(async (
     id: UUID,
     data: TaskData,
@@ -923,9 +1040,9 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
   const taskUndo = storedTaskUndo && storedTaskUndo.ownerId === owner?.id ? storedTaskUndo.action : null;
   const value = useMemo<AccountContextValue>(() => ({
     state, session, owner, syncStatus, error, info, login, register, requestPasswordReset,
-    calendarProjection, calendarReady, calendarError, taskUndo, refreshCalendar, createPlan, replacePlan, createMilestone, replaceMilestone, deleteMilestone, createTask, replaceTask, repositionTask, undoTask,
+    calendarProjection, calendarReady, calendarError, taskUndo, refreshCalendar, createPlan, replacePlan, createMilestone, replaceMilestone, deleteMilestone, createTask, replaceTask, changeTaskStatus, deleteTask, repositionTask, undoTask,
     confirmEmail, resetPassword, logout, repairClockIssues, inspectPendingChanges, wakeSync, stopSync, coordinatorStatus, refreshSession, clearNotice,
-  }), [calendarError, calendarProjection, calendarReady, clearNotice, confirmEmail, coordinatorStatus, createMilestone, createPlan, createTask, deleteMilestone, error, info, inspectPendingChanges, login, logout, owner, refreshCalendar, refreshSession, register, repairClockIssues, replaceMilestone, replacePlan, replaceTask, repositionTask, requestPasswordReset, resetPassword, session, state, stopSync, syncStatus, taskUndo, undoTask, wakeSync]);
+  }), [calendarError, calendarProjection, calendarReady, changeTaskStatus, clearNotice, confirmEmail, coordinatorStatus, createMilestone, createPlan, createTask, deleteMilestone, deleteTask, error, info, inspectPendingChanges, login, logout, owner, refreshCalendar, refreshSession, register, repairClockIssues, replaceMilestone, replacePlan, replaceTask, repositionTask, requestPasswordReset, resetPassword, session, state, stopSync, syncStatus, taskUndo, undoTask, wakeSync]);
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;
 }

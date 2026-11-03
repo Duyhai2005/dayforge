@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { todayInUtc7 } from "../../lib/calendar/view-state";
 import { workWeekDates } from "../../lib/calendar/work-week";
 import { semanticRootHash, type ColorId, type MilestoneData, type MilestoneRoot, type Period, type ProjectionState, type SingleWorkRoot, type TaskData } from "../../lib/sync/reducer";
@@ -76,13 +76,31 @@ export type WorkWeekCalendarProps = {
 
 type DropPreview = { taskId: UUID; date: string; period: Period; beforeTaskId: UUID | null };
 
+function millisecondsUntilNextUtc7Midnight(now: Date): number {
+  const utc7Now = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+  const nextMidnightUtc = Date.UTC(utc7Now.getUTCFullYear(), utc7Now.getUTCMonth(), utc7Now.getUTCDate() + 1) - 7 * 60 * 60 * 1000;
+  return Math.max(1, nextMidnightUtc - now.getTime());
+}
+
 export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone, onEditMilestone, onMoveTask }: WorkWeekCalendarProps): React.JSX.Element {
   const account = useAccount();
   const [draggedTaskId, setDraggedTaskId] = useState<UUID | null>(null);
   const [dropPreview, setDropPreview] = useState<DropPreview | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+  const [today, setToday] = useState(() => todayInUtc7(new Date()));
   const draggedTaskRef = useRef<UUID | null>(null);
   const autoScrollFrameRef = useRef<number | null>(null);
+  useEffect(() => {
+    const updateToday = () => setToday(todayInUtc7(new Date()));
+    const timer = window.setTimeout(updateToday, millisecondsUntilNextUtc7Midnight(new Date()) + 25);
+    window.addEventListener("focus", updateToday);
+    document.addEventListener("visibilitychange", updateToday);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("focus", updateToday);
+      document.removeEventListener("visibilitychange", updateToday);
+    };
+  }, [today]);
   const dates = useMemo(() => workWeekDates(anchor), [anchor]);
   const days = useMemo(() => dates.map(weekDayFor), [dates]);
   const projection = account.state === "unlocked" && account.calendarReady ? account.calendarProjection : null;
@@ -102,7 +120,6 @@ export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone
     return grouped;
   }, [milestones]);
   const ready = account.state === "unlocked" && account.calendarReady;
-  const today = todayInUtc7(new Date());
 
   async function editTask(card: WorkCard): Promise<void> {
     const expectedRootHash = await semanticRootHash({ kind: "work_item", id: card.id }, card.root);
@@ -112,6 +129,17 @@ export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone
   async function editMilestone(milestone: WorkMilestone): Promise<void> {
     const expectedRootHash = await semanticRootHash({ kind: "milestone", id: milestone.id }, milestone.root);
     onEditMilestone({ id: milestone.id, data: milestone.data, expectedRootHash });
+  }
+
+  async function toggleTaskStatus(card: WorkCard): Promise<void> {
+    try {
+      setMoveError(null);
+      const expectedRootHash = await semanticRootHash({ kind: "work_item", id: card.id }, card.root);
+      const status = card.data.status === "completed" ? "pending" : "completed";
+      await account.changeTaskStatus(card.id, { ...card.data, status }, expectedRootHash);
+    } catch (cause) {
+      setMoveError(cause instanceof Error ? cause.message : "Không thể đổi trạng thái công việc.");
+    }
   }
 
   async function moveTask(card: WorkCard, date: string, period: Period, beforeTaskId: UUID | null): Promise<void> {
@@ -296,7 +324,11 @@ export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone
                       {stateLabel && <span className="work-task-state">{card.data.status === "completed" ? "✓" : "◷"} {stateLabel}</span>}
                     </span>
                   </button>
-                  <div className="work-task-order-actions" aria-label={`Sắp xếp ${card.data.title}`}>
+                  <div className="work-task-order-actions" aria-label={"Thao tác " + card.data.title}>
+                    <button type="button" className="work-task-status-toggle" disabled={!ready}
+                      aria-label={"Đánh dấu " + card.data.title + " " + (card.data.status === "completed" ? "chưa hoàn thành" : "hoàn thành")}
+                      aria-pressed={card.data.status === "completed"} title={card.data.status === "completed" ? "Bỏ hoàn thành" : "Đánh dấu hoàn thành"}
+                      onClick={() => void toggleTaskStatus(card)}>{card.data.status === "completed" ? "↶" : "✓"}</button>
                     <button type="button" disabled={!ready || cardIndex === 0} aria-label={`Đưa ${card.data.title} lên trước`} title="Đưa lên trước" onClick={() => keyboardMove(card, cardIndex, taskCards, -1)}>↑</button>
                     <button type="button" disabled={!ready || cardIndex === taskCards.length - 1} aria-label={`Đưa ${card.data.title} xuống sau`} title="Đưa xuống sau" onClick={() => keyboardMove(card, cardIndex, taskCards, 1)}>↓</button>
                   </div>

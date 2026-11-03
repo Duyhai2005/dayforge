@@ -1,6 +1,6 @@
 # T19 — Task drag, rescheduling and ordering
 
-Status: implementation complete locally on `feature/task-drag-reordering`; PR and GitHub CI pending.
+Status: merged to `develop` in PR #19 at merge commit `7e15a5cc54a85b4adcd7b3500de3df3159586c45`.
 
 ## Delivered
 
@@ -20,6 +20,7 @@ Status: implementation complete locally on `feature/task-drag-reordering`; PR an
 | `pnpm build:web` | Passed |
 | `git diff --check` | Passed |
 | Focused local Playwright task flow | Not run to completion: the configured Chromium executable is absent on this workstation; test discovery found all 16 auth-session cases |
-| GitHub CI and Offline web shell | Pending PR |
+| GitHub CI run #73 | Passed: quality, development and production frontend browser suites, MySQL integration, and two-browser sync acceptance |
+| Offline web shell run #53 | Passed |
 
-The added browser scenario covers keyboard reordering, undo, dragging across day and period, Escape and outside-drop cancellation, rescheduling with the task form, and keeping milestones non-draggable. GitHub CI will run the suite with its pinned Playwright browser.
+The added browser scenario covers keyboard reordering, undo, dragging across day and period, Escape and outside-drop cancellation, rescheduling with the task form, and keeping milestones non-draggable. The CI browser suites passed with the pinned Playwright browser.

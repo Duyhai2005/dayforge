@@ -199,9 +199,9 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch, onOpenPla
             onOpenPlans();
           }}>Quản lý kế hoạch</button>
         </div>
-        {account.taskUndo && <section className="widget-task-undo" aria-label="Hoàn tác đổi lịch gần nhất">
+        {account.taskUndo && <section className="widget-task-undo" aria-label="Hoàn tác thao tác công việc gần nhất">
           <p>{account.taskUndo.message}</p>
-          <button type="button" disabled={undoBusy || account.state !== "unlocked"} aria-label="Hoàn tác thao tác đổi lịch gần nhất" onClick={() => void performUndo()}>{undoBusy ? "Đang hoàn tác…" : "Hoàn tác"}</button>
+          <button type="button" disabled={undoBusy || account.state !== "unlocked"} aria-label="Hoàn tác thao tác công việc gần nhất" onClick={() => void performUndo()}>{undoBusy ? "Đang hoàn tác…" : "Hoàn tác"}</button>
           {undoError && <p className="account-error" role="alert">{undoError}</p>}
         </section>}
         <nav aria-label="Chuyển lịch" className="widget-calendars">
