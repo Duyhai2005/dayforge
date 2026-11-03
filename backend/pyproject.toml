@@ -12,6 +12,8 @@ dependencies = [
     "pydantic==2.14.1",
     "sqlalchemy[asyncio]==2.1.6",
     "uvicorn==0.54.0",
+    "argon2-cffi==25.1.0",
+    "email-validator==2.3.0",
 ]
 
 [tool.uv]

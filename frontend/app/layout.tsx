@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { OfflineBootstrap } from "../components/offline/offline-bootstrap";
+import { AccountProvider } from "../components/account/account-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -12,7 +14,7 @@ export default function RootLayout({
 }: Readonly<{ children: ReactNode }>): React.JSX.Element {
   return (
     <html lang="vi">
-      <body>{children}</body>
+      <body><OfflineBootstrap><AccountProvider>{children}</AccountProvider></OfflineBootstrap></body>
     </html>
   );
 }

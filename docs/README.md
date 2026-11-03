@@ -15,6 +15,9 @@
 | Kiểm chứng T05 | [FastAPI/MySQL, HTTPS và giới hạn còn lại](tasks/t05/review-and-verification.md) |
 | Khung Next.js T06 | [Kế hoạch chi tiết](tasks/t06/plan.md), [kiểm chứng và bàn giao](tasks/t06/review-and-verification.md) |
 | Kiểm tra tự động T07 | [Kế hoạch chi tiết](tasks/t07/plan.md), [kiểm chứng và bàn giao](tasks/t07/review-and-verification.md) |
+| Kế hoạch sync client T11 | [Điều phối, outbox, ACK, pull và bootstrap](tasks/t11/plan.md) |
+| Kế hoạch LWW/khôi phục T12 | [Hội tụ, clock recovery và phục hồi epoch](tasks/t12/plan.md) |
+| Kế hoạch cache offline T13 | [Shell hai lịch, service worker và cập nhật an toàn](tasks/t13/plan.md) |
 | Quy ước phát triển | [Coding convention](CONVENTION.md), [Git Flow](GITFLOW.md) |
 
 ## Quy ước tổ chức

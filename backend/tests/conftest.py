@@ -57,7 +57,7 @@ def mysql_control(mysql_test_settings):
             result = subprocess.run(
                 ["docker", *arguments], capture_output=True, text=True, timeout=timeout
             )
-        except (OSError, subprocess.TimeoutExpired):
+        except OSError, subprocess.TimeoutExpired:
             pytest.fail("Isolated MySQL control unavailable")
         code, output = result.returncode, result.stdout.strip()
         del result
@@ -148,6 +148,15 @@ def settings_factory():
             db_name="dayforge_test",
             db_user="dayforge_test",
             db_password="test-only-password",
+            owner_email="owner@example.com",
+            local_key_kek_b64="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            local_key_kek_version=1,
+            logout_ticket_key_b64="AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+            auth_rate_limit_key_b64="AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+            auth_email_outbox_key_b64="AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+            email_smtp_host="127.0.0.1",
+            email_smtp_port=1025,
+            email_from="Dayforge <no-reply@example.test>",
         )
         values.update(overrides)
         return Settings(**values)

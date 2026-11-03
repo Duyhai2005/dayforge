@@ -62,13 +62,29 @@ def test_health_unavailable_is_problem(system_client, contract_validator, monkey
     assert "set-cookie" not in response.headers
 
 
-def test_development_openapi_contains_valid_system_routes(system_client):
+def test_development_openapi_contains_all_versioned_routes(system_client):
     response = system_client.get("/api/v1/openapi.json")
     assert response.status_code == 200
-    assert set(response.json()["paths"]) == {"/api/v1/health", "/api/v1/version"}
+    assert set(response.json()["paths"]) == {
+        "/api/v1/health",
+        "/api/v1/version",
+        "/api/v1/auth/session",
+        "/api/v1/auth/register",
+        "/api/v1/auth/verification/resend",
+        "/api/v1/auth/verification/confirm",
+        "/api/v1/auth/login",
+        "/api/v1/auth/password/forgot",
+        "/api/v1/auth/password/reset",
+        "/api/v1/auth/logout",
+        "/api/v1/auth/local-key",
+        "/api/v1/sync/clock",
+        "/api/v1/sync/bootstrap",
+        "/api/v1/sync/pull",
+        "/api/v1/sync/push",
+    }
 
 
-def test_production_hides_openapi(settings_factory):
+def test_production_hides_openapi(settings_factory, monkeypatch):
     import warnings
 
     with warnings.catch_warnings():
@@ -77,6 +93,7 @@ def test_production_hides_openapi(settings_factory):
             message="Using `httpx` with `starlette.testclient` is deprecated.*",
         )
         from fastapi.testclient import TestClient
+    monkeypatch.setattr("app.main.validate_owner_email_binding", AsyncMock())
     with TestClient(create_app(settings_factory(app_env="production"))) as client:
         assert client.get("/api/v1/openapi.json").status_code == 404
         assert client.get("/docs").status_code == 404

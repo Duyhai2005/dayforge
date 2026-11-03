@@ -74,7 +74,23 @@ async def query(settings, statement):
 @pytest.fixture
 def isolated_schema(mysql_test_settings):
     def reset():
-        for table in ("workspace_settings", "users", "alembic_version"):
+        # Readiness corruption tests can leave an unknown revision string, so
+        # Alembic downgrade cannot clean them. Drop every child table first so
+        # each parametrized case starts from a genuinely empty schema.
+        for table in (
+            "workspace_settings",
+            "sync_page_tokens",
+            "sync_calibrations",
+            "sync_operations",
+            "sync_owner_state",
+            "auth_email_delivery_jobs",
+            "auth_rate_limits",
+            "owner_local_keys",
+            "auth_email_tokens",
+            "auth_sessions",
+            "users",
+            "alembic_version",
+        ):
             asyncio.run(query(mysql_test_settings, f"DROP TABLE IF EXISTS {table}"))
 
     reset()

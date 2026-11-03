@@ -57,6 +57,15 @@ class InitializeLocalTests(unittest.TestCase):
             compose_env["MYSQL_PASSWORD"], compose_env["MYSQL_ROOT_PASSWORD"]
         )
         self.assertNotIn("MYSQL_ROOT_PASSWORD", backend_env)
+        self.assertEqual(backend_env["OWNER_EMAIL"], "")
+        auth_keys = (
+            "LOCAL_KEY_KEK_B64",
+            "LOGOUT_TICKET_KEY_B64",
+            "AUTH_RATE_LIMIT_KEY_B64",
+            "AUTH_EMAIL_OUTBOX_KEY_B64",
+        )
+        self.assertTrue(all(len(backend_env[key]) == 43 for key in auth_keys))
+        self.assertEqual(len({backend_env[key] for key in auth_keys}), len(auth_keys))
         self.assertEqual(frontend_env, {"API_INTERNAL_ORIGIN": "http://127.0.0.1:8000"})
 
     def test_rerun_preserves_all_existing_bytes(self) -> None:

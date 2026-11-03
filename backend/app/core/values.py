@@ -62,7 +62,7 @@ def _utc_milliseconds(value: datetime) -> datetime:
         raise ValueError("invalid_timestamp")
     try:
         result = value.astimezone(timezone.utc)
-    except (ValueError, OverflowError):
+    except ValueError, OverflowError:
         raise ValueError("invalid_timestamp") from None
     if result.microsecond % 1000:
         raise ValueError("invalid_timestamp")

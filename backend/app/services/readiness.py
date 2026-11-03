@@ -72,5 +72,5 @@ async def _probe_readiness(database: Database, *, required_revision: str) -> boo
                     text("SELECT owner_id FROM workspace_settings LIMIT 0")
                 )
                 return True
-    except (SQLAlchemyError, TimeoutError, OSError):
+    except SQLAlchemyError, TimeoutError, OSError:
         return False

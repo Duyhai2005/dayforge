@@ -2,6 +2,8 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useBuildGate } from "../offline/offline-bootstrap";
+import { shouldUseDocumentNavigation } from "../../lib/offline/navigation";
 import { parseViewState, readPreference, serializeViewState, writePreference, type CalendarKind, type ViewState } from "../../lib/calendar/view-state";
 import { CalendarWidget, currentPeriod } from "./calendar-widget";
 
@@ -11,6 +13,7 @@ export function CalendarView({ calendar }: CalendarViewProps): React.JSX.Element
   const pathname = usePathname();
   const search = useSearchParams();
   const router = useRouter();
+  const { gate } = useBuildGate();
   const [view, setView] = useState<ViewState | null>(null);
   const query = search.toString();
 
@@ -42,7 +45,45 @@ export function CalendarView({ calendar }: CalendarViewProps): React.JSX.Element
     };
   }, [calendar, pathname, query, router]);
 
-  const navigate = (next: ViewState) => router.push(serializeViewState(next), { scroll: false });
+  useEffect(() => {
+    let handlingPopState = false;
+    const handlePopState = () => {
+      if (handlingPopState) return;
+      handlingPopState = true;
+      void shouldUseDocumentNavigation(gate).then((useDocument) => {
+        if (useDocument) window.location.reload();
+      }).finally(() => { handlingPopState = false; });
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [gate]);
+
+  useEffect(() => {
+    const onWorkerMessage = (event: MessageEvent) => {
+      const message = event.data as { type?: string; href?: string } | null;
+      if (message?.type !== "DAYFORGE_DOCUMENT_NAVIGATION_REQUIRED" || typeof message.href !== "string") return;
+      try {
+        const target = new URL(message.href, window.location.href);
+        if (target.origin !== window.location.origin ||
+            (target.pathname !== "/work" && target.pathname !== "/milestones")) return;
+        // This must be a document load because the router cannot consume the rejected Flight response.
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+        window.location.assign(`${target.pathname}${target.search}${target.hash}`);
+      } catch {
+        // Ignore malformed worker navigation hints; they never carry app data.
+      }
+    };
+    navigator.serviceWorker?.addEventListener("message", onWorkerMessage);
+    return () => navigator.serviceWorker?.removeEventListener("message", onWorkerMessage);
+  }, []);
+
+  const navigate = (next: ViewState) => {
+    const href = serializeViewState(next);
+    void shouldUseDocumentNavigation(gate).then((useDocument) => {
+      if (useDocument) window.location.assign(href);
+      else router.push(href, { scroll: false });
+    });
+  };
   const switchCalendar = (nextCalendar: CalendarKind) => {
     let saved = null;
     try { saved = readPreference(nextCalendar, window.sessionStorage); } catch { /* Storage may be disabled. */ }

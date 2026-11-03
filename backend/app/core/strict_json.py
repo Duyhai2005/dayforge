@@ -53,7 +53,7 @@ def parse_json_bytes(data: bytes) -> Any:
         )
         _validate_value(value)
         return value
-    except (ValueError, OverflowError, RecursionError):
+    except ValueError, OverflowError, RecursionError:
         raise ProblemHTTPException(status_code=400, code="malformed_request") from None
 
 

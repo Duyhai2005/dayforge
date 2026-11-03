@@ -122,4 +122,30 @@ h1 {
 .account-panel h1 { margin-bottom: var(--space-4); }
 .account-copy { color: var(--text-secondary); margin: 0 0 var(--space-4); }
 .account-status { margin: 0 0 var(--space-6); padding: var(--space-4); color: var(--text-secondary); background: var(--input-background); border: 1px dashed #52665b; border-radius: var(--radius-card); }
+.account-status p { margin: var(--space-2) 0 0; }
+.account-error { margin: 0 0 var(--space-4); padding: var(--space-3); color: #ffd7cf; background: #482d29; border-radius: var(--radius-control); }
+.account-form-nav { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-4); }
+.account-form-nav button, .account-secondary-button { min-height: 44px; padding: var(--space-2) var(--space-3); border: 1px solid #52665b; border-radius: var(--radius-control); color: var(--text-primary); background: var(--panel); cursor: pointer; }
+.account-form-nav button[aria-pressed="true"] { color: var(--control-text); background: var(--control-background); border-color: transparent; }
+.account-form { display: grid; gap: var(--space-2); margin-bottom: var(--space-4); }
+.account-form label { color: var(--text-secondary); }
+.account-form input:not([type="checkbox"]) { width: 100%; min-height: 48px; padding: var(--space-3); border: 1px solid #52665b; border-radius: var(--radius-control); color: var(--text-primary); background: var(--input-background); }
+.account-form input:focus-visible, .account-form-nav button:focus-visible, .account-form button:focus-visible, .account-secondary-button:focus-visible { outline: 2px solid #b7d7c5; outline-offset: 2px; }
+.account-checkbox { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; }
+.account-checkbox input { width: 20px; height: 20px; }
+.account-submit { min-height: 48px; margin-top: var(--space-3); padding: var(--space-3) var(--space-4); border: 0; border-radius: var(--radius-control); color: var(--control-text); background: var(--control-background); cursor: pointer; }
+.account-submit:disabled, .account-secondary-button:disabled { opacity: 0.65; cursor: wait; }
 .account-return { display: inline-flex; min-height: 44px; align-items: center; padding: var(--space-2) var(--space-3); background: var(--control-background); color: var(--control-text); border-radius: var(--radius-control); text-decoration: none; }
+
+.offline-app { min-height: 100vh; }
+.offline-app-content[inert] { pointer-events: none; user-select: none; }
+.offline-update-banner, .offline-update-freeze { position: fixed; z-index: 50; left: 50%; bottom: var(--space-4); translate: -50% 0; width: min(640px, calc(100vw - 32px)); padding: var(--space-4); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); color: var(--text-primary); background: var(--panel); border: 1px solid #64776b; border-radius: var(--radius-card); box-shadow: 0 12px 32px #0008; }
+.offline-update-banner button, .offline-build-gate button { min-height: 44px; padding: var(--space-2) var(--space-4); border: 0; border-radius: var(--radius-control); background: var(--control-background); color: var(--control-text); cursor: pointer; white-space: nowrap; }
+.offline-update-banner button:disabled, .offline-build-gate button:disabled { opacity: 0.65; cursor: wait; }
+.offline-build-gate { position: fixed; z-index: 60; inset: 0; display: grid; align-content: center; justify-items: center; gap: var(--space-3); padding: var(--space-8); color: var(--text-primary); background: #111a17f5; text-align: center; }
+.offline-build-gate h1 { margin: 0; }
+.offline-build-gate p:not(.calendar-kicker) { max-width: 620px; color: var(--text-secondary); }
+.offline-update-freeze { justify-content: center; text-align: center; }
+@media (max-width: 640px) {
+  .offline-update-banner { align-items: stretch; flex-direction: column; }
+}

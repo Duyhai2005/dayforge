@@ -67,13 +67,9 @@ def test_development_origin_must_match_local_https(settings_factory):
         settings_factory(app_env="development", public_origin="https://example.com")
 
 
-@pytest.mark.parametrize(
-    "field", ["db_host", "db_name", "db_user", "db_password", "public_origin"]
-)
+@pytest.mark.parametrize("field", ["db_host", "db_name", "db_user", "db_password", "public_origin"])
 @pytest.mark.parametrize("value", ["", "   ", "__GENERATE_SECRET__"])
-def test_required_values_reject_empty_or_generation_markers(
-    settings_factory, field, value
-):
+def test_required_values_reject_empty_or_generation_markers(settings_factory, field, value):
     with pytest.raises(SettingsError):
         settings_factory(**{field: value})
 
@@ -107,6 +103,15 @@ def test_unrelated_environment_variables_are_ignored():
             "DB_NAME": "dayforge_t05_test",
             "DB_USER": "dayforge_test",
             "DB_PASSWORD": "test-only-password",
+            "OWNER_EMAIL": "owner@example.com",
+            "LOCAL_KEY_KEK_B64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "LOCAL_KEY_KEK_VERSION": "1",
+            "LOGOUT_TICKET_KEY_B64": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+            "AUTH_RATE_LIMIT_KEY_B64": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+            "AUTH_EMAIL_OUTBOX_KEY_B64": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+            "EMAIL_SMTP_HOST": "127.0.0.1",
+            "EMAIL_SMTP_PORT": "1025",
+            "EMAIL_FROM": "Dayforge <no-reply@example.test>",
             "UNKNOWN_OPTION": "unrelated-process-value",
         }
     )

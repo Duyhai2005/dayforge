@@ -42,8 +42,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     mysql = bool(arguments and arguments[0] == "--mysql")
     if mysql:
         arguments.pop(0)
+    sync_browser = bool(arguments and arguments[0] == "--sync-browser")
+    if sync_browser:
+        arguments.pop(0)
     if arguments[:1] == ["--"]:
         arguments.pop(0)
+    if sync_browser and not mysql:
+        raise RunnerError(
+            "The browser sync runner requires its isolated MySQL database"
+        )
     pytest = [
         sys.executable,
         "-m",
@@ -93,6 +100,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
                 probe.bind(("127.0.0.1", 0))
                 test_port = str(probe.getsockname()[1])
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                probe.bind(("127.0.0.1", 0))
+                browser_port = str(probe.getsockname()[1])
             environ.update(
                 DAYFORGE_TEST_MYSQL_IMAGE=images[0],
                 DAYFORGE_TEST_MYSQL_PASSWORD=secrets.token_hex(32),
@@ -120,16 +130,31 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise RunnerError("Invalid isolated MySQL endpoint")
             environ.update(
                 APP_ENV="test",
-                PUBLIC_ORIGIN="https://localhost:3000",
+                PUBLIC_ORIGIN=(
+                    f"https://127.0.0.1:{browser_port}"
+                    if sync_browser
+                    else "https://localhost:3000"
+                ),
                 DB_HOST="127.0.0.1",
                 DB_PORT=match[1],
                 DB_NAME="dayforge_test",
                 DB_USER="dayforge_test",
                 DB_PASSWORD=environ["DAYFORGE_TEST_MYSQL_PASSWORD"],
+                OWNER_EMAIL="owner@example.com",
+                LOCAL_KEY_KEK_B64=secrets.token_urlsafe(32),
+                LOCAL_KEY_KEK_VERSION="1",
+                LOGOUT_TICKET_KEY_B64=secrets.token_urlsafe(32),
+                AUTH_RATE_LIMIT_KEY_B64=secrets.token_urlsafe(32),
+                AUTH_EMAIL_OUTBOX_KEY_B64=secrets.token_urlsafe(32),
+                EMAIL_SMTP_HOST="127.0.0.1",
+                EMAIL_SMTP_PORT="1025",
+                EMAIL_FROM="Dayforge <no-reply@example.test>",
                 DAYFORGE_TEST_RUN_ID=run_id,
                 DAYFORGE_TEST_PROJECT=project,
                 DAYFORGE_TEST_CONTAINER_ID=container,
             )
+            if sync_browser:
+                environ["DAYFORGE_SYNC_BROWSER_PORT"] = browser_port
             # Tests receive only the application credential, never the root credential.
             test_environ = {
                 key: value
@@ -137,7 +162,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if key
                 not in ("DAYFORGE_TEST_MYSQL_ROOT_PASSWORD", "MYSQL_ROOT_PASSWORD")
             }
-            exit_code = subprocess.run(pytest, cwd=BACKEND, env=test_environ).returncode
+            command = (
+                [sys.executable, str(ROOT / "scripts" / "test_sync_browser.py")]
+                if sync_browser
+                else pytest
+            )
+            exit_code = subprocess.run(
+                command, cwd=ROOT if sync_browser else BACKEND, env=test_environ
+            ).returncode
         except (RunnerError, OSError):
             print(
                 "Isolated MySQL test runner failed; Docker details suppressed to protect credentials.",

@@ -36,12 +36,18 @@ def initialize_local(repo_root: Path) -> tuple[Path, Path, Path]:
     )
     app_password = secrets.token_urlsafe(32)
     root_password = secrets.token_urlsafe(32)
+    auth_secrets = {
+        "__GENERATE_LOCAL_KEY_KEK__": secrets.token_urlsafe(32),
+        "__GENERATE_LOGOUT_TICKET_KEY__": secrets.token_urlsafe(32),
+        "__GENERATE_AUTH_RATE_LIMIT_KEY__": secrets.token_urlsafe(32),
+        "__GENERATE_AUTH_EMAIL_OUTBOX_KEY__": secrets.token_urlsafe(32),
+    }
     replacements = (
         {
             "__GENERATE_MYSQL_PASSWORD__": app_password,
             "__GENERATE_MYSQL_ROOT_PASSWORD__": root_password,
         },
-        {"__GENERATE_MYSQL_PASSWORD__": app_password},
+        {"__GENERATE_MYSQL_PASSWORD__": app_password, **auth_secrets},
         {},
     )
 

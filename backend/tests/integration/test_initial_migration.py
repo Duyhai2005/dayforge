@@ -13,6 +13,26 @@ from app.core.database import create_database
 
 pytestmark = pytest.mark.mysql
 BACKEND = Path(__file__).resolve().parents[2]
+AUTH_TABLES = {
+    "auth_email_delivery_jobs",
+    "auth_email_tokens",
+    "auth_rate_limits",
+    "auth_sessions",
+    "owner_local_keys",
+}
+SYNC_TABLES = {
+    "sync_calibrations",
+    "sync_operations",
+    "sync_owner_state",
+    "sync_page_tokens",
+}
+HEAD_TABLES = {
+    "alembic_version",
+    "users",
+    "workspace_settings",
+    *AUTH_TABLES,
+    *SYNC_TABLES,
+}
 
 
 def alembic(*arguments):
@@ -55,25 +75,17 @@ def schema(settings):
 
 
 def test_upgrade_from_empty_and_repeat_upgrade(migrated):
-    assert {row[0] for row in schema(migrated)} == {
-        "alembic_version",
-        "users",
-        "workspace_settings",
-    }
+    assert {row[0] for row in schema(migrated)} == HEAD_TABLES
     assert asyncio.run(query(migrated, "SELECT version_num FROM alembic_version")) == [
-        ("0001_owner_workspace",)
+        ("0003_sync_log",)
     ]
-    assert "0001_owner_workspace" in alembic("current")
+    assert "0003_sync_log" in alembic("current")
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM users")) == [(0,)]
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM workspace_settings")) == [
         (0,)
     ]
     alembic("upgrade", "head")
-    assert {row[0] for row in schema(migrated)} == {
-        "alembic_version",
-        "users",
-        "workspace_settings",
-    }
+    assert {row[0] for row in schema(migrated)} == HEAD_TABLES
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM users")) == [(0,)]
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM workspace_settings")) == [
         (0,)
@@ -227,12 +239,35 @@ def test_downgrade_upgrade_on_disposable_db(migrated):
     alembic("downgrade", "base")
     assert {row[0] for row in schema(migrated)} == {"alembic_version"}
     alembic("upgrade", "head")
-    assert {row[0] for row in schema(migrated)} == {
-        "alembic_version",
-        "users",
-        "workspace_settings",
-    }
+    assert {row[0] for row in schema(migrated)} == HEAD_TABLES
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM users")) == [(0,)]
     assert asyncio.run(query(migrated, "SELECT COUNT(*) FROM workspace_settings")) == [
         (0,)
     ]
+
+
+def test_auth_migration_adds_auth_tables_and_preserves_existing_owner_schema(
+    migrated, user_factory
+):
+    alembic("downgrade", "0001_owner_workspace")
+    owner = user_factory(
+        email_canonical=b"Owner@example.com", email_delivery="Owner@example.com"
+    )
+    insert_owner(migrated, owner)
+    before = asyncio.run(
+        query(
+            migrated,
+            "SELECT id, email_canonical, email_delivery, auth_version FROM users WHERE id=:id",
+            {"id": owner.id.bytes},
+        )
+    )
+    alembic("upgrade", "head")
+    after = asyncio.run(
+        query(
+            migrated,
+            "SELECT id, email_canonical, email_delivery, auth_version FROM users WHERE id=:id",
+            {"id": owner.id.bytes},
+        )
+    )
+    assert after == before
+    assert AUTH_TABLES.issubset({row[0] for row in schema(migrated)})

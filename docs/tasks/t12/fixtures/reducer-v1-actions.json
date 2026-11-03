@@ -1,0 +1,171 @@
+{
+  "owner_id": "11111111-1111-4111-8111-111111111111",
+  "scenarios": [
+    {
+      "name": "plan replacement and milestone lifecycle",
+      "operations": [
+        {
+          "protocol_version": 1,
+          "reducer_version": 1,
+          "operation_id": "a0000001-0000-4000-8000-000000000001",
+          "owner_id": "11111111-1111-4111-8111-111111111111",
+          "device_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "device_sequence": "1",
+          "edit_time": {"physical_ms": 1000, "logical": 0, "calibration_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc", "raw_wall_ms": 1000, "quality": "calibrated"},
+          "dependencies": [],
+          "commands": [{"root": {"kind": "plan", "id": "33333333-3333-4333-8333-333333333333"}, "action": "plan.create", "payload": {"data": {"name": "Kế hoạch", "color_id": "blue"}}, "precondition": null}]
+        },
+        {
+          "protocol_version": 1,
+          "reducer_version": 1,
+          "operation_id": "a0000002-0000-4000-8000-000000000002",
+          "owner_id": "11111111-1111-4111-8111-111111111111",
+          "device_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "device_sequence": "2",
+          "edit_time": {"physical_ms": 1500, "logical": 0, "calibration_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc", "raw_wall_ms": 1500, "quality": "calibrated"},
+          "dependencies": ["a0000001-0000-4000-8000-000000000001"],
+          "commands": [{"root": {"kind": "plan", "id": "33333333-3333-4333-8333-333333333333"}, "action": "plan.replace", "payload": {"data": {"name": "Kế hoạch mới", "color_id": "green"}}, "precondition": null}]
+        },
+        {
+          "protocol_version": 1,
+          "reducer_version": 1,
+          "operation_id": "a0000003-0000-4000-8000-000000000003",
+          "owner_id": "11111111-1111-4111-8111-111111111111",
+          "device_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "device_sequence": "3",
+          "edit_time": {"physical_ms": 2000, "logical": 0, "calibration_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc", "raw_wall_ms": 2000, "quality": "calibrated"},
+          "dependencies": ["a0000002-0000-4000-8000-000000000002"],
+          "commands": [{"root": {"kind": "milestone", "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}, "action": "milestone.create", "payload": {"data": {"title": "Khởi hành", "date": "2026-11-02", "period": null, "note": "", "plan_id": "33333333-3333-4333-8333-333333333333", "standalone_color_id": "blue", "show_in_work_calendar": true}}, "precondition": null}]
+        },
+        {
+          "protocol_version": 1,
+          "reducer_version": 1,
+          "operation_id": "a0000004-0000-4000-8000-000000000004",
+          "owner_id": "11111111-1111-4111-8111-111111111111",
+          "device_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "device_sequence": "4",
+          "edit_time": {"physical_ms": 3000, "logical": 0, "calibration_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc", "raw_wall_ms": 3000, "quality": "calibrated"},
+          "dependencies": ["a0000003-0000-4000-8000-000000000003"],
+          "commands": [{"root": {"kind": "milestone", "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}, "action": "milestone.replace", "payload": {"data": {"title": "Khởi hành mới", "date": "2026-11-03", "period": "evening", "note": "Đã xác nhận", "plan_id": "33333333-3333-4333-8333-333333333333", "standalone_color_id": "purple", "show_in_work_calendar": false}}, "precondition": null}]
+        },
+        {
+          "protocol_version": 1,
+          "reducer_version": 1,
+          "operation_id": "a0000005-0000-4000-8000-000000000005",
+          "owner_id": "11111111-1111-4111-8111-111111111111",
+          "device_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "device_sequence": "5",
+          "edit_time": {"physical_ms": 4000, "logical": 0, "calibration_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc", "raw_wall_ms": 4000, "quality": "calibrated"},
+          "dependencies": ["a0000004-0000-4000-8000-000000000004"],
+          "commands": [{"root": {"kind": "milestone", "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}, "action": "milestone.delete", "payload": {}, "precondition": null}]
+        }
+      ],
+      "expected_projection": {
+        "owner_id": "11111111-1111-4111-8111-111111111111",
+        "roots": {
+          "plan:33333333-3333-4333-8333-333333333333": {"owner_id": "11111111-1111-4111-8111-111111111111", "deleted": false, "data": {"name": "Kế hoạch mới", "color_id": "green"}},
+          "milestone:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb": {"owner_id": "11111111-1111-4111-8111-111111111111", "deleted": true, "data": {"title": "Khởi hành mới", "date": "2026-11-03", "period": "evening", "note": "Đã xác nhận", "plan_id": "33333333-3333-4333-8333-333333333333", "standalone_color_id": "purple", "show_in_work_calendar": false}}
+        }
+      }
+    },
+    {
+      "name": "enable recurrence, delete occurrence, and delete detached child",
+      "operations": [
+        {
+          "protocol_version": 1,
+          "reducer_version": 1,
+          "operation_id": "22222222-2222-4222-8222-222222222222",
+          "owner_id": "11111111-1111-4111-8111-111111111111",
+          "device_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "device_sequence": "1",
+          "edit_time": {"physical_ms": 1000, "logical": 0, "calibration_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc", "raw_wall_ms": 1000, "quality": "calibrated"},
+          "dependencies": [],
+          "commands": [{"root": {"kind": "work_item", "id": "55555555-5555-4555-8555-555555555555"}, "action": "work_item.create_single", "payload": {"data": {"title": "Focus v1", "date": "2026-11-02", "period": "morning", "duration_minutes": 45, "plan_id": null, "standalone_color_id": "neutral", "status": "pending", "order_key": "0"}}, "precondition": null}]
+        },
+        {
+          "protocol_version": 1,
+          "reducer_version": 1,
+          "operation_id": "44444444-4444-4444-8444-444444444444",
+          "owner_id": "11111111-1111-4111-8111-111111111111",
+          "device_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "device_sequence": "2",
+          "edit_time": {"physical_ms": 2000, "logical": 0, "calibration_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc", "raw_wall_ms": 2000, "quality": "calibrated"},
+          "dependencies": ["22222222-2222-4222-8222-222222222222"],
+          "commands": [{"root": {"kind": "work_item", "id": "55555555-5555-4555-8555-555555555555"}, "action": "work_item.enable_recurrence", "payload": {"data": {"title": "Focus v1", "date": "2026-11-02", "period": "morning", "duration_minutes": 45, "plan_id": null, "standalone_color_id": "neutral", "status": "pending", "order_key": "0"}, "rule": {"weekdays": [1, 3, 5]}}, "precondition": null}]
+        },
+        {
+          "protocol_version": 1,
+          "reducer_version": 1,
+          "operation_id": "66666666-6666-4666-8666-666666666666",
+          "owner_id": "11111111-1111-4111-8111-111111111111",
+          "device_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "device_sequence": "3",
+          "edit_time": {"physical_ms": 3000, "logical": 0, "calibration_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc", "raw_wall_ms": 3000, "quality": "calibrated"},
+          "dependencies": ["44444444-4444-4444-8444-444444444444"],
+          "commands": [{"root": {"kind": "work_item", "id": "55555555-5555-4555-8555-555555555555"}, "action": "occurrence.delete", "payload": {"source_segment_id": "4c6a9267-15db-5a8d-8520-519bb83a84c9", "original_date": "2026-11-04"}, "precondition": null}]
+        },
+        {
+          "protocol_version": 1,
+          "reducer_version": 1,
+          "operation_id": "77777777-7777-4777-8777-777777777777",
+          "owner_id": "11111111-1111-4111-8111-111111111111",
+          "device_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "device_sequence": "4",
+          "edit_time": {"physical_ms": 4000, "logical": 0, "calibration_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc", "raw_wall_ms": 4000, "quality": "calibrated"},
+          "dependencies": ["44444444-4444-4444-8444-444444444444"],
+          "commands": [{"root": {"kind": "work_item", "id": "55555555-5555-4555-8555-555555555555"}, "action": "occurrence.replace", "payload": {"source_segment_id": "4c6a9267-15db-5a8d-8520-519bb83a84c9", "original_date": "2026-11-06", "data": {"title": "Moved session", "date": "2026-11-07", "period": "afternoon", "duration_minutes": 30, "plan_id": null, "standalone_color_id": "blue", "status": "completed", "order_key": "3"}}, "precondition": null}]
+        },
+        {
+          "protocol_version": 1,
+          "reducer_version": 1,
+          "operation_id": "88888888-8888-4888-8888-888888888888",
+          "owner_id": "11111111-1111-4111-8111-111111111111",
+          "device_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "device_sequence": "5",
+          "edit_time": {"physical_ms": 5000, "logical": 0, "calibration_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc", "raw_wall_ms": 5000, "quality": "calibrated"},
+          "dependencies": ["77777777-7777-4777-8777-777777777777"],
+          "commands": [{"root": {"kind": "work_item", "id": "55555555-5555-4555-8555-555555555555"}, "action": "series.edit_future", "payload": {"source_segment_id": "4c6a9267-15db-5a8d-8520-519bb83a84c9", "cutoff_original_date": "2026-11-06", "rule": {"weekdays": [2, 4]}, "template": {"title": "Focus future", "period": "afternoon", "duration_minutes": 30, "plan_id": null, "standalone_color_id": "blue", "order_key": "5"}}, "precondition": null}]
+        },
+        {
+          "protocol_version": 1,
+          "reducer_version": 1,
+          "operation_id": "99999999-9999-4999-8999-999999999999",
+          "owner_id": "11111111-1111-4111-8111-111111111111",
+          "device_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "device_sequence": "6",
+          "edit_time": {"physical_ms": 6000, "logical": 0, "calibration_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc", "raw_wall_ms": 6000, "quality": "calibrated"},
+          "dependencies": ["88888888-8888-4888-8888-888888888888"],
+          "commands": [{"root": {"kind": "work_item", "id": "55555555-5555-4555-8555-555555555555"}, "action": "detached.delete", "payload": {"task_id": "f61a7cc9-b589-5cd8-9d63-e5b0cc451eec"}, "precondition": null}]
+        }
+      ],
+      "expected_projection": {
+        "owner_id": "11111111-1111-4111-8111-111111111111",
+        "roots": {
+          "work_item:55555555-5555-4555-8555-555555555555": {
+            "owner_id": "11111111-1111-4111-8111-111111111111",
+            "deleted": false,
+            "kind": "recurrence_family",
+            "single": null,
+            "segment_origins": [
+              {"segment_id": "4c6a9267-15db-5a8d-8520-519bb83a84c9", "born_from_date": "2026-11-02", "created_by_operation_id": "44444444-4444-4444-8444-444444444444", "command_index": 0},
+              {"segment_id": "aa7a770c-a95e-505b-962e-9f18719389c3", "born_from_date": "2026-11-06", "created_by_operation_id": "88888888-8888-4888-8888-888888888888", "command_index": 0}
+            ],
+            "family": {
+              "segments": [
+                {"segment_id": "4c6a9267-15db-5a8d-8520-519bb83a84c9", "from_date": "2026-11-02", "until_date": "2026-11-06", "rule": {"weekdays": [1, 3, 5]}, "template": {"title": "Focus v1", "period": "morning", "duration_minutes": 45, "plan_id": null, "standalone_color_id": "neutral", "order_key": "0"}},
+                {"segment_id": "aa7a770c-a95e-505b-962e-9f18719389c3", "from_date": "2026-11-06", "until_date": null, "rule": {"weekdays": [2, 4]}, "template": {"title": "Focus future", "period": "afternoon", "duration_minutes": 30, "plan_id": null, "standalone_color_id": "blue", "order_key": "5"}}
+              ],
+              "overrides": [
+                {"override_id": "c3d1c62f-eaaa-5083-8b41-58c091953cf0", "original_date": "2026-11-02", "source_segment_id": "4c6a9267-15db-5a8d-8520-519bb83a84c9", "kind": "replacement", "replacement": {"title": "Focus v1", "date": "2026-11-02", "period": "morning", "duration_minutes": 45, "plan_id": null, "standalone_color_id": "neutral", "status": "pending", "order_key": "0"}, "detached_task_id": null},
+                {"override_id": "29964221-1db4-5cf8-9d11-dbfbe28658ab", "original_date": "2026-11-04", "source_segment_id": "4c6a9267-15db-5a8d-8520-519bb83a84c9", "kind": "deleted", "replacement": null, "detached_task_id": null},
+                {"override_id": "24df0806-99d0-5fc6-ab1f-4786b47196ba", "original_date": "2026-11-06", "source_segment_id": "4c6a9267-15db-5a8d-8520-519bb83a84c9", "kind": "detached", "replacement": null, "detached_task_id": "f61a7cc9-b589-5cd8-9d63-e5b0cc451eec"}
+              ],
+              "order_overrides": [],
+              "detached": [{"task_id": "f61a7cc9-b589-5cd8-9d63-e5b0cc451eec", "source_occurrence_id": "5fff0cf5-24df-5d72-95e0-c1d95aa4d50a", "original_date": "2026-11-06", "data": {"title": "Moved session", "date": "2026-11-07", "period": "afternoon", "duration_minutes": 30, "plan_id": null, "standalone_color_id": "blue", "status": "completed", "order_key": "3"}, "deleted": true}]
+            }
+          }
+        }
+      }
+    }
+  ]
+}

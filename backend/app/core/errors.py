@@ -36,12 +36,68 @@ _TEXT = {
         "Authentication is required.",
     ),
     "forbidden": ("Forbidden", "The request is not permitted."),
+    "csrf_failed": ("Request verification failed", "Refresh the page and try again."),
+    "invalid_credentials": (
+        "Invalid credentials",
+        "The email or password is incorrect.",
+    ),
+    "email_token_invalid": ("Invalid email link", "This email link is invalid."),
+    "email_token_used": (
+        "Email link already used",
+        "This email link has already been used.",
+    ),
+    "email_token_expired": (
+        "Email link expired",
+        "Request a new email link and try again.",
+    ),
+    "reauthentication_required": (
+        "Reauthentication required",
+        "Sign in again before unlocking local data.",
+    ),
+    "password_policy_violation": (
+        "Password does not meet requirements",
+        "Choose a password that meets the password requirements.",
+    ),
+    "password_blocklisted": (
+        "Choose a different password",
+        "This password is too common or easy to guess.",
+    ),
+    "owner_mismatch": (
+        "Owner mismatch",
+        "The operation does not belong to the authenticated owner.",
+    ),
+    "time_invalid": (
+        "Invalid edit time",
+        "The operation edit time cannot be accepted.",
+    ),
+    "invalid_causality": (
+        "Invalid operation dependency",
+        "The operation dependency is invalid.",
+    ),
+    "dependency_missing": (
+        "Dependency missing",
+        "Record the required operation before retrying.",
+    ),
+    "operation_id_reused": (
+        "Operation identifier reused",
+        "This operation identifier was already used for different content.",
+    ),
+    "cursor_epoch_mismatch": (
+        "Sync epoch changed",
+        "The local sync history needs safe recovery.",
+    ),
+    "page_token_expired": ("Page token expired", "Restart this sync page sequence."),
+    "client_update_required": (
+        "Client update required",
+        "Update the app before syncing this operation.",
+    ),
 }
 
 _STATUS_CODES = {
     400: "malformed_request",
     401: "authentication_required",
     403: "forbidden",
+    410: "malformed_request",
     404: "not_found",
     405: "method_not_allowed",
     413: "payload_too_large",
