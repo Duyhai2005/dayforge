@@ -1084,6 +1084,9 @@ async function runBrowserScenario(baseURL) {
     leaseBeforeFailover = leaseAfterLongFreeze;
     console.log("An idle leader stayed frozen across three lease TTLs; its successor took over and kept renewing without forced lease edits.");
 
+    await leaderPage.bringToFront();
+    await waitFor(() => leaderPage.evaluate(() => document.visibilityState === "visible"),
+      "the successor leader tab to become visible before the stale-response test");
     const staleLeaderPlan = `${name}-stale-leader-response`;
     const beforeStaleLeader = await leaderPage.evaluate(() => window.__dayforgeSyncBrowserHarness.inspect());
     assert.equal(beforeStaleLeader.pending.length, 0, "stale-response fencing begins with an empty active outbox");
@@ -1092,6 +1095,7 @@ async function runBrowserScenario(baseURL) {
     const staleLeaderOperation = await leaderPage.evaluate(
       async (planName) => {
         const operation = await window.__dayforgeSyncBrowserHarness.createPlan(planName);
+        window.dispatchEvent(new Event("online"));
         return { ...operation, syncWoken: window.__dayforgeSyncBrowserHarness.wakeSync() };
       },
       staleLeaderPlan,
