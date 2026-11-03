@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useEffect, useId, useRef, useState } from "react";
 import { useAccount } from "../account/account-provider";
 import { MAX_CALENDAR_DATE, MIN_CALENDAR_DATE, moveAnchor, parseViewState, todayInUtc7, type CalendarKind, type MilestoneScale, type ViewState } from "../../lib/calendar/view-state";
+import type { Period } from "../../lib/sync/reducer";
 
 export type CalendarWidgetProps = {
   calendar: CalendarKind;
@@ -12,6 +13,7 @@ export type CalendarWidgetProps = {
   onNavigate(next: ViewState): void;
   onSwitch(nextCalendar: CalendarKind): void;
   onOpenPlans(): void;
+  onAddTask(date: string, period: Period | null): void;
 };
 
 export function currentPeriod(view: ViewState): string {
@@ -26,7 +28,7 @@ export function currentPeriod(view: ViewState): string {
   return `${format(start)} – ${format(end)}`;
 }
 
-export function CalendarWidget({ calendar, view, onNavigate, onSwitch, onOpenPlans }: CalendarWidgetProps): React.JSX.Element {
+export function CalendarWidget({ calendar, view, onNavigate, onSwitch, onOpenPlans, onAddTask }: CalendarWidgetProps): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [logoutChanges, setLogoutChanges] = useState<{ pendingOperations: number; drafts: number } | null>(null);
   const [logoutError, setLogoutError] = useState("");
@@ -100,6 +102,7 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch, onOpenPla
       }
     };
     const outside = (event: MouseEvent) => {
+      if (event.target instanceof Element && event.target.closest(".plan-manager-backdrop, .task-editor-backdrop")) return;
       if (event.target instanceof Node && !root.current?.contains(event.target)) {
         setOpen(false);
         toggle.current?.focus({ preventScroll: true });
@@ -117,7 +120,10 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch, onOpenPla
     <div className="calendar-widget" ref={root}>
       <section id={panelId} className="widget-panel" data-open={open} aria-label="Điều khiển lịch" aria-hidden={!open} inert={!open}>
         <div className="widget-add-actions">
-          <button type="button" disabled aria-describedby={explanationId}>Thêm công việc</button>
+          <button type="button" disabled={account.state !== "unlocked"} aria-describedby={explanationId} onClick={() => {
+            setOpen(false);
+            onAddTask(view.anchor, null);
+          }}>Thêm công việc</button>
           <button type="button" disabled aria-describedby={explanationId}>Thêm dấu mốc</button>
           <button type="button" disabled={account.state !== "unlocked"} aria-describedby={explanationId} onClick={() => {
             setOpen(false);
@@ -149,7 +155,7 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch, onOpenPla
         <div className="widget-account"><span>Dữ liệu · UTC+07:00</span><Link href="/account">Tài khoản</Link></div>
       </section>
       <div className="widget-bar">
-        <button className="widget-quick-add" type="button" disabled aria-describedby={explanationId} aria-label="Thêm nhanh">+</button>
+        <button className="widget-quick-add" type="button" disabled={account.state !== "unlocked"} aria-describedby={explanationId} aria-label="Thêm nhanh" onClick={() => onAddTask(view.anchor, null)}>+</button>
         <div className="widget-summary"><strong>{calendar === "work" ? "Lịch công việc" : "Lịch dấu mốc"}</strong><span role="status">{account.error || account.info || (account.state === "unlocked" ? "Dữ liệu cục bộ đã mở khóa." : "Chưa kết nối dữ liệu")}</span></div>
         {(account.session?.authenticated && account.session.owner) || account.state === "unlocked" ? <div className="widget-auth-control">
           {account.session?.authenticated && account.session.owner && <span className="widget-auth-email">{account.session.owner.email}</span>}
@@ -158,8 +164,8 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch, onOpenPla
         <button ref={toggle} className="widget-toggle" type="button" aria-label="Mở hoặc đóng điều hướng lịch" aria-expanded={open} aria-controls={panelId} onClick={() => { if (open) close(); else setOpen(true); }}><span aria-hidden="true">{open ? "⌄" : "⌃"}</span></button>
       </div>
       <p id={explanationId} className="widget-save-explanation">{account.state === "unlocked"
-        ? "Kế hoạch được lưu trên thiết bị. Biểu mẫu công việc và dấu mốc sẽ được bổ sung tiếp theo."
-        : "Mở khóa kho local để quản lý kế hoạch. Biểu mẫu công việc và dấu mốc sẽ được bổ sung tiếp theo."}</p>
+        ? "Công việc và kế hoạch được lưu trên thiết bị. Biểu mẫu dấu mốc sẽ được bổ sung tiếp theo."
+        : "Mở khóa kho local để thêm công việc hoặc quản lý kế hoạch. Biểu mẫu dấu mốc sẽ được bổ sung tiếp theo."}</p>
       {logoutError && <p className="account-error" role="alert">{logoutError}</p>}
       {logoutDialog}
     </div>

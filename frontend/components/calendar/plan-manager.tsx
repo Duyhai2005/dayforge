@@ -6,7 +6,7 @@ import { useAccount } from "../account/account-provider";
 import type { ColorId, PlanData, PlanRoot } from "../../lib/sync/reducer";
 import type { UUID } from "../../lib/sync/protocol";
 
-const COLORS: ReadonlyArray<{ id: ColorId; name: string; foreground: string; background: string }> = [
+export const CALENDAR_COLORS: ReadonlyArray<{ id: ColorId; name: string; foreground: string; background: string }> = [
   { id: "neutral", name: "Trung tính", foreground: "#CED7D8", background: "#334148" },
   { id: "earth", name: "Cam đất", foreground: "#E4BD98", background: "#493E32" },
   { id: "green", name: "Xanh lá", foreground: "#B0D5C0", background: "#2B4138" },
@@ -36,9 +36,11 @@ function fieldData(value: PlanFields): PlanData {
 export type PlanManagerProps = {
   open: boolean;
   onClose(): void;
+  onCreated?(id: UUID): void;
+  nested?: boolean;
 };
 
-export function PlanManager({ open, onClose }: PlanManagerProps): React.JSX.Element | null {
+export function PlanManager({ open, onClose, onCreated, nested = false }: PlanManagerProps): React.JSX.Element | null {
   const account = useAccount();
   const [editingId, setEditingId] = useState<UUID | null>(null);
   const [fields, setFields] = useState<PlanFields>({ name: "", color_id: "neutral" });
@@ -91,7 +93,10 @@ export function PlanManager({ open, onClose }: PlanManagerProps): React.JSX.Elem
       cancelAnimationFrame(frame);
       if (main) main.inert = priorMainInert;
       if (widget) widget.inert = priorWidgetInert;
-      returnFocus.current?.focus({ preventScroll: true });
+      const target = returnFocus.current;
+      const hiddenPanel = target?.closest<HTMLElement>(".widget-panel");
+      const fallback = hiddenPanel?.inert ? document.querySelector<HTMLElement>(".widget-toggle") : null;
+      (fallback ?? target)?.focus({ preventScroll: true });
     };
   }, [open]);
 
@@ -167,7 +172,11 @@ export function PlanManager({ open, onClose }: PlanManagerProps): React.JSX.Elem
     setValidationError(null);
     try {
       if (editingId) await account.replacePlan(editingId, data);
-      else await account.createPlan(crypto.randomUUID() as UUID, data);
+      else {
+        const id = crypto.randomUUID() as UUID;
+        await account.createPlan(id, data);
+        onCreated?.(id);
+      }
       resetEditor();
       onClose();
     } catch (cause) {
@@ -178,7 +187,7 @@ export function PlanManager({ open, onClose }: PlanManagerProps): React.JSX.Elem
   }
 
   return createPortal(
-    <div className="plan-manager-backdrop" onMouseDown={(event) => {
+    <div className="plan-manager-backdrop" data-nested={nested || undefined} onMouseDown={(event) => {
       if (event.target === event.currentTarget) requestClose();
     }}>
       <section ref={dialog} className="plan-manager" role="dialog" aria-modal="true" aria-labelledby="plan-manager-title" data-dayforge-dirty={dirty ? "true" : "false"}>
@@ -197,7 +206,7 @@ export function PlanManager({ open, onClose }: PlanManagerProps): React.JSX.Elem
           {account.calendarReady && plans.length === 0 && <p className="plan-empty">Chưa có kế hoạch. Bạn có thể tạo kế hoạch trong lúc nhập công việc hoặc dấu mốc.</p>}
           {plans.length > 0 && <ul className="plan-list" aria-label="Kế hoạch đã lưu">
             {plans.map((entry) => {
-              const color = COLORS.find((candidate) => candidate.id === entry.root.data.color_id) ?? COLORS[0];
+              const color = CALENDAR_COLORS.find((candidate) => candidate.id === entry.root.data.color_id) ?? CALENDAR_COLORS[0];
               return <li key={entry.id}>
                 <span className="plan-list-swatch" style={{ backgroundColor: color.background, color: color.foreground }} aria-hidden="true" />
                 <span className="plan-list-name">{entry.root.data.name}</span>
@@ -215,13 +224,13 @@ export function PlanManager({ open, onClose }: PlanManagerProps): React.JSX.Elem
           </label>
           <fieldset className="plan-palette">
             <legend>Màu kế hoạch</legend>
-            {COLORS.map((color) => <label key={color.id} className="plan-color-option">
+            {CALENDAR_COLORS.map((color) => <label key={color.id} className="plan-color-option">
               <input type="radio" name="color_id" value={color.id} checked={fields.color_id === color.id} onChange={() => setFields((current) => ({ ...current, color_id: color.id }))} />
               <span className="plan-color-swatch" style={{ backgroundColor: color.background, color: color.foreground }} aria-hidden="true">✓</span>
               <span>{color.name}</span>
             </label>)}
           </fieldset>
-          <div className="plan-preview" style={{ backgroundColor: COLORS.find((color) => color.id === fields.color_id)?.background, color: COLORS.find((color) => color.id === fields.color_id)?.foreground }}>
+          <div className="plan-preview" style={{ backgroundColor: CALENDAR_COLORS.find((color) => color.id === fields.color_id)?.background, color: CALENDAR_COLORS.find((color) => color.id === fields.color_id)?.foreground }}>
             {fields.name.trim() || "Tên kế hoạch"}
           </div>
           {validationError && <p className="account-error" role="alert">{validationError}</p>}

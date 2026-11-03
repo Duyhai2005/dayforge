@@ -455,6 +455,53 @@ test("ownerCanCreateAndEditAPlanThroughTheCalendarWidget", async ({ page }) => {
   expect(outbox).toHaveLength(2);
 });
 
+test("ownerCanCreateTaskAndNestedPlanWithoutLosingTheTaskDraft", async ({ page }) => {
+  await mockAuthApi(page);
+  await page.goto("/account");
+  await page.getByLabel("Email").fill("owner@example.test");
+  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
+  await page.getByRole("button", { name: "Đăng nhập và mở kho local", exact: true }).click();
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
+
+  await page.goto("/work?date=2026-11-03");
+  await page.getByRole("button", { name: "Mở hoặc đóng điều hướng lịch" }).click();
+  await page.getByRole("button", { name: "Thêm công việc", exact: true }).click();
+  const taskDialog = page.getByRole("dialog", { name: "Thêm công việc" });
+  await expect(taskDialog).toBeVisible();
+  await expect(taskDialog.getByLabel("Ngày")).toHaveValue("2026-11-03");
+  await expect(taskDialog.getByLabel("Buổi")).toHaveValue("");
+  await taskDialog.getByLabel("Tên công việc").fill("Nộp báo cáo cuối kỳ");
+  await taskDialog.getByLabel("Thời lượng ước tính (phút, không bắt buộc)").fill("45");
+  await taskDialog.getByRole("button", { name: "Lưu công việc", exact: true }).click();
+  await expect(taskDialog.getByRole("alert")).toHaveText("Hãy chọn buổi cho công việc.");
+
+  await taskDialog.getByLabel("Buổi").selectOption("afternoon");
+  await taskDialog.getByRole("button", { name: "Tạo kế hoạch", exact: true }).click();
+  const planDialog = page.getByRole("dialog", { name: "Kế hoạch" });
+  await expect(planDialog).toBeVisible();
+  await planDialog.getByRole("button", { name: "Tạo kế hoạch", exact: true }).click();
+  await planDialog.getByLabel("Tên kế hoạch").fill("Báo cáo học kỳ");
+  await planDialog.getByRole("radio", { name: "Xanh lam" }).check();
+  await planDialog.getByRole("button", { name: "Lưu kế hoạch", exact: true }).click();
+  await expect(planDialog).toBeHidden();
+  await expect(taskDialog).toBeVisible();
+  await expect(taskDialog.getByLabel("Tên công việc")).toHaveValue("Nộp báo cáo cuối kỳ");
+  await expect(taskDialog.getByLabel("Ngày")).toHaveValue("2026-11-03");
+  await expect(taskDialog.getByLabel("Buổi")).toHaveValue("afternoon");
+  await expect(taskDialog.getByLabel("Thời lượng ước tính (phút, không bắt buộc)")).toHaveValue("45");
+  await expect(taskDialog.getByLabel("Kế hoạch")).toHaveValue(/.+/);
+  await taskDialog.getByRole("button", { name: "Lưu công việc", exact: true }).click();
+  await expect(taskDialog).toBeHidden();
+  await expect(page.getByRole("status")).toContainText("Đã lưu công việc trên thiết bị");
+  await expect(page.getByRole("button", { name: "Mở hoặc đóng điều hướng lịch" })).toBeFocused();
+
+  const outbox = await readEncryptedOutbox(page);
+  expect(outbox).toHaveLength(2);
+  await page.reload();
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
+  expect(await readEncryptedOutbox(page)).toHaveLength(2);
+});
+
 test("loginRecoversFromExpiredCsrfByRefreshingAndRetryingOnce", async ({ page }) => {
   const api = await mockAuthApi(page);
   await page.goto("/account");
