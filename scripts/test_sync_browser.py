@@ -14,7 +14,6 @@ import time
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 from cryptography import x509
@@ -107,7 +106,7 @@ def _verify_test_owner(settings) -> None:
         try:
             service = AuthService(database, settings)
             await service.request_email(
-                settings.owner_email.get_secret_value(),
+                settings.owner_email,
                 "verify_email",
                 "127.0.0.1",
                 audit_action="register",
@@ -118,8 +117,9 @@ def _verify_test_owner(settings) -> None:
                 (
                     payload
                     for payload in payloads
-                    if payload.get("to") == settings.owner_email.get_secret_value()
-                    and "#token=" in payload.get("link", "")
+                    if payload.get("recipient") == settings.owner_email
+                    and payload.get("kind") == "verify_email"
+                    and isinstance(payload.get("token"), str)
                 ),
                 None,
             )
@@ -127,7 +127,7 @@ def _verify_test_owner(settings) -> None:
                 raise BrowserRunnerError(
                     "The isolated verification message was not queued"
                 )
-            token = urlsplit(verification["link"]).fragment.removeprefix("token=")
+            token = verification["token"]
             await service.confirm_email(
                 token,
                 PASSWORD,
@@ -149,8 +149,6 @@ def _verify_test_owner(settings) -> None:
 
 
 def _restore_test_sync_epoch(settings, owner_id: str) -> str:
-    from sqlalchemy import delete, select
-
     from app.core.database import create_database
     from app.models.sync import (
         ChangeLog,
@@ -158,6 +156,7 @@ def _restore_test_sync_epoch(settings, owner_id: str) -> str:
         OwnerSyncState,
         RecordedOperation,
     )
+    from sqlalchemy import delete, select
 
     try:
         parsed_owner = UUID(owner_id)
