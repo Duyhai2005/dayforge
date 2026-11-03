@@ -274,6 +274,9 @@ def main() -> int:
         print("The isolated browser runner has no valid HTTPS port.", file=sys.stderr)
         return 2
 
+    # CSRF validation must trust the exact origin used by the ephemeral browser.
+    environ["PUBLIC_ORIGIN"] = f"https://127.0.0.1:{browser_port}"
+
     # The app rewrites API calls to its fixed local API origin. Never reuse an
     # unknown listener on that address because it could point at a developer DB.
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:

@@ -37,6 +37,7 @@ export function AccountPanel(): React.JSX.Element {
   };
 
   const isUnlocked = account.state === "unlocked";
+  const canInteract = hydrated && account.state !== "loading";
   const showAuth = !(account.session?.authenticated && isUnlocked);
   const clockRecoveryAvailable = account.syncStatus.state === "blocked" &&
     (account.syncStatus.code === "time_invalid" || account.syncStatus.code.startsWith("clock_"));
@@ -67,9 +68,9 @@ export function AccountPanel(): React.JSX.Element {
       {showAuth && (
         <>
           <nav className="account-form-nav" aria-label="Luồng tài khoản">
-            <button type="button" aria-pressed={form === "login"} onClick={() => { setForm("login"); setFormError(null); }}>Đăng nhập</button>
-            <button type="button" aria-pressed={form === "register"} onClick={() => { setForm("register"); setFormError(null); }}>Tạo tài khoản</button>
-            <button type="button" aria-pressed={form === "forgot"} onClick={() => { setForm("forgot"); setFormError(null); }}>Quên mật khẩu</button>
+            <button type="button" disabled={!canInteract} aria-pressed={form === "login"} onClick={() => { setForm("login"); setFormError(null); }}>Đăng nhập</button>
+            <button type="button" disabled={!canInteract} aria-pressed={form === "register"} onClick={() => { setForm("register"); setFormError(null); }}>Tạo tài khoản</button>
+            <button type="button" disabled={!canInteract} aria-pressed={form === "forgot"} onClick={() => { setForm("forgot"); setFormError(null); }}>Quên mật khẩu</button>
           </nav>
 
           <form className="account-form" onSubmit={(event) => {
@@ -79,13 +80,13 @@ export function AccountPanel(): React.JSX.Element {
             else void run(() => account.requestPasswordReset(email));
           }}>
             <label htmlFor="account-email">Email</label>
-            <input id="account-email" name="email" type="text" inputMode="email" autoComplete="email" maxLength={254} required value={email} onChange={(event) => setEmail(event.target.value)} />
+            <input id="account-email" name="email" type="text" inputMode="email" autoComplete="email" maxLength={254} required disabled={!canInteract} value={email} onChange={(event) => setEmail(event.target.value)} />
             {form === "login" && <>
               <label htmlFor="account-password">Mật khẩu</label>
-              <input id="account-password" name="password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} />
-              <label className="account-checkbox" htmlFor="remember-me"><input id="remember-me" type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} /> Ghi nhớ phiên trên thiết bị này</label>
+              <input id="account-password" name="password" type="password" autoComplete="current-password" required disabled={!canInteract} value={password} onChange={(event) => setPassword(event.target.value)} />
+              <label className="account-checkbox" htmlFor="remember-me"><input id="remember-me" type="checkbox" disabled={!canInteract} checked={remember} onChange={(event) => setRemember(event.target.checked)} /> Ghi nhớ phiên trên thiết bị này</label>
             </>}
-            <button className="account-submit" type="submit" disabled={!hydrated || busy || account.state === "loading"}>
+            <button className="account-submit" type="submit" disabled={!canInteract || busy}>
               {busy ? "Đang xử lý…" : form === "login" ? "Đăng nhập và mở kho local" : form === "register" ? "Gửi liên kết xác minh" : "Gửi hướng dẫn đặt lại"}
             </button>
           </form>

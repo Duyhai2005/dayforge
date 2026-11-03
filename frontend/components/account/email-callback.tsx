@@ -9,6 +9,7 @@ type EmailCallbackProps = Readonly<{ purpose: "verify-email" | "reset-password" 
 export function EmailCallback({ purpose }: EmailCallbackProps): React.JSX.Element {
   const account = useAccount();
   const hydrated = useHydrated();
+  const canInteract = hydrated && account.state !== "loading";
   const tokenRef = useRef<string | null>(null);
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -52,11 +53,11 @@ export function EmailCallback({ purpose }: EmailCallbackProps): React.JSX.Elemen
       }).catch((cause: unknown) => setError(formatAccountError(cause))).finally(() => setBusy(false));
     }}>
       <label htmlFor="callback-password">{purpose === "verify-email" ? "Tạo mật khẩu" : "Mật khẩu mới"}</label>
-      <input id="callback-password" type="password" autoComplete="new-password" required value={password} onChange={(event) => setPassword(event.target.value)} />
+      <input id="callback-password" type="password" autoComplete="new-password" required disabled={!canInteract} value={password} onChange={(event) => setPassword(event.target.value)} />
       <label htmlFor="callback-confirmation">Nhập lại mật khẩu</label>
-      <input id="callback-confirmation" type="password" autoComplete="new-password" required value={confirmation} onChange={(event) => setConfirmation(event.target.value)} />
+      <input id="callback-confirmation" type="password" autoComplete="new-password" required disabled={!canInteract} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} />
       <p className="account-copy">15–128 ký tự Unicode. Có thể dùng khoảng trắng và trình quản lý mật khẩu.</p>
-      <button className="account-submit" type="submit" disabled={!hydrated || busy}>{busy ? "Đang xác nhận…" : purpose === "verify-email" ? "Xác minh và tạo tài khoản" : "Đặt lại mật khẩu"}</button>
+      <button className="account-submit" type="submit" disabled={!canInteract || busy}>{busy ? "Đang xác nhận…" : purpose === "verify-email" ? "Xác minh và tạo tài khoản" : "Đặt lại mật khẩu"}</button>
     </form>}
   </>;
 }
