@@ -907,7 +907,8 @@ async function runBrowserScenario(baseURL) {
     "the final semantic recurrence hashes must agree across device lanes");
     console.log("Stop-by-original-date removed a moved member while retaining history and detached tasks; atomic undo restored both device projections and matching hashes.");
 
-    await contextB.unroute("**/api/v1/sync/pull**");
+    // Drain in-flight pull handlers before installing the next fault injector.
+    await contextB.unrouteAll({ behavior: "wait" });
     const pullAbortName = `${name}-pull-transaction-abort`;
     let pullAbortResponseCount = 0;
     let signalFirstPullAbortResponse = () => {};
@@ -972,7 +973,7 @@ async function runBrowserScenario(baseURL) {
     releaseRetryPullAbortResponse();
     await waitFor(() => isRecorded(pageB, pullAbortName, pullAbortOperation.operationId),
       "device B to publish the unchanged pull page after retry", 45_000);
-    await contextB.unroute("**/api/v1/sync/pull**");
+    await contextB.unrouteAll({ behavior: "wait" });
     console.log("Device B committed the exact pull page after retry with no partial state from the aborted transaction.");
 
     const [finalA, finalB] = await Promise.all([
@@ -1503,7 +1504,7 @@ async function runBrowserScenario(baseURL) {
               state.recordedEvents.some((event) => event.operationId === id));
           return recovered(recoveredA) && recovered(recoveredB);
         }, "both devices to recover their acknowledged union after the isolated server epoch reset", 90_000);
-        await contextB.unroute("**/api/v1/sync/pull**");
+        await contextB.unrouteAll({ behavior: "wait" });
       } catch (error) {
         const diagnostics = await Promise.all([successorPage, pageB].map(async (page) => ({
           coordinator: await page.evaluate(() => window.__dayforgeSyncBrowserHarness.coordinatorState()).catch(() => "unavailable"),
