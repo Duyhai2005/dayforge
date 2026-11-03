@@ -185,6 +185,25 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch, onOpenPla
 
   return (
     <div className="calendar-widget" ref={root}>
+      {undoToastVisible && account.taskUndo && <div className="calendar-undo-toast" role="status" onMouseEnter={() => { undoToastHovered.current = true; pauseUndoToast(); }} onMouseLeave={() => { undoToastHovered.current = false; resumeUndoToast(); }}
+        onFocusCapture={() => { undoToastFocused.current = true; pauseUndoToast(); }} onBlurCapture={(event) => {
+          if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+          undoToastFocused.current = false;
+          resumeUndoToast();
+        }}>
+        <span>{account.taskUndo.message}</span>
+        <button type="button" disabled={undoBusy || account.state !== "unlocked"} onClick={() => void performUndo()}>{undoBusy ? "Đang hoàn tác…" : "Hoàn tác"}</button>
+      </div>}
+      {undoError && <p className="widget-undo-error" role="alert">{undoError}</p>}
+      <div className="widget-bar">
+        <button className="widget-quick-add" type="button" disabled={account.state !== "unlocked"} aria-describedby={explanationId} aria-label="Thêm nhanh" onClick={() => onAddTask(view.anchor, null)}>+</button>
+        <div className="widget-summary"><strong>{calendar === "work" ? "Lịch công việc" : "Lịch dấu mốc"}</strong><span role="status">{account.error || account.info || (account.state === "unlocked" ? syncStatusLabel(account.syncStatus) : "Chưa kết nối dữ liệu")}</span></div>
+        {(account.session?.authenticated && account.session.owner) || account.state === "unlocked" ? <div className="widget-auth-control">
+          {account.session?.authenticated && account.session.owner && <span className="widget-auth-email">{account.session.owner.email}</span>}
+          <button type="button" onClick={() => void requestLogout()}>{account.session?.authenticated ? "Đăng xuất" : "Khóa dữ liệu"}</button>
+        </div> : null}
+        <button ref={toggle} className="widget-toggle" type="button" aria-label="Mở hoặc đóng điều hướng lịch" aria-expanded={open} aria-controls={panelId} onClick={() => { if (open) close(); else setOpen(true); }}><span aria-hidden="true">{open ? "⌄" : "⌃"}</span></button>
+      </div>
       <section id={panelId} className="widget-panel" data-open={open} aria-label="Điều khiển lịch" aria-hidden={!open} inert={!open}>
         <div className="widget-add-actions">
           <button type="button" disabled={account.state !== "unlocked"} aria-describedby={explanationId} onClick={() => {
@@ -229,25 +248,6 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch, onOpenPla
         }} /></label>
         <div className="widget-account"><span>Dữ liệu · UTC+07:00</span><Link href="/account">Tài khoản</Link></div>
       </section>
-      {undoToastVisible && account.taskUndo && <div className="calendar-undo-toast" role="status" onMouseEnter={() => { undoToastHovered.current = true; pauseUndoToast(); }} onMouseLeave={() => { undoToastHovered.current = false; resumeUndoToast(); }}
-        onFocusCapture={() => { undoToastFocused.current = true; pauseUndoToast(); }} onBlurCapture={(event) => {
-          if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
-          undoToastFocused.current = false;
-          resumeUndoToast();
-        }}>
-        <span>{account.taskUndo.message}</span>
-        <button type="button" disabled={undoBusy || account.state !== "unlocked"} onClick={() => void performUndo()}>{undoBusy ? "Đang hoàn tác…" : "Hoàn tác"}</button>
-      </div>}
-      {undoError && <p className="widget-undo-error" role="alert">{undoError}</p>}
-      <div className="widget-bar">
-        <button className="widget-quick-add" type="button" disabled={account.state !== "unlocked"} aria-describedby={explanationId} aria-label="Thêm nhanh" onClick={() => onAddTask(view.anchor, null)}>+</button>
-        <div className="widget-summary"><strong>{calendar === "work" ? "Lịch công việc" : "Lịch dấu mốc"}</strong><span role="status">{account.error || account.info || (account.state === "unlocked" ? syncStatusLabel(account.syncStatus) : "Chưa kết nối dữ liệu")}</span></div>
-        {(account.session?.authenticated && account.session.owner) || account.state === "unlocked" ? <div className="widget-auth-control">
-          {account.session?.authenticated && account.session.owner && <span className="widget-auth-email">{account.session.owner.email}</span>}
-          <button type="button" onClick={() => void requestLogout()}>{account.session?.authenticated ? "Đăng xuất" : "Khóa dữ liệu"}</button>
-        </div> : null}
-        <button ref={toggle} className="widget-toggle" type="button" aria-label="Mở hoặc đóng điều hướng lịch" aria-expanded={open} aria-controls={panelId} onClick={() => { if (open) close(); else setOpen(true); }}><span aria-hidden="true">{open ? "⌄" : "⌃"}</span></button>
-      </div>
       <p id={explanationId} className="widget-save-explanation">{account.state === "unlocked"
         ? "Công việc, dấu mốc và kế hoạch được lưu trên thiết bị."
         : "Mở khóa kho local để thêm công việc, dấu mốc hoặc quản lý kế hoạch."}</p>

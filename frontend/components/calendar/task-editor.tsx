@@ -132,6 +132,7 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
   const dialog = useRef<HTMLElement>(null);
   const titleInput = useRef<HTMLInputElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
+  const confirmReturnFocus = useRef<HTMLElement | null>(null);
   const dirty = !sameFields(fields, initial);
   const plans = useMemo(() => planEntries(account.calendarProjection), [account.calendarProjection]);
   const selectedPlan = plans.find((entry) => entry.id === fields.planId);
@@ -166,18 +167,57 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
     };
   }, [open]);
 
+  const captureConfirmTrigger = useCallback(() => {
+    confirmReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }, []);
+
+  const restoreConfirmTrigger = useCallback(() => {
+    requestAnimationFrame(() => {
+      const target = confirmReturnFocus.current;
+      const canRestore = target?.isConnected && !target.closest("[inert]") && target.getClientRects().length > 0;
+      (canRestore ? target : titleInput.current)?.focus({ preventScroll: true });
+    });
+  }, []);
+
+  const openDiscardConfirmation = useCallback(() => {
+    captureConfirmTrigger();
+    setConfirmDiscard(true);
+  }, [captureConfirmTrigger]);
+
+  const closeDiscardConfirmation = useCallback(() => {
+    setConfirmDiscard(false);
+    restoreConfirmTrigger();
+  }, [restoreConfirmTrigger]);
+
+  const closeDeleteConfirmation = useCallback(() => {
+    setConfirmDelete(false);
+    restoreConfirmTrigger();
+  }, [restoreConfirmTrigger]);
+
+  const closeStopConfirmation = useCallback(() => {
+    setConfirmStopSeries(false);
+    restoreConfirmTrigger();
+  }, [restoreConfirmTrigger]);
+
+  const closeLogoutConfirmation = useCallback(() => {
+    setLogoutChanges(null);
+    setLogoutError(null);
+    restoreConfirmTrigger();
+  }, [restoreConfirmTrigger]);
+
   const requestClose = useCallback(() => {
     if (busy || planManagerOpen || logoutChanges) return;
     if (dirty) {
-      setConfirmDiscard(true);
+      openDiscardConfirmation();
       return;
     }
     setConfirmDiscard(false);
     onClose();
-  }, [busy, dirty, logoutChanges, onClose, planManagerOpen]);
+  }, [busy, dirty, logoutChanges, onClose, openDiscardConfirmation, planManagerOpen]);
 
   async function requestLogout(): Promise<void> {
     if (logoutBusy) return;
+    captureConfirmTrigger();
     setLogoutError(null);
     try {
       setLogoutChanges(await account.inspectPendingChanges());
@@ -224,10 +264,10 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
-        if (logoutChanges) setLogoutChanges(null);
-        else if (confirmDelete) setConfirmDelete(false);
-        else if (confirmStopSeries) setConfirmStopSeries(false);
-        else if (confirmDiscard) setConfirmDiscard(false);
+        if (logoutChanges) closeLogoutConfirmation();
+        else if (confirmDelete) closeDeleteConfirmation();
+        else if (confirmStopSeries) closeStopConfirmation();
+        else if (confirmDiscard) closeDiscardConfirmation();
         else requestClose();
         return;
       }
@@ -258,7 +298,7 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
     };
     document.addEventListener("keydown", trap, true);
     return () => document.removeEventListener("keydown", trap, true);
-  }, [confirmDelete, confirmDiscard, confirmStopSeries, logoutChanges, open, planManagerOpen, requestClose]);
+  }, [closeDeleteConfirmation, closeDiscardConfirmation, closeLogoutConfirmation, closeStopConfirmation, confirmDelete, confirmDiscard, confirmStopSeries, logoutChanges, open, planManagerOpen, requestClose]);
 
   if (!open || typeof document === "undefined") return null;
 
@@ -412,7 +452,7 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
       <div className="task-editor-backdrop" onMouseDown={(event) => {
         if (event.target === event.currentTarget && !planManagerOpen) requestClose();
       }}>
-        <section ref={dialog} className="task-editor" role="dialog" aria-modal={!planManagerOpen} aria-hidden={planManagerOpen} inert={planManagerOpen} aria-labelledby="task-editor-title" data-dayforge-dirty={dirty ? "true" : "false"}>
+        <section ref={dialog} className="task-editor" role="dialog" aria-modal={!planManagerOpen && !confirmDiscard && !confirmDelete && !confirmStopSeries && !logoutChanges} aria-hidden={planManagerOpen} inert={planManagerOpen} aria-labelledby="task-editor-title" data-dayforge-dirty={dirty ? "true" : "false"}>
           <header className="plan-manager-header">
             <div>
               <p className="calendar-kicker">DAYFORGE · CÔNG VIỆC</p>
@@ -435,7 +475,7 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
               <label><input type="radio" name="recurrence-scope" checked={editScope === "future"} onChange={() => selectEditScope("future")} />Quy tắc và mẫu từ ngày gốc</label>
               {editScope === "future" && <p className="task-recurrence-hint">Các lần đã chỉnh riêng từ mốc này sẽ thành việc một lần, giữ nội dung, kế hoạch và màu riêng.</p>}
               <button type="button" className="task-series-stop-button" disabled={busy || !account.calendarReady}
-                onClick={() => setConfirmStopSeries(true)}>Dừng chuỗi từ lần này trở đi</button>
+                onClick={() => { captureConfirmTrigger(); setConfirmStopSeries(true); }}>Dừng chuỗi từ lần này trở đi</button>
             </fieldset>}
             <div className="task-date-period">
               <div className="task-field">
@@ -529,12 +569,12 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
             {saveError && <p className="account-error" role="alert">{saveError}</p>}
             {logoutError && !logoutChanges && <p className="account-error" role="alert">{logoutError}</p>}
             <div className="plan-form-actions">
-              {editing && <button type="button" className="task-delete-button" disabled={busy || account.state !== "unlocked" || !account.calendarReady} onClick={() => setConfirmDelete(true)}>
+              {editing && <button type="button" className="task-delete-button" disabled={busy || account.state !== "unlocked" || !account.calendarReady} onClick={() => { captureConfirmTrigger(); setConfirmDelete(true); }}>
                 {target.kind === "occurrence" ? "Xóa lần lặp" : target.kind === "detached" ? "Xóa việc một lần" : "Xóa công việc"}
               </button>}
               {dirty && account.session?.authenticated && <button type="button" disabled={busy || logoutBusy} onClick={() => void requestLogout()}>Đăng xuất</button>}
               <button type="button" disabled={busy} onClick={() => {
-                if (dirty) setConfirmDiscard(true);
+                if (dirty) openDiscardConfirmation();
                 else onClose();
               }}>Hủy</button>
               {account.state === "unlocked" && <button type="button" className="task-create-plan" disabled={busy || !account.calendarReady} onClick={() => setPlanManagerOpen(true)}>Tạo kế hoạch</button>}
@@ -548,7 +588,7 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
               <h3 id="task-discard-title">Bỏ thay đổi chưa lưu?</h3>
               <p>Thông tin công việc sẽ không được lưu.</p>
               <div className="plan-form-actions">
-                <button type="button" autoFocus onClick={() => setConfirmDiscard(false)}>Tiếp tục sửa</button>
+                <button type="button" autoFocus onClick={closeDiscardConfirmation}>Tiếp tục sửa</button>
                 <button type="button" onClick={onClose}>Bỏ thay đổi</button>
               </div>
             </section>
@@ -567,7 +607,7 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
               </p>
               {logoutError && <p className="account-error" role="alert">{logoutError}</p>}
               <div className="plan-form-actions">
-                <button type="button" autoFocus disabled={logoutBusy} onClick={() => { setLogoutChanges(null); setLogoutError(null); }}>Tiếp tục sửa</button>
+                <button type="button" autoFocus disabled={logoutBusy} onClick={closeLogoutConfirmation}>Tiếp tục sửa</button>
                 <button type="button" disabled={logoutBusy} onClick={() => void discardAndLogout()}>{logoutBusy ? "Đang khóa…" : "Bỏ thay đổi và đăng xuất"}</button>
               </div>
             </section>
@@ -577,7 +617,7 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
               <h3 id="task-stop-title">Dừng chuỗi lặp từ ngày gốc này?</h3>
               <p>Các lần có ngày gốc từ {target.original_date} trở đi sẽ bị gỡ khỏi lịch. Lịch sử trước mốc và những việc đã tách thành việc một lần vẫn được giữ. Bạn có thể hoàn tác ngay sau đó.</p>
               <div className="plan-form-actions">
-                <button type="button" autoFocus disabled={busy} onClick={() => setConfirmStopSeries(false)}>Tiếp tục chuỗi</button>
+                <button type="button" autoFocus disabled={busy} onClick={closeStopConfirmation}>Tiếp tục chuỗi</button>
                 <button type="button" className="task-delete-button" disabled={busy || account.state !== "unlocked" || !account.calendarReady} onClick={() => void stopSeries()}>
                   {busy ? "Đang dừng…" : "Dừng từ ngày này"}
                 </button>
@@ -592,7 +632,7 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
                 : `“${editing.data.title}” sẽ biến mất khỏi lịch.`} Bạn có thể hoàn tác ngay sau đó.{dirty ? " Các chỉnh sửa chưa lưu sẽ bị bỏ." : ""}</p>
               {saveError && <p className="account-error" role="alert">{saveError}</p>}
               <div className="plan-form-actions">
-                <button type="button" autoFocus disabled={busy} onClick={() => setConfirmDelete(false)}>Giữ lại</button>
+                <button type="button" autoFocus disabled={busy} onClick={closeDeleteConfirmation}>Giữ lại</button>
                 <button type="button" className="task-delete-button" disabled={busy || account.state !== "unlocked" || !account.calendarReady} onClick={() => void deleteTask()}>
                   {busy ? "Đang xóa…" : target.kind === "occurrence" ? "Xóa lần này" : target.kind === "detached" ? "Xóa việc một lần" : "Xóa công việc"}
                 </button>

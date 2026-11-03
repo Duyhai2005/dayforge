@@ -85,6 +85,7 @@ export function MilestoneEditor({ open, date, editing = null, onClose }: Milesto
   const dialog = useRef<HTMLElement>(null);
   const titleInput = useRef<HTMLInputElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
+  const confirmReturnFocus = useRef<HTMLElement | null>(null);
   const dirty = !sameFields(fields, initial);
   const plans = useMemo(() => planEntries(account.calendarProjection), [account.calendarProjection]);
   const selectedPlan = plans.find((entry) => entry.id === fields.planId);
@@ -120,18 +121,52 @@ export function MilestoneEditor({ open, date, editing = null, onClose }: Milesto
     };
   }, [open]);
 
+  const captureConfirmTrigger = useCallback(() => {
+    confirmReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }, []);
+
+  const restoreConfirmTrigger = useCallback(() => {
+    requestAnimationFrame(() => {
+      const target = confirmReturnFocus.current;
+      const canRestore = target?.isConnected && !target.closest("[inert]") && target.getClientRects().length > 0;
+      (canRestore ? target : titleInput.current)?.focus({ preventScroll: true });
+    });
+  }, []);
+
+  const openDiscardConfirmation = useCallback(() => {
+    captureConfirmTrigger();
+    setConfirmDiscard(true);
+  }, [captureConfirmTrigger]);
+
+  const closeDiscardConfirmation = useCallback(() => {
+    setConfirmDiscard(false);
+    restoreConfirmTrigger();
+  }, [restoreConfirmTrigger]);
+
+  const closeDeleteConfirmation = useCallback(() => {
+    setConfirmDelete(false);
+    restoreConfirmTrigger();
+  }, [restoreConfirmTrigger]);
+
+  const closeLogoutConfirmation = useCallback(() => {
+    setLogoutChanges(null);
+    setLogoutError(null);
+    restoreConfirmTrigger();
+  }, [restoreConfirmTrigger]);
+
   const requestClose = useCallback(() => {
     if (busy || planManagerOpen || confirmDelete || logoutChanges) return;
     if (dirty) {
-      setConfirmDiscard(true);
+      openDiscardConfirmation();
       return;
     }
     setConfirmDiscard(false);
     onClose();
-  }, [busy, confirmDelete, dirty, logoutChanges, onClose, planManagerOpen]);
+  }, [busy, confirmDelete, dirty, logoutChanges, onClose, openDiscardConfirmation, planManagerOpen]);
 
   async function requestLogout(): Promise<void> {
     if (logoutBusy) return;
+    captureConfirmTrigger();
     setLogoutError(null);
     try {
       setLogoutChanges(await account.inspectPendingChanges());
@@ -162,9 +197,9 @@ export function MilestoneEditor({ open, date, editing = null, onClose }: Milesto
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
-        if (logoutChanges) setLogoutChanges(null);
-        else if (confirmDelete) setConfirmDelete(false);
-        else if (confirmDiscard) setConfirmDiscard(false);
+        if (logoutChanges) closeLogoutConfirmation();
+        else if (confirmDelete) closeDeleteConfirmation();
+        else if (confirmDiscard) closeDiscardConfirmation();
         else requestClose();
         return;
       }
@@ -191,7 +226,7 @@ export function MilestoneEditor({ open, date, editing = null, onClose }: Milesto
     };
     document.addEventListener("keydown", trap, true);
     return () => document.removeEventListener("keydown", trap, true);
-  }, [confirmDelete, confirmDiscard, logoutChanges, open, planManagerOpen, requestClose]);
+  }, [closeDeleteConfirmation, closeDiscardConfirmation, closeLogoutConfirmation, confirmDelete, confirmDiscard, logoutChanges, open, planManagerOpen, requestClose]);
 
   if (!open || typeof document === "undefined") return null;
 
@@ -269,7 +304,7 @@ export function MilestoneEditor({ open, date, editing = null, onClose }: Milesto
       <div className="milestone-editor-backdrop" onMouseDown={(event) => {
         if (event.target === event.currentTarget && !planManagerOpen) requestClose();
       }}>
-        <section ref={dialog} className="milestone-editor" role="dialog" aria-modal={!planManagerOpen} aria-hidden={planManagerOpen}
+        <section ref={dialog} className="milestone-editor" role="dialog" aria-modal={!planManagerOpen && !confirmDiscard && !confirmDelete && !logoutChanges} aria-hidden={planManagerOpen}
           inert={planManagerOpen} aria-labelledby="milestone-editor-title" data-dayforge-dirty={dirty ? "true" : "false"}>
           <header className="plan-manager-header">
             <div>
@@ -348,7 +383,7 @@ export function MilestoneEditor({ open, date, editing = null, onClose }: Milesto
             {saveError && <p className="account-error" role="alert">{saveError}</p>}
             {logoutError && !logoutChanges && <p className="account-error" role="alert">{logoutError}</p>}
             <div className="plan-form-actions">
-              {editing && <button type="button" className="milestone-delete-button" disabled={busy || !account.calendarReady} onClick={() => setConfirmDelete(true)}>Gỡ dấu mốc</button>}
+              {editing && <button type="button" className="milestone-delete-button" disabled={busy || !account.calendarReady} onClick={() => { captureConfirmTrigger(); setConfirmDelete(true); }}>Gỡ dấu mốc</button>}
               {dirty && account.session?.authenticated && <button type="button" disabled={busy || logoutBusy} onClick={() => void requestLogout()}>Đăng xuất</button>}
               <button type="button" disabled={busy} onClick={requestClose}>Hủy</button>
               {account.state === "unlocked" && <button type="button" className="task-create-plan" disabled={busy || !account.calendarReady} onClick={() => setPlanManagerOpen(true)}>Tạo kế hoạch</button>}
@@ -362,7 +397,7 @@ export function MilestoneEditor({ open, date, editing = null, onClose }: Milesto
               <h3 id="milestone-discard-title">Bỏ thay đổi chưa lưu?</h3>
               <p>Thông tin dấu mốc sẽ không được lưu.</p>
               <div className="plan-form-actions">
-                <button type="button" autoFocus onClick={() => setConfirmDiscard(false)}>Tiếp tục sửa</button>
+                <button type="button" autoFocus onClick={closeDiscardConfirmation}>Tiếp tục sửa</button>
                 <button type="button" onClick={onClose}>Bỏ thay đổi</button>
               </div>
             </section>
@@ -381,7 +416,7 @@ export function MilestoneEditor({ open, date, editing = null, onClose }: Milesto
               </p>
               {logoutError && <p className="account-error" role="alert">{logoutError}</p>}
               <div className="plan-form-actions">
-                <button type="button" autoFocus disabled={logoutBusy} onClick={() => { setLogoutChanges(null); setLogoutError(null); }}>Tiếp tục sửa</button>
+                <button type="button" autoFocus disabled={logoutBusy} onClick={closeLogoutConfirmation}>Tiếp tục sửa</button>
                 <button type="button" disabled={logoutBusy} onClick={() => void discardAndLogout()}>{logoutBusy ? "Đang khóa…" : "Bỏ thay đổi và đăng xuất"}</button>
               </div>
             </section>
@@ -391,7 +426,7 @@ export function MilestoneEditor({ open, date, editing = null, onClose }: Milesto
               <h3 id="milestone-delete-title">Gỡ dấu mốc khỏi lịch?</h3>
               <p>Dấu mốc này sẽ được gỡ khỏi các lịch đã chọn. Các thay đổi sẽ lưu trên thiết bị và đồng bộ sau.</p>
               <div className="plan-form-actions">
-                <button type="button" disabled={busy} autoFocus onClick={() => setConfirmDelete(false)}>Giữ dấu mốc</button>
+                <button type="button" disabled={busy} autoFocus onClick={closeDeleteConfirmation}>Giữ dấu mốc</button>
                 <button type="button" disabled={busy} onClick={() => void deleteMilestone()}>{busy ? "Đang gỡ…" : "Gỡ dấu mốc"}</button>
               </div>
             </section>

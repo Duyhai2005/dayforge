@@ -9,6 +9,8 @@
   --text-muted: #9aaea3;
   --control-background: #c4d7c5;
   --control-text: #203328;
+  --control-border: #64776b;
+  --control-border-on-light: #4c5f54;
   --font-system: "Segoe UI", Arial, sans-serif;
   --font-title: 32px;
   --font-day: 26px;
@@ -104,7 +106,7 @@ h1 {
 .work-week-bucket[data-drop-active="true"] { background: #20352f; border-color: #b5d4ba; box-shadow: inset 0 0 0 2px #8eb89a; }
 .work-task-drop-target { display: grid; gap: 2px; padding: var(--space-2); color: #d8f0dc; background: #294238; border: 1px solid #769b7f; border-radius: var(--radius-control); font-size: var(--font-meta); }
 .work-task-drop-target strong { color: var(--text-primary); font-size: var(--font-body); }
-.work-week-add { min-height: 36px; color: var(--text-secondary); background: transparent; border: 1px dashed #52665b; border-radius: var(--radius-control); cursor: pointer; }
+.work-week-add { min-height: 36px; color: var(--text-secondary); background: transparent; border: 1px dashed var(--control-border); border-radius: var(--radius-control); cursor: pointer; }
 .work-week-add:hover:not(:disabled) { color: var(--text-primary); background: #24362f; }
 .work-week-add:disabled { color: var(--text-muted); cursor: not-allowed; }
 .work-task-entry { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) 32px; align-items: stretch; gap: 4px; }
@@ -118,7 +120,7 @@ h1 {
 .work-task-grip { position: absolute; top: 6px; left: 8px; opacity: .72; font-size: 18px; line-height: 1; }
 .work-task-drag-preview { position: absolute; top: -10000px; left: -10000px; width: min(240px, 70vw); padding: var(--space-3); color: var(--text-primary); background: #33473d; border: 1px solid #b5d4ba; border-radius: var(--radius-control); box-shadow: 0 8px 24px #0006; font-weight: 600; overflow-wrap: anywhere; }
 .work-task-order-actions { display: flex; flex-direction: column; gap: 4px; }
-.work-task-order-actions button { min-width: 32px; min-height: 32px; padding: 0; color: var(--text-secondary); background: #24332e; border: 1px solid #52665b; border-radius: 7px; cursor: pointer; }
+.work-task-order-actions button { min-width: 32px; min-height: 32px; padding: 0; color: var(--text-secondary); background: #24332e; border: 1px solid var(--control-border); border-radius: 7px; cursor: pointer; }
 .work-task-order-actions .work-task-status-toggle[aria-pressed="true"] { color: #e5f3d8; border-color: #93b977; background: #2d4731; }
 .work-task-order-actions button:disabled { opacity: .35; cursor: not-allowed; }
 .work-task-drop-marker { display: flex; align-items: center; gap: 7px; min-height: 28px; color: #d8f0dc; font-size: var(--font-meta); }
@@ -197,23 +199,24 @@ h1 {
 .milestone-day-dialog::backdrop { background: #000a; }
 .milestone-day-dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-4); }
 .milestone-day-dialog-header h2 { margin: 0; font-size: 22px; font-weight: 600; text-transform: capitalize; }
-.milestone-day-dialog-header > button { min-width: 40px; min-height: 40px; color: var(--text-primary); background: var(--input-background); border: 1px solid #52665b; border-radius: var(--radius-control); font-size: 22px; cursor: pointer; }
+.milestone-day-dialog-header > button { min-width: 40px; min-height: 40px; color: var(--text-primary); background: var(--input-background); border: 1px solid var(--control-border); border-radius: var(--radius-control); font-size: 22px; cursor: pointer; }
 .milestone-day-dialog-list { display: grid; gap: var(--space-2); max-height: 52vh; overflow-y: auto; }
 .milestone-day-dialog-actions { display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-6); }
-.milestone-day-dialog-actions button { min-height: 42px; padding: var(--space-2) var(--space-3); color: var(--text-primary); background: var(--input-background); border: 1px solid #52665b; border-radius: var(--radius-control); cursor: pointer; }
+.milestone-day-dialog-actions button { min-height: 42px; padding: var(--space-2) var(--space-3); color: var(--text-primary); background: var(--input-background); border: 1px solid var(--control-border); border-radius: var(--radius-control); cursor: pointer; }
 .milestone-day-dialog-actions .milestone-open-work-week { color: var(--control-text); background: var(--control-background); }
 .milestone-day-dialog-actions button:disabled { opacity: .6; cursor: not-allowed; }
 .calendar-widget { position: fixed; z-index: 10; left: 50%; bottom: var(--space-4); width: min(480px, calc(100vw - 32px)); translate: -50% 0; }
 .widget-bar, .widget-panel { background: var(--panel); border: 1px solid #4a5d53; box-shadow: 0 12px 32px #0005; border-radius: var(--radius-panel); }
 .widget-bar { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3); }
-.calendar-widget button, .calendar-widget a, .calendar-widget input, .calendar-widget select { border-radius: var(--radius-control); min-height: 36px; border: 1px solid #52665b; transition: background-color var(--motion-control), opacity var(--motion-control), transform var(--motion-control); }
+.calendar-widget button, .calendar-widget a, .calendar-widget input, .calendar-widget select { border-radius: var(--radius-control); min-height: 36px; border: 1px solid var(--control-border); transition: background-color var(--motion-control), opacity var(--motion-control), transform var(--motion-control); }
 .calendar-widget button, .calendar-widget a { color: var(--text-primary); background: var(--input-background); padding: var(--space-2) var(--space-3); }
 .calendar-widget a { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
 .calendar-widget button:not(:disabled), .calendar-widget select { cursor: pointer; }
 .calendar-widget button:not(:disabled):hover, .calendar-widget a:hover { background: #33473d; }
 .calendar-widget button:not(:disabled):active, .calendar-widget a:active { transform: translateY(1px); }
 .calendar-widget button:disabled { color: var(--text-secondary); cursor: not-allowed; border-style: dashed; }
-.calendar-widget .widget-toggle { min-width: 44px; min-height: 44px; background: var(--control-background); color: var(--control-text); font-size: 22px; }
+.calendar-widget .widget-toggle { min-width: 44px; min-height: 44px; background: var(--control-background); color: var(--control-text); border-color: var(--control-border-on-light); font-size: 22px; }
+.calendar-widget button.widget-toggle:not(:disabled):hover { background: var(--control-background); border-color: var(--control-border-on-light); }
 .calendar-widget .widget-quick-add { min-width: 44px; min-height: 44px; font-size: 22px; }
 .widget-summary { display: grid; flex: 1; gap: var(--space-1); }
 .widget-summary strong { font-weight: 600; }
@@ -236,7 +239,7 @@ h1 {
 .widget-add-actions button { flex: 1; }
 .widget-calendars { padding-top: var(--space-4); border-top: 1px solid #4a5d53; margin-bottom: var(--space-4); }
 .widget-calendars a { flex: 1; }
-.widget-calendars a[aria-current="page"] { color: var(--control-text); background: var(--control-background); }
+.widget-calendars a[aria-current="page"] { color: var(--control-text); background: var(--control-background); border-color: var(--control-border-on-light); }
 .widget-field { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; justify-content: space-between; color: var(--text-secondary); margin: var(--space-3) 0; }
 .widget-field input, .widget-field select { padding: var(--space-2) var(--space-3); background: var(--input-background); color: var(--text-primary); }
 .widget-range-actions button { flex: 1; }
@@ -247,7 +250,9 @@ h1 {
 @keyframes related-day-arrival { 0% { opacity: .68; transform: translateY(8px); background-color: #294238; } 100% { opacity: 1; transform: none; background-color: var(--panel); } }
 @keyframes task-drop-settled { 0% { opacity: .76; transform: translateY(6px); } 100% { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
-  .calendar-widget, .calendar-widget *, .calendar-period, .work-week-day-heading[data-related-day="true"], .work-task-entry[data-settled="true"], .milestone-day-dialog[open], .logout-dialog, .plan-manager, .task-editor, .milestone-editor { animation: none; transform: none !important; transition-duration: 80ms; }
+  .calendar-widget { left: 0; right: 0; margin-inline: auto; }
+  .calendar-widget, .calendar-widget *, .calendar-period, .work-week-day-heading[data-related-day="true"], .work-task-entry[data-settled="true"], .milestone-day-dialog[open], .logout-dialog, .plan-manager, .task-editor, .milestone-editor { animation: none; transform: none !important; translate: none !important; scale: none !important; transition-duration: 80ms; }
+  .calendar-widget { translate: none !important; scale: none !important; transition: none !important; }
 }
 
 .account-main { min-height: 100vh; display: grid; place-items: center; padding: var(--space-8); }
@@ -255,17 +260,17 @@ h1 {
 .account-kicker { margin: 0 0 var(--space-3); color: var(--text-muted); font-size: var(--font-kicker); letter-spacing: 0.12em; }
 .account-panel h1 { margin-bottom: var(--space-4); }
 .account-copy { color: var(--text-secondary); margin: 0 0 var(--space-4); }
-.account-status { margin: 0 0 var(--space-6); padding: var(--space-4); color: var(--text-secondary); background: var(--input-background); border: 1px dashed #52665b; border-radius: var(--radius-card); }
+.account-status { margin: 0 0 var(--space-6); padding: var(--space-4); color: var(--text-secondary); background: var(--input-background); border: 1px dashed var(--control-border); border-radius: var(--radius-card); }
 .account-session { margin: 0 0 var(--space-4); padding: var(--space-3); background: var(--input-background); border-radius: var(--radius-card); }
 .account-session p { margin: 0; }
 .account-session p + p { margin-top: var(--space-2); color: var(--text-secondary); }
 .account-fields { display: grid; gap: var(--space-4); margin: 0 0 var(--space-6); }
 .account-fields h2 { margin: 0; font-size: 20px; }
 .account-field { display: grid; gap: var(--space-2); color: var(--text-secondary); }
-.account-field input { width: 100%; min-height: 46px; padding: var(--space-2) var(--space-3); background: var(--input-background); color: var(--text-primary); border: 1px solid #52665b; border-radius: var(--radius-control); }
+.account-field input { width: 100%; min-height: 46px; padding: var(--space-2) var(--space-3); background: var(--input-background); color: var(--text-primary); border: 1px solid var(--control-border); border-radius: var(--radius-control); }
 .account-password-control { display: flex; align-items: stretch; gap: var(--space-2); }
 .account-password-control input { flex: 1; min-width: 0; }
-.account-password-toggle, .account-submit, .account-actions button, .logout-dialog-actions button { min-height: 44px; padding: var(--space-2) var(--space-3); color: var(--text-primary); background: var(--input-background); border: 1px solid #52665b; border-radius: var(--radius-control); cursor: pointer; }
+.account-password-toggle, .account-submit, .account-actions button, .logout-dialog-actions button { min-height: 44px; padding: var(--space-2) var(--space-3); color: var(--text-primary); background: var(--input-background); border: 1px solid var(--control-border); border-radius: var(--radius-control); cursor: pointer; }
 .account-submit { color: var(--control-text); background: var(--control-background); font-weight: 600; }
 .account-submit:disabled, .logout-dialog-actions button:disabled { opacity: 0.65; cursor: wait; }
 .account-remember { display: flex; align-items: center; gap: var(--space-2); color: var(--text-secondary); }
@@ -285,19 +290,19 @@ h1 {
 .plan-manager, .plan-discard-dialog { position: relative; width: min(100%, 480px); max-height: calc(100dvh - 32px); overflow-y: auto; padding: var(--space-6); color: var(--text-primary); background: var(--panel); border: 1px solid #607469; border-radius: var(--radius-panel); box-shadow: 0 18px 56px #0009; }
 .plan-manager-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-4); }
 .plan-manager-header h2 { margin: 0; font-size: 24px; font-weight: 600; }
-.plan-manager-close { min-width: 36px; min-height: 36px; border: 1px solid #52665b; border-radius: var(--radius-control); color: var(--text-primary); background: var(--input-background); font-size: 24px; cursor: pointer; }
+.plan-manager-close { min-width: 36px; min-height: 36px; border: 1px solid var(--control-border); border-radius: var(--radius-control); color: var(--text-primary); background: var(--input-background); font-size: 24px; cursor: pointer; }
 .plan-create-button { width: 100%; }
 .plan-list { display: grid; gap: var(--space-2); margin: var(--space-4) 0 0; padding: 0; list-style: none; }
 .plan-list li { display: flex; min-height: 48px; align-items: center; gap: var(--space-3); padding: var(--space-2); background: var(--input-background); border: 1px solid #3c5048; border-radius: var(--radius-card); }
 .plan-list-swatch { width: 14px; height: 14px; flex: 0 0 auto; border: 1px solid currentColor; border-radius: 50%; }
 .plan-list-name { flex: 1; overflow-wrap: anywhere; }
-.plan-list button, .plan-form-actions button { min-height: 40px; padding: var(--space-2) var(--space-3); color: var(--text-primary); background: var(--input-background); border: 1px solid #52665b; border-radius: var(--radius-control); cursor: pointer; }
+.plan-list button, .plan-form-actions button { min-height: 40px; padding: var(--space-2) var(--space-3); color: var(--text-primary); background: var(--input-background); border: 1px solid var(--control-border); border-radius: var(--radius-control); cursor: pointer; }
 .plan-empty { margin: var(--space-4) 0 0; color: var(--text-secondary); }
 .plan-form { display: grid; gap: var(--space-4); }
-.plan-form input:not([type="radio"]) { width: 100%; min-height: 48px; padding: var(--space-3); color: var(--text-primary); background: var(--input-background); border: 1px solid #52665b; border-radius: var(--radius-control); }
+.plan-form input:not([type="radio"]) { width: 100%; min-height: 48px; padding: var(--space-3); color: var(--text-primary); background: var(--input-background); border: 1px solid var(--control-border); border-radius: var(--radius-control); }
 .plan-palette { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); margin: 0; padding: 0; border: 0; }
 .plan-palette legend { margin-bottom: var(--space-2); color: var(--text-secondary); }
-.plan-color-option { position: relative; display: flex; min-height: 54px; align-items: center; gap: var(--space-2); padding: var(--space-2); color: var(--text-secondary); border: 1px solid #52665b; border-radius: var(--radius-control); cursor: pointer; }
+.plan-color-option { position: relative; display: flex; min-height: 54px; align-items: center; gap: var(--space-2); padding: var(--space-2); color: var(--text-secondary); border: 1px solid var(--control-border); border-radius: var(--radius-control); cursor: pointer; }
 .plan-color-option input { width: 18px; height: 18px; flex: 0 0 auto; margin: 0; accent-color: var(--control-background); }
 .plan-color-option:has(input:checked) { border-color: var(--control-background); box-shadow: inset 0 0 0 1px var(--control-background); }
 .plan-color-swatch { display: grid; width: 22px; height: 22px; flex: 0 0 auto; place-items: center; border: 1px solid currentColor; border-radius: 50%; font-size: 12px; }
@@ -319,10 +324,10 @@ h1 {
 .task-editor .plan-manager-header { margin-bottom: var(--space-6); }
 .task-editor .plan-manager-header h2 { font-size: 24px; }
 .task-form { display: grid; gap: var(--space-4); }
-.task-form input:not([type="radio"]), .task-form select { width: 100%; min-height: 46px; padding: var(--space-2) var(--space-3); color: var(--text-primary); background: var(--input-background); border: 1px solid #52665b; border-radius: var(--radius-control); }
-.task-recurrence { display: grid; gap: var(--space-3); margin: 0; padding: var(--space-3); border: 1px solid #52665b; border-radius: var(--radius-card); }
+.task-form input:not([type="radio"]), .task-form select { width: 100%; min-height: 46px; padding: var(--space-2) var(--space-3); color: var(--text-primary); background: var(--input-background); border: 1px solid var(--control-border); border-radius: var(--radius-control); }
+.task-recurrence { display: grid; gap: var(--space-3); margin: 0; padding: var(--space-3); border: 1px solid var(--control-border); border-radius: var(--radius-card); }
 .task-recurrence legend { padding: 0 var(--space-2); color: var(--text-secondary); }
-.task-recurrence-scope { display: grid; gap: var(--space-2); margin: 0; padding: var(--space-3); border: 1px solid #52665b; border-radius: var(--radius-card); }
+.task-recurrence-scope { display: grid; gap: var(--space-2); margin: 0; padding: var(--space-3); border: 1px solid var(--control-border); border-radius: var(--radius-card); }
 .task-recurrence-scope legend { padding: 0 var(--space-2); color: var(--text-secondary); }
 .task-recurrence-scope label { display: flex; align-items: center; gap: var(--space-2); color: var(--text-primary); }
 .task-recurrence-scope input { accent-color: var(--control-background); }
@@ -330,15 +335,15 @@ h1 {
 .task-weekday-picks { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--space-2); }
 .task-weekday-picks label { position: relative; }
 .task-weekday-picks input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-.task-weekday-picks span { display: grid; min-height: 42px; place-items: center; border: 1px solid #52665b; border-radius: var(--radius-control); color: var(--text-secondary); cursor: pointer; }
+.task-weekday-picks span { display: grid; min-height: 42px; place-items: center; border: 1px solid var(--control-border); border-radius: var(--radius-control); color: var(--text-secondary); cursor: pointer; }
 .task-weekday-picks input:checked + span { color: var(--control-text); background: var(--control-background); border-color: transparent; }
 .task-weekday-picks input:focus-visible + span { outline: 3px solid #d6e9d6; outline-offset: 2px; }
 .task-recurrence-hint { margin: 0; color: var(--text-secondary); font-size: 14px; }
-.milestone-form textarea { width: 100%; min-height: 120px; resize: vertical; padding: var(--space-2) var(--space-3); color: var(--text-primary); background: var(--input-background); border: 1px solid #52665b; border-radius: var(--radius-control); }
+.milestone-form textarea { width: 100%; min-height: 120px; resize: vertical; padding: var(--space-2) var(--space-3); color: var(--text-primary); background: var(--input-background); border: 1px solid var(--control-border); border-radius: var(--radius-control); }
 .task-date-period { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
 .task-plan-color { margin: 0; padding: var(--space-3); color: var(--text-secondary); background: var(--input-background); border-radius: var(--radius-card); }
 .task-form .plan-form-actions { flex-wrap: wrap; margin-top: var(--space-2); }
-.task-form .plan-form-actions button, .task-create-plan { min-height: 44px; padding: var(--space-2) var(--space-3); color: var(--text-primary); background: var(--input-background); border: 1px solid #52665b; border-radius: var(--radius-control); cursor: pointer; }
+.task-form .plan-form-actions button, .task-create-plan { min-height: 44px; padding: var(--space-2) var(--space-3); color: var(--text-primary); background: var(--input-background); border: 1px solid var(--control-border); border-radius: var(--radius-control); cursor: pointer; }
 .task-form .plan-form-actions button:disabled { opacity: 0.65; cursor: wait; }
 .task-form .plan-form-actions .account-submit { margin: 0; color: var(--control-text); background: var(--control-background); font-weight: 600; }
 .task-delete-button { margin-right: auto; color: #ffd5d5 !important; border-color: #9a5555 !important; background: #492b2b !important; }
@@ -365,11 +370,11 @@ h1 {
 
 .account-status p { margin: var(--space-2) 0 0; }
 .account-form-nav { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-4); }
-.account-form-nav button, .account-secondary-button { min-height: 44px; padding: var(--space-2) var(--space-3); border: 1px solid #52665b; border-radius: var(--radius-control); color: var(--text-primary); background: var(--panel); cursor: pointer; }
+.account-form-nav button, .account-secondary-button { min-height: 44px; padding: var(--space-2) var(--space-3); border: 1px solid var(--control-border); border-radius: var(--radius-control); color: var(--text-primary); background: var(--panel); cursor: pointer; }
 .account-form-nav button[aria-pressed="true"] { color: var(--control-text); background: var(--control-background); border-color: transparent; }
 .account-form { display: grid; gap: var(--space-2); margin-bottom: var(--space-4); }
 .account-form label { color: var(--text-secondary); }
-.account-form input:not([type="checkbox"]) { width: 100%; min-height: 48px; padding: var(--space-3); border: 1px solid #52665b; border-radius: var(--radius-control); color: var(--text-primary); background: var(--input-background); }
+.account-form input:not([type="checkbox"]) { width: 100%; min-height: 48px; padding: var(--space-3); border: 1px solid var(--control-border); border-radius: var(--radius-control); color: var(--text-primary); background: var(--input-background); }
 .account-form input:focus-visible, .account-form-nav button:focus-visible, .account-form button:focus-visible, .account-secondary-button:focus-visible { outline: 2px solid #b7d7c5; outline-offset: 2px; }
 .account-checkbox { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; }
 .account-checkbox input { width: 20px; height: 20px; }
