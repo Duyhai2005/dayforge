@@ -144,10 +144,10 @@ jobs:
         run: pnpm test:web
 
       - name: Build Next.js production bundle
-        run: pnpm build:web
+        run: DAYFORGE_PLAYWRIGHT_MOCK_API=1 pnpm build:web
 
       - name: Run production browser tests
-        run: pnpm test:web:prod
+        run: DAYFORGE_PLAYWRIGHT_MOCK_API=1 pnpm test:web:prod
 
       - name: Upload Playwright artifacts on failure
         if: failure()

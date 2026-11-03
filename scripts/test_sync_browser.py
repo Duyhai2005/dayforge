@@ -81,69 +81,71 @@ def _check_migrations(environ: dict[str, str]) -> None:
         )
 
 
-async def _verification_payloads(settings) -> list[dict[str, str]]:
-    from app.core.database import create_database
+async def _verification_payloads(database, settings) -> list[dict[str, str]]:
     from app.models.auth import EmailDeliveryJob
     from app.services.auth_crypto import decode_key
 
-    database = create_database(settings)
-    try:
-        async with database.sessions() as session:
-            jobs = (
-                await session.scalars(
-                    select(EmailDeliveryJob).order_by(EmailDeliveryJob.created_at)
-                )
-            ).all()
-            key = decode_key(settings.auth_email_outbox_key_b64.get_secret_value())
-            return [
-                json.loads(AESGCM(key).decrypt(job.iv, job.ciphertext, job.id.bytes))
-                for job in jobs
-            ]
-    finally:
-        await database.engine.dispose()
+    async with database.sessions() as session:
+        jobs = (
+            await session.scalars(
+                select(EmailDeliveryJob).order_by(EmailDeliveryJob.created_at)
+            )
+        ).all()
+        key = decode_key(settings.auth_email_outbox_key_b64.get_secret_value())
+        return [
+            json.loads(AESGCM(key).decrypt(job.iv, job.ciphertext, job.id.bytes))
+            for job in jobs
+        ]
 
 
 def _verify_test_owner(settings) -> None:
-    from fastapi.testclient import TestClient
+    from app.core.database import create_database
+    from app.services.auth import AuthService
 
-    from app.main import create_app
-
-    origin = settings.public_origin
-    with TestClient(create_app(settings), base_url=origin) as client:
-        session = client.get("/api/v1/auth/session")
-        if session.status_code != 200:
-            raise BrowserRunnerError(
-                "Could not initialize the test owner's anonymous session"
+    async def prepare_owner() -> None:
+        database = create_database(settings)
+        try:
+            service = AuthService(database, settings)
+            await service.request_email(
+                settings.owner_email.get_secret_value(),
+                "verify_email",
+                "127.0.0.1",
+                audit_action="register",
+                request_id=str(uuid4()),
             )
-        csrf = session.json()["csrf_token"]
-        response = client.post(
-            "/api/v1/auth/register",
-            json={"email": settings.owner_email.get_secret_value()},
-            headers={"origin": origin, "x-csrf-token": csrf},
-        )
-        if response.status_code != 202:
-            raise BrowserRunnerError("Could not create the isolated test owner")
-        payloads = asyncio.run(_verification_payloads(settings))
-        verification = next(
-            (
-                payload
-                for payload in payloads
-                if payload.get("to") == settings.owner_email.get_secret_value()
-                and "#token=" in payload.get("link", "")
-            ),
-            None,
-        )
-        if verification is None:
-            raise BrowserRunnerError("The isolated verification message was not queued")
-        token = urlsplit(verification["link"]).fragment.removeprefix("token=")
-        csrf = response.json().get("csrf_token", csrf)
-        confirmed = client.post(
-            "/api/v1/auth/verification/confirm",
-            json={"token": token, "password": PASSWORD},
-            headers={"origin": origin, "x-csrf-token": csrf},
-        )
-        if confirmed.status_code != 200:
-            raise BrowserRunnerError("Could not verify the isolated browser-test owner")
+            payloads = await _verification_payloads(database, settings)
+            verification = next(
+                (
+                    payload
+                    for payload in payloads
+                    if payload.get("to") == settings.owner_email.get_secret_value()
+                    and "#token=" in payload.get("link", "")
+                ),
+                None,
+            )
+            if verification is None:
+                raise BrowserRunnerError(
+                    "The isolated verification message was not queued"
+                )
+            token = urlsplit(verification["link"]).fragment.removeprefix("token=")
+            await service.confirm_email(
+                token,
+                PASSWORD,
+                "127.0.0.1",
+                request_id=str(uuid4()),
+            )
+        finally:
+            await database.engine.dispose()
+
+    try:
+        asyncio.run(prepare_owner())
+    except BrowserRunnerError:
+        raise
+    except Exception as error:  # noqa: BLE001
+        # Database exception text may contain connection credentials.
+        raise BrowserRunnerError(
+            f"Could not prepare the isolated browser-test owner ({type(error).__name__})"
+        ) from None
 
 
 def _restore_test_sync_epoch(settings, owner_id: str) -> str:

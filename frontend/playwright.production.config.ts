@@ -12,7 +12,10 @@ export default defineConfig({
   webServer: {
     command: "pnpm start",
     url: "http://127.0.0.1:3001",
-    env: { API_INTERNAL_ORIGIN: "http://127.0.0.1:8000" },
+    env: {
+      API_INTERNAL_ORIGIN: "http://127.0.0.1:8000",
+      DAYFORGE_PLAYWRIGHT_MOCK_API: "1",
+    },
     reuseExistingServer: false,
     timeout: 120_000,
   },

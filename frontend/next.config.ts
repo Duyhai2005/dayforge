@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const apiInternalOrigin = process.env.API_INTERNAL_ORIGIN;
+const playwrightMockApi = process.env.DAYFORGE_PLAYWRIGHT_MOCK_API === "1";
 const dayforgeBuildId = process.env.NEXT_PUBLIC_DAYFORGE_BUILD_ID ?? "development";
 
 if (apiInternalOrigin !== "http://127.0.0.1:8000") {
@@ -39,6 +40,7 @@ const nextConfig: NextConfig = {
     ];
   },
   async rewrites() {
+    if (playwrightMockApi) return [];
     return [
       {
         source: "/api/v1/:path*",
