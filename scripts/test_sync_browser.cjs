@@ -697,6 +697,7 @@ async function runBrowserScenario(baseURL) {
       },
       dependencyIds: [recurringSeries.operationId],
     });
+    await new Promise((resolve) => setTimeout(resolve, 25));
     const newerSameTargetEdit = await pageB.evaluate((input) =>
       window.__dayforgeSyncBrowserHarness.replaceOccurrence(input), {
       workItemId: recurringRootId,
@@ -713,7 +714,6 @@ async function runBrowserScenario(baseURL) {
         order_key: "3072",
       },
       dependencyIds: [recurringSeries.operationId],
-      clockOffsetMs: 10_000,
     });
     await waitFor(() => Promise.all([
       recurringRecordReady(pageB, [movedSecondTuesday.operationId, newerSameTargetEdit.operationId]),
