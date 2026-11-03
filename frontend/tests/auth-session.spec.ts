@@ -1,7 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const OWNER_ID = "11111111-1111-4111-8111-111111111111";
+const OTHER_OWNER_ID = "77777777-7777-4777-8777-777777777777";
 const KEY_ID = "22222222-2222-4222-8222-222222222222";
+const OTHER_KEY_ID = "88888888-8888-4888-8888-888888888888";
 const SESSION_ID = "33333333-3333-4333-8333-333333333333";
 const DEVICE_ID = "44444444-4444-4444-8444-444444444444";
 const OPERATION_ID = "55555555-5555-4555-8555-555555555555";
@@ -34,6 +36,7 @@ type ApiMockState = {
   failLogout: boolean;
   failSession: boolean;
   csrfFailures: Array<{ path: string; remaining: number; refreshedToken?: string }>;
+  emailResponses: Array<{ status: 202 | 429; resendAfterSeconds?: number; retryAfterSeconds?: number }>;
 };
 
 function sessionView(authenticated = false): SessionView {
@@ -70,6 +73,7 @@ async function mockAuthApi(page: Page, initial = sessionView()): Promise<ApiMock
     failLogout: false,
     failSession: false,
     csrfFailures: [],
+    emailResponses: [],
   };
   await page.route("**/api/v1/auth/**", async (route) => {
     const fulfill = (options: NonNullable<Parameters<typeof route.fulfill>[0]>) => route.fulfill({
@@ -140,6 +144,20 @@ async function mockAuthApi(page: Page, initial = sessionView()): Promise<ApiMock
       return;
     }
     if (["/api/v1/auth/register", "/api/v1/auth/verification/resend", "/api/v1/auth/password/forgot"].includes(path)) {
+      const response = state.emailResponses.shift();
+      if (response?.status === 429) {
+        const retryAfterSeconds = response.retryAfterSeconds ?? 90;
+        await fulfill({
+          status: 429,
+          headers: { "retry-after": String(retryAfterSeconds) },
+          json: { code: "rate_limited", retry_after_seconds: retryAfterSeconds },
+        });
+        return;
+      }
+      if (response?.status === 202) {
+        await fulfill({ status: 202, json: { status: "accepted", resend_after_seconds: response.resendAfterSeconds ?? 60 } });
+        return;
+      }
       await fulfill({ status: 202, json: { status: "accepted", resend_after_seconds: 60 } });
       return;
     }
@@ -148,8 +166,8 @@ async function mockAuthApi(page: Page, initial = sessionView()): Promise<ApiMock
   return state;
 }
 
-export async function readOwnerMeta(page: Page): Promise<Record<string, unknown> | null> {
-  return await page.evaluate((dbName) => new Promise((resolve) => {
+export async function readOwnerMeta(page: Page, ownerId = OWNER_ID): Promise<Record<string, unknown> | null> {
+  return await page.evaluate(({ dbName, ownerId }) => new Promise((resolve) => {
     const request = indexedDB.open(dbName);
     request.onerror = () => resolve(null);
     request.onsuccess = () => {
@@ -160,7 +178,6 @@ export async function readOwnerMeta(page: Page): Promise<Record<string, unknown>
         return;
       }
       const tx = db.transaction(["owner_meta", "auth_state"], "readonly");
-      const ownerId = "11111111-1111-4111-8111-111111111111";
       const metadataRequest = tx.objectStore("owner_meta").get(ownerId);
       const authRequest = tx.objectStore("auth_state").get(ownerId);
       let metadata: Record<string, unknown> | null = null;
@@ -177,11 +194,11 @@ export async function readOwnerMeta(page: Page): Promise<Record<string, unknown>
       tx.onerror = () => { db.close(); resolve(null); };
       tx.onabort = () => { db.close(); resolve(null); };
     };
-  }), APP_DB);
+  }), { dbName: APP_DB, ownerId });
 }
 
-export async function readEncryptedOutbox(page: Page): Promise<unknown[]> {
-  return await page.evaluate((dbName) => new Promise((resolve) => {
+export async function readEncryptedOutbox(page: Page, ownerId = OWNER_ID): Promise<unknown[]> {
+  return await page.evaluate(({ dbName, ownerId }) => new Promise((resolve) => {
     const request = indexedDB.open(dbName);
     request.onerror = () => resolve([]);
     request.onsuccess = () => {
@@ -192,9 +209,7 @@ export async function readEncryptedOutbox(page: Page): Promise<unknown[]> {
         return;
       }
       const tx = db.transaction(["outbox"], "readonly");
-      const get = tx.objectStore("outbox").index("by-owner").getAll(
-        IDBKeyRange.only("11111111-1111-4111-8111-111111111111")
-      );
+      const get = tx.objectStore("outbox").index("by-owner").getAll(IDBKeyRange.only(ownerId));
       get.onsuccess = () => {
         const entries = (get.result as Array<Record<string, unknown>>).map((entry) => {
           return {
@@ -214,7 +229,7 @@ export async function readEncryptedOutbox(page: Page): Promise<unknown[]> {
         resolve([]);
       };
     };
-  }), APP_DB);
+  }), { dbName: APP_DB, ownerId });
 }
 
 async function seedLegacyPendingLogoutTicket(page: Page): Promise<void> {
@@ -407,6 +422,31 @@ test("accountLoginDefaultsRememberMeAndUnlocksOwner", async ({ page }) => {
   });
 });
 
+test("emptyCalendarAndMonthStatesOfferContextualNextAction", async ({ page }) => {
+  await mockAuthApi(page);
+  await page.goto("/account");
+  await page.getByLabel("Email").fill("owner@example.test");
+  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
+  await page.getByRole("button", { name: "Đăng nhập và mở kho local", exact: true }).click();
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
+
+  await page.goto("/work?date=2026-11-03");
+  await expect(page.locator(".work-week-message")).toContainText("Tuần này chưa có công việc hoặc dấu mốc");
+  await expect(page.locator(".work-week-bucket .work-week-add:not(:disabled)")).toHaveCount(21);
+
+  await page.goto("/milestones?date=2026-11-03&scale=month");
+  await expect(page.locator(".milestone-calendar-message")).toContainText("Khoảng này chưa có dấu mốc");
+  await page.locator('.milestone-month-day[data-milestone-date="2026-11-03"] .milestone-month-date').click();
+  const dayDialog = page.locator("dialog.milestone-day-dialog");
+  await expect(dayDialog).toContainText("Ngày này chưa có dấu mốc");
+  await expect(dayDialog.getByRole("button", { name: "Thêm dấu mốc", exact: true })).toBeEnabled();
+
+  await page.goto("/milestones?date=2026-11-03&scale=year");
+  await expect(page.locator(".milestone-year-month")).toHaveCount(12);
+  await expect(page.locator(".milestone-year-month[aria-label*='0 dấu mốc']")).toHaveCount(12);
+  await expect(page.locator(".milestone-year-empty")).toHaveCount(12);
+});
+
 test("ownerCanCreateAndEditAPlanThroughTheCalendarWidget", async ({ page }) => {
   await mockAuthApi(page);
   await page.goto("/account");
@@ -453,6 +493,76 @@ test("ownerCanCreateAndEditAPlanThroughTheCalendarWidget", async ({ page }) => {
 
   const outbox = await readEncryptedOutbox(page);
   expect(outbox).toHaveLength(2);
+});
+
+test("logoutWithDirtyFormRequiresContinueOrExplicitDiscard", async ({ page }) => {
+  await page.route("**/api/v1/sync/**", route => route.abort());
+  const api = await prepareUnlockedOwnerWithPendingOperation(page);
+  const outboxBefore = await readEncryptedOutbox(page);
+  expect(outboxBefore).toHaveLength(1);
+
+  await page.goto("/work?date=2026-11-03");
+  await page.getByRole("button", { name: "Mở hoặc đóng điều hướng lịch" }).click();
+  await page.getByRole("button", { name: "Thêm công việc", exact: true }).click();
+  const editor = page.getByRole("dialog", { name: "Thêm công việc" });
+  await editor.getByLabel("Tên công việc").fill("Bản nháp công việc cần giữ");
+  await editor.getByRole("button", { name: "Đăng xuất", exact: true }).click();
+
+  const logoutPrompt = page.getByRole("alertdialog", { name: "Bỏ thay đổi và đăng xuất?" });
+  await expect(logoutPrompt).toContainText("1 thay đổi đã lưu đang chờ đồng bộ");
+  await logoutPrompt.getByRole("button", { name: "Tiếp tục sửa", exact: true }).click();
+  await expect(editor.getByLabel("Tên công việc")).toHaveValue("Bản nháp công việc cần giữ");
+  expect(api.requests.filter(request => request.path === "/api/v1/auth/logout")).toHaveLength(0);
+  await expect.poll(async () => readOwnerMeta(page)).toMatchObject({ locked: false });
+  expect(await readEncryptedOutbox(page)).toEqual(outboxBefore);
+
+  await editor.getByRole("button", { name: "Đăng xuất", exact: true }).click();
+  await page.getByRole("alertdialog", { name: "Bỏ thay đổi và đăng xuất?" })
+    .getByRole("button", { name: "Bỏ thay đổi và đăng xuất", exact: true }).click();
+  await expect(editor).toBeHidden();
+  await expect.poll(async () => readOwnerMeta(page)).toMatchObject({ locked: true });
+  expect(api.requests.filter(request => request.path === "/api/v1/auth/logout")).toHaveLength(1);
+  expect(await readEncryptedOutbox(page)).toEqual(outboxBefore);
+});
+
+test("quotaFailureNeverClaimsLocalSaveOrSync", async ({ page }) => {
+  await page.route("**/api/v1/sync/**", route => route.abort());
+  await mockAuthApi(page);
+  await page.goto("/account");
+  await page.getByLabel("Email").fill("owner@example.test");
+  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
+  await page.getByRole("button", { name: "Đăng nhập và mở kho local", exact: true }).click();
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
+
+  await page.goto("/work?date=2026-11-03");
+  await page.getByRole("button", { name: "Mở hoặc đóng điều hướng lịch" }).click();
+  await page.getByRole("button", { name: "Thêm công việc", exact: true }).click();
+  const editor = page.getByRole("dialog", { name: "Thêm công việc" });
+  await editor.getByLabel("Tên công việc").fill("Giữ lại sau lỗi quota");
+  await editor.getByLabel("Buổi").selectOption("morning");
+
+  await page.evaluate(() => {
+    const originalPut = IDBObjectStore.prototype.put;
+    let injected = false;
+    IDBObjectStore.prototype.put = function (...args: unknown[]) {
+      if (this.name === "outbox" && !injected) {
+        injected = true;
+        throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+      }
+      return (originalPut as (...values: unknown[]) => IDBRequest).apply(this, args);
+    };
+    (window as Window & { restoreQuotaFailure?: () => void }).restoreQuotaFailure = () => {
+      IDBObjectStore.prototype.put = originalPut;
+    };
+  });
+
+  await editor.getByRole("button", { name: "Lưu công việc", exact: true }).click();
+  await expect(editor.getByLabel("Tên công việc")).toHaveValue("Giữ lại sau lỗi quota");
+  await expect(editor.getByRole("alert")).toBeVisible();
+  await expect(page.locator(".widget-summary [role='status']")).not.toContainText("Đã lưu công việc");
+  await expect(page.locator(".widget-summary [role='status']")).not.toContainText("Đã đồng bộ");
+  expect(await readEncryptedOutbox(page)).toHaveLength(0);
+  await page.evaluate(() => (window as Window & { restoreQuotaFailure?: () => void }).restoreQuotaFailure?.());
 });
 
 test("ownerCanCreateTaskAndNestedPlanWithoutLosingTheTaskDraft", async ({ page }) => {
@@ -1088,6 +1198,27 @@ test("emailRequestRecoversFromExpiredCsrfByRefreshingAndRetryingOnce", async ({ 
   await expect(page.locator("p[role='status']")).toContainText("Nếu địa chỉ email đủ điều kiện");
 });
 
+test("emailRequestHonorsServerRetryAfter", async ({ page }) => {
+  const api = await mockAuthApi(page);
+  api.emailResponses.push({ status: 202, resendAfterSeconds: 60 }, { status: 429, retryAfterSeconds: 90 });
+  await page.clock.install({ time: new Date("2026-11-01T00:00:00.000Z") });
+  await page.goto("/account");
+  await page.getByLabel("Email").fill("owner@example.test");
+  await page.getByRole("button", { name: "Tạo tài khoản", exact: true }).click();
+  const submit = page.locator(".account-submit");
+
+  await submit.click();
+  await expect(page.locator(".account-status")).toContainText("60 giây");
+  await expect(submit).toBeDisabled();
+  await page.clock.runFor(60_000);
+  await expect(submit).toBeEnabled();
+
+  await submit.click();
+  await expect(page.locator(".account-error")).toContainText("90 giây");
+  await expect(submit).toBeDisabled();
+  expect(api.requests.filter((request) => request.path === "/api/v1/auth/register")).toHaveLength(2);
+});
+
 test("pendingLogoutTicketSurvivesReloadAndIsReplayedBeforeLogin", async ({ page }) => {
   const api = await prepareUnlockedOwnerWithPendingOperation(page);
   await seedLegacyPendingLogoutTicket(page);
@@ -1238,4 +1369,48 @@ test("reloadRestoresUnlockedOwnerWhenSessionApiIsUnavailable", async ({ page }) 
   await expect(page.locator("div.account-status")).toContainText("Kho local đang mở");
   await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
   expect(api.localKeyRequests).toBe(1);
+});
+
+test("expiredSessionKeepsPendingForMatchingOwnerOnly", async ({ page }) => {
+  const capturedPushes: string[] = [];
+  let capturePushes = false;
+  await page.route("**/api/v1/sync/**", route => {
+    if (capturePushes && new URL(route.request().url()).pathname === "/api/v1/sync/push") {
+      capturedPushes.push(route.request().postData() ?? "");
+    }
+    return route.abort();
+  });
+  const api = await prepareUnlockedOwnerWithPendingOperation(page);
+  const outboxBefore = await readEncryptedOutbox(page);
+  expect(outboxBefore).toHaveLength(1);
+
+  api.currentSession = sessionView(false);
+  await page.reload();
+  await expect(page.locator("div.account-status[role='status']")).toContainText("Kho local đang mở");
+  await expect.poll(async () => readOwnerMeta(page)).toMatchObject({ owner_id: OWNER_ID, locked: false });
+  expect(await readEncryptedOutbox(page)).toEqual(outboxBefore);
+  expect(api.localKeyRequests).toBe(1);
+
+  const otherSession = {
+    ...sessionView(true),
+    owner: { id: OTHER_OWNER_ID, email: "other@example.test", email_verified_at: "2026-11-01T00:00:00.000Z" },
+  };
+  await page.route("**/api/v1/auth/login", route => route.fulfill({
+    status: 200,
+    headers: { "cache-control": "no-store" },
+    json: otherSession,
+  }));
+  await page.route("**/api/v1/auth/local-key", route => route.fulfill({
+    status: 200,
+    headers: { "cache-control": "no-store" },
+    json: { owner_id: OTHER_OWNER_ID, key_id: OTHER_KEY_ID, algorithm: "A256GCM", key_base64url: LOCAL_KEY },
+  }));
+  capturePushes = true;
+  await page.getByLabel("Email").fill("other@example.test");
+  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
+  await page.getByRole("button", { name: "Đăng nhập và mở kho local", exact: true }).click();
+  await expect.poll(async () => readOwnerMeta(page, OTHER_OWNER_ID)).toMatchObject({ owner_id: OTHER_OWNER_ID, locked: false });
+  await expect.poll(async () => readEncryptedOutbox(page, OWNER_ID)).toEqual(outboxBefore);
+  expect(await readEncryptedOutbox(page, OTHER_OWNER_ID)).toHaveLength(0);
+  expect(capturedPushes.some(body => body.includes(OPERATION_ID))).toBe(false);
 });

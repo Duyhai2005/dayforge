@@ -96,8 +96,8 @@ interface AccountContextValue {
   calendarError: string | null;
   taskUndo: TaskUndoAction | null;
   login(email: string, password: string, rememberMe: boolean): Promise<void>;
-  register(email: string): Promise<void>;
-  requestPasswordReset(email: string): Promise<void>;
+  register(email: string): Promise<number>;
+  requestPasswordReset(email: string): Promise<number>;
   confirmEmail(token: string, password: string): Promise<void>;
   resetPassword(token: string, password: string): Promise<void>;
   logout(): Promise<void>;
@@ -132,8 +132,16 @@ interface AccountContextValue {
 const AccountContext = createContext<AccountContextValue | null>(null);
 const API_PREFIX = "/api/v1/auth";
 
+export class AccountRequestError extends Error {
+  constructor(readonly status: number, readonly code: string, readonly retryAfterSeconds: number | null) {
+    super(code);
+    this.name = "AccountRequestError";
+  }
+}
+
 export function formatAccountError(value: unknown): string {
   if (value && typeof value === "object" && "code" in value && typeof value.code === "string") {
+    const retryAfterSeconds = value instanceof AccountRequestError ? value.retryAfterSeconds : null;
     const messages: Record<string, string> = {
       invalid_credentials: "Email hoặc mật khẩu chưa đúng.",
       password_policy_violation: "Mật khẩu chưa đáp ứng yêu cầu.",
@@ -143,7 +151,9 @@ export function formatAccountError(value: unknown): string {
       email_token_expired: "Liên kết đã hết hạn. Hãy yêu cầu gửi liên kết mới.",
       reauthentication_required: "Hãy đăng nhập lại để mở dữ liệu local.",
       csrf_failed: "Phiên biểu mẫu đã cũ. Tải lại trang rồi thử lại.",
-      rate_limited: "Bạn đã thử quá nhiều lần. Hãy chờ rồi thử lại.",
+      rate_limited: retryAfterSeconds
+        ? `Bạn đã thử quá nhiều lần. Hãy đợi ${retryAfterSeconds} giây rồi thử lại.`
+        : "Bạn đã thử quá nhiều lần. Hãy chờ rồi thử lại.",
       service_unavailable: "Dịch vụ tạm thời chưa sẵn sàng. Dữ liệu local vẫn được giữ.",
     };
     return messages[value.code] ?? "Không thể hoàn tất yêu cầu tài khoản.";
@@ -177,7 +187,21 @@ async function request<T>(path: string, input: { method?: "GET" | "POST"; body?:
   }
   if (response.status === 204) return undefined as T;
   const value = await response.json() as unknown;
-  if (!response.ok) throw value;
+  if (!response.ok) {
+    const code = value && typeof value === "object" && "code" in value && typeof value.code === "string" && /^[a-z0-9_]{1,64}$/.test(value.code)
+      ? value.code
+      : "service_unavailable";
+    const problemRetry = value && typeof value === "object" && "retry_after_seconds" in value &&
+      Number.isSafeInteger(value.retry_after_seconds) && (value.retry_after_seconds as number) > 0
+      ? value.retry_after_seconds as number
+      : null;
+    const headerValue = response.headers.get("Retry-After")?.trim() ?? "";
+    const headerRetry = /^\d+$/.test(headerValue) && Number.isSafeInteger(Number(headerValue)) && Number(headerValue) > 0
+      ? Number(headerValue)
+      : null;
+    const retryAfterSeconds = problemRetry === null ? headerRetry : headerRetry === null ? problemRetry : Math.max(problemRetry, headerRetry);
+    throw new AccountRequestError(response.status, code, retryAfterSeconds);
+  }
   return value as T;
 }
 
@@ -376,12 +400,14 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
     setError(null); setInfo(null);
     const result = await post<{ status: string; resend_after_seconds: number }>(`${API_PREFIX}/register`, { email }, await csrf());
     setInfo(`Nếu địa chỉ email đủ điều kiện, liên kết xác minh sẽ được gửi. Bạn có thể yêu cầu gửi lại sau ${result.resend_after_seconds} giây.`);
+    return result.resend_after_seconds;
   }, [csrf, post]);
 
   const requestPasswordReset = useCallback(async (email: string) => {
     setError(null); setInfo(null);
     const result = await post<{ status: string; resend_after_seconds: number }>(`${API_PREFIX}/password/forgot`, { email }, await csrf());
     setInfo(`Nếu tài khoản tồn tại, hướng dẫn đặt lại mật khẩu sẽ được gửi. Có thể yêu cầu lại sau ${result.resend_after_seconds} giây.`);
+    return result.resend_after_seconds;
   }, [csrf, post]);
 
   const confirmEmail = useCallback(async (token: string, password: string) => {

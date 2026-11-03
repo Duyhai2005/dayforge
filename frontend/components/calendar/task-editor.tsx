@@ -121,6 +121,9 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmStopSeries, setConfirmStopSeries] = useState(false);
+  const [logoutChanges, setLogoutChanges] = useState<{ pendingOperations: number; drafts: number } | null>(null);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [logoutBusy, setLogoutBusy] = useState(false);
   const [planManagerOpen, setPlanManagerOpen] = useState(false);
   const [validationError, setValidationError] = useState<TaskValidationError | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -164,14 +167,39 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
   }, [open]);
 
   const requestClose = useCallback(() => {
-    if (busy || planManagerOpen) return;
+    if (busy || planManagerOpen || logoutChanges) return;
     if (dirty) {
       setConfirmDiscard(true);
       return;
     }
     setConfirmDiscard(false);
     onClose();
-  }, [busy, dirty, onClose, planManagerOpen]);
+  }, [busy, dirty, logoutChanges, onClose, planManagerOpen]);
+
+  async function requestLogout(): Promise<void> {
+    if (logoutBusy) return;
+    setLogoutError(null);
+    try {
+      setLogoutChanges(await account.inspectPendingChanges());
+    } catch {
+      setLogoutError("Không thể kiểm tra thay đổi cục bộ. Hãy thử lại.");
+    }
+  }
+
+  async function discardAndLogout(): Promise<void> {
+    if (logoutBusy) return;
+    setLogoutBusy(true);
+    setLogoutError(null);
+    try {
+      await account.logout();
+      setLogoutChanges(null);
+      onClose();
+    } catch {
+      setLogoutError("Không thể khóa dữ liệu cục bộ. Hãy thử lại trước khi đăng xuất.");
+    } finally {
+      setLogoutBusy(false);
+    }
+  }
 
   function selectEditScope(next: "occurrence" | "future"): void {
     if (!editing || !seriesSegment || target.kind !== "occurrence") return;
@@ -196,14 +224,17 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
-        if (confirmDelete) setConfirmDelete(false);
+        if (logoutChanges) setLogoutChanges(null);
+        else if (confirmDelete) setConfirmDelete(false);
         else if (confirmStopSeries) setConfirmStopSeries(false);
         else if (confirmDiscard) setConfirmDiscard(false);
         else requestClose();
         return;
       }
       if (event.key !== "Tab" || !dialog.current) return;
-      const activeDialog = confirmDelete
+      const activeDialog = logoutChanges
+        ? dialog.current.querySelector<HTMLElement>(".task-logout-dialog")
+        : confirmDelete
         ? dialog.current.querySelector<HTMLElement>(".task-delete-dialog")
         : confirmStopSeries
         ? dialog.current.querySelector<HTMLElement>(".task-stop-dialog")
@@ -227,7 +258,7 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
     };
     document.addEventListener("keydown", trap, true);
     return () => document.removeEventListener("keydown", trap, true);
-  }, [confirmDelete, confirmDiscard, confirmStopSeries, open, planManagerOpen, requestClose]);
+  }, [confirmDelete, confirmDiscard, confirmStopSeries, logoutChanges, open, planManagerOpen, requestClose]);
 
   if (!open || typeof document === "undefined") return null;
 
@@ -496,10 +527,12 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
               {fields.duration && ` · ${fields.duration} phút`}
             </div>}
             {saveError && <p className="account-error" role="alert">{saveError}</p>}
+            {logoutError && !logoutChanges && <p className="account-error" role="alert">{logoutError}</p>}
             <div className="plan-form-actions">
               {editing && <button type="button" className="task-delete-button" disabled={busy || account.state !== "unlocked" || !account.calendarReady} onClick={() => setConfirmDelete(true)}>
                 {target.kind === "occurrence" ? "Xóa lần lặp" : target.kind === "detached" ? "Xóa việc một lần" : "Xóa công việc"}
               </button>}
+              {dirty && account.session?.authenticated && <button type="button" disabled={busy || logoutBusy} onClick={() => void requestLogout()}>Đăng xuất</button>}
               <button type="button" disabled={busy} onClick={() => {
                 if (dirty) setConfirmDiscard(true);
                 else onClose();
@@ -517,6 +550,25 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
               <div className="plan-form-actions">
                 <button type="button" autoFocus onClick={() => setConfirmDiscard(false)}>Tiếp tục sửa</button>
                 <button type="button" onClick={onClose}>Bỏ thay đổi</button>
+              </div>
+            </section>
+          </div>}
+          {logoutChanges && <div className="task-discard-backdrop">
+            <section className="task-discard-dialog task-logout-dialog" role="alertdialog" aria-modal="true" aria-labelledby="task-logout-title">
+              <h3 id="task-logout-title">Bỏ thay đổi và đăng xuất?</h3>
+              <p>
+                Biểu mẫu công việc đang sửa sẽ bị bỏ.
+                {logoutChanges.pendingOperations > 0 && ` ${logoutChanges.pendingOperations} thay đổi đã lưu đang chờ đồng bộ`}
+                {logoutChanges.pendingOperations > 0 && logoutChanges.drafts > 0 && " và"}
+                {logoutChanges.drafts > 0 && ` ${logoutChanges.drafts} bản nháp đã lưu`}
+                {logoutChanges.pendingOperations > 0 || logoutChanges.drafts > 0
+                  ? ". Dữ liệu đã lưu vẫn được giữ mã hóa trên thiết bị và bị khóa cho đến lần đăng nhập tiếp theo."
+                  : ". Dữ liệu đã lưu trên thiết bị vẫn được giữ và bị khóa cho đến lần đăng nhập tiếp theo."}
+              </p>
+              {logoutError && <p className="account-error" role="alert">{logoutError}</p>}
+              <div className="plan-form-actions">
+                <button type="button" autoFocus disabled={logoutBusy} onClick={() => { setLogoutChanges(null); setLogoutError(null); }}>Tiếp tục sửa</button>
+                <button type="button" disabled={logoutBusy} onClick={() => void discardAndLogout()}>{logoutBusy ? "Đang khóa…" : "Bỏ thay đổi và đăng xuất"}</button>
               </div>
             </section>
           </div>}
