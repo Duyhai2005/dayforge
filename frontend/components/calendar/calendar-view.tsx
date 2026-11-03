@@ -7,7 +7,8 @@ import { shouldUseDocumentNavigation } from "../../lib/offline/navigation";
 import { parseViewState, readPreference, serializeViewState, writePreference, type CalendarKind, type ViewState } from "../../lib/calendar/view-state";
 import { CalendarWidget, currentPeriod } from "./calendar-widget";
 import { PlanManager } from "./plan-manager";
-import { TaskEditor } from "./task-editor";
+import { TaskEditor, type TaskEditorTarget } from "./task-editor";
+import { WorkWeekCalendar } from "./work-week-calendar";
 import type { Period } from "../../lib/sync/reducer";
 
 export type CalendarViewProps = { calendar: CalendarKind };
@@ -19,7 +20,7 @@ export function CalendarView({ calendar }: CalendarViewProps): React.JSX.Element
   const { gate } = useBuildGate();
   const [view, setView] = useState<ViewState | null>(null);
   const [planManagerOpen, setPlanManagerOpen] = useState(false);
-  const [taskEditor, setTaskEditor] = useState<{ date: string; period: Period | null } | null>(null);
+  const [taskEditor, setTaskEditor] = useState<{ date: string; period: Period | null; editing?: TaskEditorTarget } | null>(null);
   const query = search.toString();
 
   useEffect(() => {
@@ -102,7 +103,10 @@ export function CalendarView({ calendar }: CalendarViewProps): React.JSX.Element
       {view && <p key={`${calendar}:${view.anchor}:${view.scale}`} className="calendar-period" aria-label="Khoảng đang xem" aria-live="polite">{currentPeriod(view)}</p>}
     </header>
     {view && <CalendarWidget calendar={calendar} view={view} onNavigate={navigate} onSwitch={switchCalendar} onOpenPlans={() => setPlanManagerOpen(true)} onAddTask={(date, period) => setTaskEditor({ date, period })} />}
+    {view && calendar === "work" && <WorkWeekCalendar anchor={view.anchor}
+      onAddTask={(date, period) => setTaskEditor({ date, period })}
+      onEditTask={(editing) => setTaskEditor({ date: editing.data.date, period: editing.data.period, editing })} />}
     <PlanManager open={planManagerOpen} onClose={() => setPlanManagerOpen(false)} />
-    {taskEditor && <TaskEditor key={`${taskEditor.date}:${taskEditor.period ?? "any"}`} open date={taskEditor.date} period={taskEditor.period} onClose={() => setTaskEditor(null)} />}
+    {taskEditor && <TaskEditor key={`${taskEditor.date}:${taskEditor.period ?? "any"}:${taskEditor.editing?.id ?? "new"}`} open date={taskEditor.date} period={taskEditor.period} editing={taskEditor.editing} onClose={() => setTaskEditor(null)} />}
   </>;
 }

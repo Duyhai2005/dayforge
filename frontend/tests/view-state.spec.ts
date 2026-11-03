@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { todayInUtc7, parseViewState, moveAnchor, readPreference, writePreference, serializeViewState } from "../lib/calendar/view-state";
+import { workWeekDates } from "../lib/calendar/work-week";
 
 async function openWidget(page: Page): Promise<void> {
   const toggle = page.getByRole("button", { name: "Mở hoặc đóng điều hướng lịch" });
@@ -51,6 +52,14 @@ test("moveAnchorPreservesEndOfMonth", () => {
 test("moveAnchorClampsLeapDay", () => {
   expect(moveAnchor({ calendar: "milestones", anchor: "2024-02-29", scale: "year" }, 1).anchor).toBe("2025-02-28");
   expect(moveAnchor({ calendar: "work", anchor: "2026-12-28", scale: "week" }, 1).anchor).toBe("2027-01-04");
+});
+test("workWeekDatesStartsOnMondayAcrossMonthAndYearBoundaries", () => {
+  expect(workWeekDates("2026-01-01")).toEqual([
+    "2025-12-29", "2025-12-30", "2025-12-31", "2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04",
+  ]);
+  expect(workWeekDates("9999-12-31")).toContain("9999-12-31");
+  expect(workWeekDates("9999-12-31").at(-1)).toBeNull();
+  expect(workWeekDates("2026-02-30")).toEqual(Array.from({ length: 7 }, () => null));
 });
 test("moveAnchorStopsAtT03DomainBounds", () => {
   for (const scale of ["week", "month", "year"] as const) {

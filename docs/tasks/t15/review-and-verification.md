@@ -1,6 +1,6 @@
 # T15 — Quick task editor
 
-Status: implementation and local verification complete on `feature/quick-task-editor`. GitHub CI and PR merge are pending.
+Status: complete on `feature/quick-task-editor`; PR #15 merged into `develop` as `f84bb1079adf7b4e21cf4c9d07a801cb3632b041` after all GitHub CI workflows passed.
 
 ## Delivered
 
@@ -22,6 +22,8 @@ Status: implementation and local verification complete on `feature/quick-task-ed
 | Focused reducer rank test using the shared T12 fixture | Passed |
 | Focused Playwright task creation test | Passed |
 | Focused Playwright plan manager regression test | Passed |
+| GitHub CI run #41607971522 (`quality`, `frontend`, `backend-mysql`) | Passed |
+| GitHub Offline web shell run #41607971453 | Passed |
 
 The task browser test checks the default date, required-period error, preservation of the draft while creating a nested plan, selected plan, local outbox writes and survival of pending changes across reload.
 
