@@ -136,7 +136,9 @@ class SmokeTests(unittest.TestCase):
             ("/api/v1/health", b'{"status":"private-sentinel","status":"ok"}'),
             (
                 "/api/v1/version",
-                version.replace('"api_major": 1', '"api_major": "private-sentinel", "api_major": 1').encode(),
+                version.replace(
+                    '"api_major": 1', '"api_major": "private-sentinel", "api_major": 1'
+                ).encode(),
             ),
             (
                 "/api/v1/version",
@@ -155,7 +157,9 @@ class SmokeTests(unittest.TestCase):
                 self.assertEqual(result, 1)
                 self.assertNotIn("PASS", stdout)
                 label = path.rsplit("/", 1)[1]
-                self.assertEqual(stderr, f"FAIL: The local {label} probe returned invalid JSON.\n")
+                self.assertEqual(
+                    stderr, f"FAIL: The local {label} probe returned invalid JSON.\n"
+                )
                 self.assertNotIn("private-sentinel", stdout + stderr)
 
     def test_version_rejects_normalized_midnight_timestamp(self):
@@ -168,7 +172,9 @@ class SmokeTests(unittest.TestCase):
         result, stdout, stderr = self.run_cli()
         self.assertEqual(result, 1)
         self.assertNotIn("PASS", stdout)
-        self.assertEqual(stderr, "FAIL: The local version probe has an invalid UTC timestamp.\n")
+        self.assertEqual(
+            stderr, "FAIL: The local version probe has an invalid UTC timestamp.\n"
+        )
 
     def test_proxy_html_and_invalid_json_never_report_pass(self):
         for path in ["/api/v1/health", "/api/v1/version"]:
@@ -195,9 +201,13 @@ class SmokeTests(unittest.TestCase):
 
     def test_redirect_is_refused_and_http_error_is_sanitized(self):
         self.assertIsNone(
-            smoke_local._NoRedirect().redirect_request(None, None, 302, "redirect", {}, "https://example.com")
+            smoke_local._NoRedirect().redirect_request(
+                None, None, 302, "redirect", {}, "https://example.com"
+            )
         )
-        http_error = HTTPError("https://localhost/private", 503, "private-sentinel", {}, None)
+        http_error = HTTPError(
+            "https://localhost/private", 503, "private-sentinel", {}, None
+        )
         self.addCleanup(http_error.close)
 
         class ErrorOpener:
@@ -249,7 +259,9 @@ class SmokeLocalTests(unittest.TestCase):
                     "scripts.smoke_local.ssl.create_default_context",
                     return_value=context,
                 ),
-                patch("scripts.smoke_local.build_opener", return_value=T06RouteFixture()),
+                patch(
+                    "scripts.smoke_local.build_opener", return_value=T06RouteFixture()
+                ),
             ):
                 try:
                     smoke_local.smoke_local("https://localhost:3000", ca_file)
@@ -280,7 +292,9 @@ class SmokeLocalTests(unittest.TestCase):
             try:
                 opener = build_opener(_NoRedirect())
                 with self.assertRaisesRegex(SmokeError, "web probe returned HTTP 307"):
-                    _get(opener, f"http://127.0.0.1:{server.server_port}/work", "web", 2)
+                    _get(
+                        opener, f"http://127.0.0.1:{server.server_port}/work", "web", 2
+                    )
             finally:
                 server.shutdown()
                 worker.join()

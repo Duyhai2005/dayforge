@@ -96,7 +96,9 @@ def _validate_version(document) -> None:
             int(timestamp[20:23]) * 1000,
         )
     except ValueError:
-        raise SmokeError("The local version probe has an invalid UTC timestamp.") from None
+        raise SmokeError(
+            "The local version probe has an invalid UTC timestamp."
+        ) from None
 
 
 def _validate_base_url(base_url: str) -> str:
@@ -122,7 +124,9 @@ def _validate_base_url(base_url: str) -> str:
     return base_url
 
 
-def _get(opener, url: str, label: str, timeout_seconds: float) -> tuple[int, str, bytes]:
+def _get(
+    opener, url: str, label: str, timeout_seconds: float
+) -> tuple[int, str, bytes]:
     request = Request(url, method="GET", headers={"Accept": "*/*"})
     try:
         with opener.open(request, timeout=timeout_seconds) as response:
@@ -134,7 +138,9 @@ def _get(opener, url: str, label: str, timeout_seconds: float) -> tuple[int, str
         exc.close()
         raise SmokeError(f"The local {label} probe returned HTTP {exc.code}.") from None
     except (URLError, OSError, http.client.HTTPException) as exc:
-        raise SmokeError(f"A local probe could not complete ({exc.__class__.__name__}).") from None
+        raise SmokeError(
+            f"A local probe could not complete ({exc.__class__.__name__})."
+        ) from None
 
 
 def smoke_local(base_url: str, ca_file: Path, timeout_seconds: float = 10.0) -> None:
@@ -148,10 +154,14 @@ def smoke_local(base_url: str, ca_file: Path, timeout_seconds: float = 10.0) -> 
     try:
         tls_context = ssl.create_default_context(cafile=str(ca_path))
     except (OSError, ssl.SSLError) as exc:
-        raise SmokeError(f"The CA certificate could not be loaded ({exc.__class__.__name__}).") from None
+        raise SmokeError(
+            f"The CA certificate could not be loaded ({exc.__class__.__name__})."
+        ) from None
 
     opener = build_opener(_NoRedirect(), HTTPSHandler(context=tls_context))
-    web_status, web_content_type, web_body = _get(opener, origin + "/work", "web", timeout_seconds)
+    web_status, web_content_type, web_body = _get(
+        opener, origin + "/work", "web", timeout_seconds
+    )
     if web_status != 200:
         raise SmokeError("The local web probe did not return HTTP 200.")
     if "text/html" not in web_content_type.lower():
@@ -159,7 +169,9 @@ def smoke_local(base_url: str, ca_file: Path, timeout_seconds: float = 10.0) -> 
     if b"DAYFORGE" not in web_body:
         raise SmokeError("The local web page is missing the DAYFORGE heading.")
 
-    api_status, api_content_type, api_body = _get(opener, origin + "/api/v1/openapi.json", "API", timeout_seconds)
+    api_status, api_content_type, api_body = _get(
+        opener, origin + "/api/v1/openapi.json", "API", timeout_seconds
+    )
     if api_status != 200:
         raise SmokeError("The local API probe did not return HTTP 200.")
     if "application/json" not in api_content_type.lower():
@@ -175,7 +187,9 @@ def smoke_local(base_url: str, ca_file: Path, timeout_seconds: float = 10.0) -> 
         or api_document["info"].get("title") != "DAYFORGE API"
         or not isinstance(api_document.get("paths"), dict)
     ):
-        raise SmokeError("The local API document does not match the bootstrap contract.")
+        raise SmokeError(
+            "The local API document does not match the bootstrap contract."
+        )
 
     health = _get_json(opener, origin + "/api/v1/health", "health", timeout_seconds)
     if health != {"status": "ok"}:
@@ -185,7 +199,9 @@ def smoke_local(base_url: str, ca_file: Path, timeout_seconds: float = 10.0) -> 
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Verify local HTTPS web/API and MySQL readiness.")
+    parser = argparse.ArgumentParser(
+        description="Verify local HTTPS web/API and MySQL readiness."
+    )
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--ca-file", required=True, type=Path)
     args = parser.parse_args()

@@ -139,7 +139,9 @@ class BackendRunnerTests(unittest.TestCase):
             self.assertEqual(code, 0)
             run_id = captured_env.get("DAYFORGE_TEST_RUN_ID")
             self.assertRegex(run_id, r"^[0-9a-f]{32}$")
-            self.assertEqual(captured_env.get("DAYFORGE_TEST_PROJECT"), f"dayforge-test-{run_id}")
+            self.assertEqual(
+                captured_env.get("DAYFORGE_TEST_PROJECT"), f"dayforge-test-{run_id}"
+            )
             self.assertEqual(captured_env.get("DB_NAME"), "dayforge_test")
             self.assertEqual(captured_env.get("DB_USER"), "dayforge_test")
 
@@ -270,7 +272,9 @@ class BackendRunnerTests(unittest.TestCase):
             self.assertIn("DAYFORGE_TEST_RUN_ID", pytest_env)
             self.assertEqual(len(pytest_env["DAYFORGE_TEST_RUN_ID"]), 32)
 
-    def test_case_l_sync_browser_dispatches_with_isolated_mysql_environment(self) -> None:
+    def test_case_l_sync_browser_dispatches_with_isolated_mysql_environment(
+        self,
+    ) -> None:
         test_env = {}
         test_command = []
 
@@ -302,7 +306,9 @@ class BackendRunnerTests(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertTrue(test_command[-1].endswith("test_sync_browser.py"))
-        self.assertRegex(test_env.get("DAYFORGE_SYNC_BROWSER_PORT", ""), r"^[0-9]{4,5}$")
+        self.assertRegex(
+            test_env.get("DAYFORGE_SYNC_BROWSER_PORT", ""), r"^[0-9]{4,5}$"
+        )
         self.assertIn("DAYFORGE_TEST_RUN_ID", test_env)
 
 

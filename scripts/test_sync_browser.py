@@ -46,8 +46,12 @@ class BrowserRunnerError(RuntimeError):
 def _temporary_directory(prefix: str):
     temporary = Path(tempfile.mkdtemp(prefix=prefix))
     expected_parent = Path(tempfile.gettempdir()).resolve()
-    if temporary.resolve().parent != expected_parent or not temporary.name.startswith(prefix):
-        raise BrowserRunnerError("The browser test temporary directory is outside its expected location")
+    if temporary.resolve().parent != expected_parent or not temporary.name.startswith(
+        prefix
+    ):
+        raise BrowserRunnerError(
+            "The browser test temporary directory is outside its expected location"
+        )
     try:
         yield temporary
     finally:
@@ -72,7 +76,9 @@ def _check_migrations(environ: dict[str, str]) -> None:
         check=False,
     )
     if result.returncode:
-        raise BrowserRunnerError("Alembic failed to prepare the isolated browser-test database")
+        raise BrowserRunnerError(
+            "Alembic failed to prepare the isolated browser-test database"
+        )
 
 
 async def _verification_payloads(settings) -> list[dict[str, str]]:
@@ -83,9 +89,16 @@ async def _verification_payloads(settings) -> list[dict[str, str]]:
     database = create_database(settings)
     try:
         async with database.sessions() as session:
-            jobs = (await session.scalars(select(EmailDeliveryJob).order_by(EmailDeliveryJob.created_at))).all()
+            jobs = (
+                await session.scalars(
+                    select(EmailDeliveryJob).order_by(EmailDeliveryJob.created_at)
+                )
+            ).all()
             key = decode_key(settings.auth_email_outbox_key_b64.get_secret_value())
-            return [json.loads(AESGCM(key).decrypt(job.iv, job.ciphertext, job.id.bytes)) for job in jobs]
+            return [
+                json.loads(AESGCM(key).decrypt(job.iv, job.ciphertext, job.id.bytes))
+                for job in jobs
+            ]
     finally:
         await database.engine.dispose()
 
@@ -99,7 +112,9 @@ def _verify_test_owner(settings) -> None:
     with TestClient(create_app(settings), base_url=origin) as client:
         session = client.get("/api/v1/auth/session")
         if session.status_code != 200:
-            raise BrowserRunnerError("Could not initialize the test owner's anonymous session")
+            raise BrowserRunnerError(
+                "Could not initialize the test owner's anonymous session"
+            )
         csrf = session.json()["csrf_token"]
         response = client.post(
             "/api/v1/auth/register",
@@ -113,7 +128,8 @@ def _verify_test_owner(settings) -> None:
             (
                 payload
                 for payload in payloads
-                if payload.get("to") == settings.owner_email.get_secret_value() and "#token=" in payload.get("link", "")
+                if payload.get("to") == settings.owner_email.get_secret_value()
+                and "#token=" in payload.get("link", "")
             ),
             None,
         )
@@ -144,7 +160,9 @@ def _restore_test_sync_epoch(settings, owner_id: str) -> str:
     try:
         parsed_owner = UUID(owner_id)
     except ValueError as error:
-        raise BrowserRunnerError("Browser runner requested an invalid test owner") from error
+        raise BrowserRunnerError(
+            "Browser runner requested an invalid test owner"
+        ) from error
     database = create_database(settings)
     epoch = uuid4()
 
@@ -152,14 +170,24 @@ def _restore_test_sync_epoch(settings, owner_id: str) -> str:
         try:
             async with database.sessions() as session, session.begin():
                 state = await session.scalar(
-                    select(OwnerSyncState).where(OwnerSyncState.owner_id == parsed_owner).with_for_update()
+                    select(OwnerSyncState)
+                    .where(OwnerSyncState.owner_id == parsed_owner)
+                    .with_for_update()
                 )
                 if state is None:
                     raise BrowserRunnerError("Test owner sync state is missing")
-                await session.execute(delete(ChangeLog).where(ChangeLog.owner_id == parsed_owner))
-                await session.execute(delete(OperationReceipt).where(OperationReceipt.owner_id == parsed_owner))
+                await session.execute(
+                    delete(ChangeLog).where(ChangeLog.owner_id == parsed_owner)
+                )
+                await session.execute(
+                    delete(OperationReceipt).where(
+                        OperationReceipt.owner_id == parsed_owner
+                    )
+                )
                 removed = await session.execute(
-                    delete(RecordedOperation).where(RecordedOperation.owner_id == parsed_owner)
+                    delete(RecordedOperation).where(
+                        RecordedOperation.owner_id == parsed_owner
+                    )
                 )
                 state.epoch = epoch
                 state.head_cursor = 0
@@ -172,7 +200,9 @@ def _restore_test_sync_epoch(settings, owner_id: str) -> str:
     except BrowserRunnerError:
         raise
     except Exception as error:
-        raise BrowserRunnerError("Could not restore the isolated test owner's sync epoch") from error
+        raise BrowserRunnerError(
+            "Could not restore the isolated test owner's sync epoch"
+        ) from error
     print(
         f"Simulated isolated server restore: removed {removed_count} events and advanced the test owner epoch.",
         flush=True,
@@ -193,7 +223,9 @@ def _write_test_certificate(directory: Path) -> tuple[Path, Path]:
         .not_valid_before((now - timedelta(minutes=5)).replace(tzinfo=None))
         .not_valid_after((now + timedelta(days=1)).replace(tzinfo=None))
         .add_extension(
-            SubjectAlternativeName([DNSName("localhost"), IPAddress(ipaddress.ip_address("127.0.0.1"))]),
+            SubjectAlternativeName(
+                [DNSName("localhost"), IPAddress(ipaddress.ip_address("127.0.0.1"))]
+            ),
             critical=False,
         )
         .sign(key, hashes.SHA256())
@@ -220,7 +252,9 @@ def _wait_for_api(process: subprocess.Popen) -> None:
         if process.poll() is not None:
             raise BrowserRunnerError("Test API exited before becoming ready")
         try:
-            with urllib.request.urlopen("http://127.0.0.1:8000/api/v1/version", timeout=1) as response:
+            with urllib.request.urlopen(
+                "http://127.0.0.1:8000/api/v1/version", timeout=1
+            ) as response:
                 if response.status == 200:
                     return
         except OSError, urllib.error.URLError:
@@ -319,14 +353,20 @@ def main() -> int:
                     assert browser.stdin is not None and browser.stdout is not None
                     for line in browser.stdout:
                         if line.startswith("DAYFORGE_TEST_RESET_EPOCH "):
-                            owner_id = line.removeprefix("DAYFORGE_TEST_RESET_EPOCH ").strip()
+                            owner_id = line.removeprefix(
+                                "DAYFORGE_TEST_RESET_EPOCH "
+                            ).strip()
                             try:
                                 epoch = _restore_test_sync_epoch(settings, owner_id)
                             except BrowserRunnerError as error:
                                 print(str(error), file=sys.stderr, flush=True)
-                                browser.stdin.write("DAYFORGE_TEST_EPOCH_RESET_FAILED\n")
+                                browser.stdin.write(
+                                    "DAYFORGE_TEST_EPOCH_RESET_FAILED\n"
+                                )
                             else:
-                                browser.stdin.write(f"DAYFORGE_TEST_EPOCH_RESET_DONE {epoch}\n")
+                                browser.stdin.write(
+                                    f"DAYFORGE_TEST_EPOCH_RESET_DONE {epoch}\n"
+                                )
                             browser.stdin.flush()
                         else:
                             print(line, end="", flush=True)
@@ -355,7 +395,11 @@ def main() -> int:
             api_log.close()
         if exit_code:
             api_log_lines = api_log_path.read_text(encoding="utf-8").splitlines()
-            diagnostics = [line for line in api_log_lines if '"diagnostic":"internal_exception"' in line]
+            diagnostics = [
+                line
+                for line in api_log_lines
+                if '"diagnostic":"internal_exception"' in line
+            ]
             if diagnostics:
                 print(
                     "Isolated API exception diagnostics: " + diagnostics[-1],
@@ -363,12 +407,20 @@ def main() -> int:
                     flush=True,
                 )
             exception_start = max(
-                (index for index, line in enumerate(api_log_lines) if "Exception in ASGI application" in line),
+                (
+                    index
+                    for index, line in enumerate(api_log_lines)
+                    if "Exception in ASGI application" in line
+                ),
                 default=-1,
             )
             if exception_start >= 0:
                 exception_lines = api_log_lines[exception_start:]
-                frames = [line.strip() for line in exception_lines if line.lstrip().startswith("File ")]
+                frames = [
+                    line.strip()
+                    for line in exception_lines
+                    if line.lstrip().startswith("File ")
+                ]
                 exception_type = next(
                     (
                         line.strip().split(":", 1)[0]
@@ -378,7 +430,9 @@ def main() -> int:
                     "UnknownError",
                 )
                 print(
-                    "Isolated API failure frames: " + " -> ".join(frames) + f" ({exception_type})",
+                    "Isolated API failure frames: "
+                    + " -> ".join(frames)
+                    + f" ({exception_type})",
                     file=sys.stderr,
                     flush=True,
                 )
