@@ -519,6 +519,36 @@ test("ownerCanCreateTaskAndNestedPlanWithoutLosingTheTaskDraft", async ({ page }
   await expect(denseCards.nth(3)).toContainText("Chuẩn bị cuộc họp");
   expect(await afternoonBucket.evaluate(element => element.scrollHeight === element.clientHeight)).toBe(true);
 
+  await afternoonBucket.getByRole("button", { name: "Đưa Chuẩn bị cuộc họp lên trước" }).click();
+  await expect(denseCards.nth(2)).toContainText("Chuẩn bị cuộc họp");
+  await page.getByRole("button", { name: "Hoàn tác", exact: true }).click();
+  await expect(denseCards.nth(2)).toContainText("Đọc tài liệu");
+  await expect(denseCards.nth(3)).toContainText("Chuẩn bị cuộc họp");
+
+  const movedCard = afternoonBucket.locator(".work-task-card").filter({ hasText: "Nộp báo cáo cuối kỳ" });
+  const thursdayMorning = page.locator('.work-week-bucket[data-work-date="2026-11-05"][data-period="morning"]');
+  await movedCard.dragTo(thursdayMorning);
+  await expect(thursdayMorning.locator(".work-task-card")).toContainText("Nộp báo cáo cuối kỳ");
+  await expect(page.locator(".calendar-undo-toast")).toContainText("Đã chuyển “Nộp báo cáo cuối kỳ” sang sáng thứ năm.");
+  await page.locator(".calendar-undo-toast").getByRole("button", { name: "Hoàn tác", exact: true }).click();
+  await expect(afternoonBucket.locator(".work-task-card").filter({ hasText: "Nộp báo cáo cuối kỳ" })).toBeVisible();
+  await expect(thursdayMorning.locator(".work-task-card")).toHaveCount(0);
+
+  const beforeEscapeCancel = await readEncryptedOutbox(page);
+  const escapeCard = afternoonBucket.locator(".work-task-card").first();
+  const escapeCardBounds = await escapeCard.boundingBox();
+  if (!escapeCardBounds) throw new Error("Task card is not visible for drag-cancel verification.");
+  await page.mouse.move(escapeCardBounds.x + escapeCardBounds.width / 2, escapeCardBounds.y + escapeCardBounds.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(escapeCardBounds.x + escapeCardBounds.width / 2 + 32, escapeCardBounds.y + escapeCardBounds.height / 2 + 24, { steps: 4 });
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  await expect(escapeCard).toContainText("Nộp báo cáo cuối kỳ");
+  expect(await readEncryptedOutbox(page)).toHaveLength(beforeEscapeCancel.length);
+
+  await afternoonBucket.locator(".work-task-card").first().dragTo(page.locator(".calendar-heading"));
+  await expect(afternoonBucket.locator(".work-task-card").first()).toContainText("Nộp báo cáo cuối kỳ");
+
   await denseCards.nth(0).click();
   const editDialog = page.getByRole("dialog", { name: "Sửa công việc" });
   await expect(editDialog.getByLabel("Tên công việc")).toHaveValue("Nộp báo cáo cuối kỳ");
@@ -526,6 +556,19 @@ test("ownerCanCreateTaskAndNestedPlanWithoutLosingTheTaskDraft", async ({ page }
   await editDialog.getByRole("button", { name: "Lưu công việc", exact: true }).click();
   await expect(editDialog).toBeHidden();
   await expect(afternoonBucket.locator(".work-task-card").first()).toContainText("Nộp báo cáo bản cuối");
+
+  await afternoonBucket.locator(".work-task-card").filter({ hasText: "Nộp báo cáo bản cuối" }).click();
+  const rescheduleDialog = page.getByRole("dialog", { name: "Sửa công việc" });
+  await rescheduleDialog.getByLabel("Ngày").fill("2026-11-04");
+  await rescheduleDialog.getByLabel("Buổi").selectOption("evening");
+  await rescheduleDialog.getByRole("button", { name: "Lưu công việc", exact: true }).click();
+  await expect(rescheduleDialog).toBeHidden();
+  const wednesdayEvening = page.locator('.work-week-bucket[data-work-date="2026-11-04"][data-period="evening"]');
+  await expect(wednesdayEvening.locator(".work-task-card")).toContainText("Nộp báo cáo bản cuối");
+  await expect(page.locator(".calendar-undo-toast")).toContainText("Đã chuyển “Nộp báo cáo bản cuối” sang tối thứ tư.");
+  await page.locator(".calendar-undo-toast").getByRole("button", { name: "Hoàn tác", exact: true }).click();
+  await expect(afternoonBucket.locator(".work-task-card").filter({ hasText: "Nộp báo cáo bản cuối" })).toBeVisible();
+  await expect(wednesdayEvening.locator(".work-task-card")).toHaveCount(0);
 });
 
 test("ownerCanCreateEditAndRemoveMilestoneWithWorkCalendarVisibility", async ({ page }) => {
@@ -560,6 +603,7 @@ test("ownerCanCreateEditAndRemoveMilestoneWithWorkCalendarVisibility", async ({ 
   const bucket = page.locator('.work-week-bucket[data-work-date="2026-11-03"][data-period="afternoon"]');
   const milestoneCard = bucket.locator(".work-milestone-card");
   await expect(milestoneCard).toBeVisible();
+  await expect(milestoneCard).not.toHaveAttribute("draggable", "true");
   await expect(milestoneCard).toContainText("Dấu mốc");
   await expect(milestoneCard).toContainText("Có ghi chú");
   await expect(milestoneCard).not.toContainText("Phòng 302, chuẩn bị slide trước.");

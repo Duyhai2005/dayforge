@@ -34,6 +34,14 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch, onOpenPla
   const [logoutChanges, setLogoutChanges] = useState<{ pendingOperations: number; drafts: number } | null>(null);
   const [logoutError, setLogoutError] = useState("");
   const [logoutBusy, setLogoutBusy] = useState(false);
+  const [undoBusy, setUndoBusy] = useState(false);
+  const [undoError, setUndoError] = useState("");
+  const [undoToastVisible, setUndoToastVisible] = useState(false);
+  const undoToastTimer = useRef<number | null>(null);
+  const undoToastStarted = useRef(0);
+  const undoToastRemaining = useRef(0);
+  const undoToastHovered = useRef(false);
+  const undoToastFocused = useRef(false);
   const account = useAccount();
   const root = useRef<HTMLDivElement>(null);
   const toggle = useRef<HTMLButtonElement>(null);
@@ -44,6 +52,63 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch, onOpenPla
   const close = () => {
     setOpen(false);
     toggle.current?.focus({ preventScroll: true });
+  };
+
+  useEffect(() => {
+    if (undoToastTimer.current !== null) window.clearTimeout(undoToastTimer.current);
+    undoToastTimer.current = null;
+    undoToastHovered.current = false;
+    undoToastFocused.current = false;
+    if (!account.taskUndo) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Undo toast follows the latest in-memory task action.
+      setUndoToastVisible(false);
+      return;
+    }
+    const remaining = Math.max(0, account.taskUndo.createdAt + 8000 - Date.now());
+    if (remaining === 0) {
+      setUndoToastVisible(false);
+      return;
+    }
+    undoToastRemaining.current = remaining;
+    undoToastStarted.current = Date.now();
+    setUndoToastVisible(true);
+    undoToastTimer.current = window.setTimeout(() => {
+      undoToastTimer.current = null;
+      setUndoToastVisible(false);
+    }, remaining);
+    return () => {
+      if (undoToastTimer.current !== null) window.clearTimeout(undoToastTimer.current);
+      undoToastTimer.current = null;
+    };
+  }, [account.taskUndo]);
+
+  const pauseUndoToast = () => {
+    if (undoToastTimer.current === null) return;
+    window.clearTimeout(undoToastTimer.current);
+    undoToastTimer.current = null;
+    undoToastRemaining.current = Math.max(0, undoToastRemaining.current - (Date.now() - undoToastStarted.current));
+  };
+
+  const resumeUndoToast = () => {
+    if (!account.taskUndo || !undoToastVisible || undoToastHovered.current || undoToastFocused.current || undoToastTimer.current !== null || undoToastRemaining.current <= 0) return;
+    undoToastStarted.current = Date.now();
+    undoToastTimer.current = window.setTimeout(() => {
+      undoToastTimer.current = null;
+      setUndoToastVisible(false);
+    }, undoToastRemaining.current);
+  };
+
+  const performUndo = async () => {
+    if (!account.taskUndo || undoBusy) return;
+    setUndoError("");
+    setUndoBusy(true);
+    try {
+      await account.undoTask(account.taskUndo);
+    } catch (cause) {
+      setUndoError(cause instanceof Error ? cause.message : "Không thể hoàn tác lần này.");
+    } finally {
+      setUndoBusy(false);
+    }
   };
 
   const requestLogout = async () => {
@@ -134,6 +199,11 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch, onOpenPla
             onOpenPlans();
           }}>Quản lý kế hoạch</button>
         </div>
+        {account.taskUndo && <section className="widget-task-undo" aria-label="Hoàn tác đổi lịch gần nhất">
+          <p>{account.taskUndo.message}</p>
+          <button type="button" disabled={undoBusy || account.state !== "unlocked"} aria-label="Hoàn tác thao tác đổi lịch gần nhất" onClick={() => void performUndo()}>{undoBusy ? "Đang hoàn tác…" : "Hoàn tác"}</button>
+          {undoError && <p className="account-error" role="alert">{undoError}</p>}
+        </section>}
         <nav aria-label="Chuyển lịch" className="widget-calendars">
           {(["work", "milestones"] as const).map(kind => <Link key={kind} href={`/${kind}`} aria-current={calendar === kind ? "page" : undefined} scroll={false} onClick={event => {
             if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -158,6 +228,16 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch, onOpenPla
         }} /></label>
         <div className="widget-account"><span>Dữ liệu · UTC+07:00</span><Link href="/account">Tài khoản</Link></div>
       </section>
+      {undoToastVisible && account.taskUndo && <div className="calendar-undo-toast" role="status" onMouseEnter={() => { undoToastHovered.current = true; pauseUndoToast(); }} onMouseLeave={() => { undoToastHovered.current = false; resumeUndoToast(); }}
+        onFocusCapture={() => { undoToastFocused.current = true; pauseUndoToast(); }} onBlurCapture={(event) => {
+          if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+          undoToastFocused.current = false;
+          resumeUndoToast();
+        }}>
+        <span>{account.taskUndo.message}</span>
+        <button type="button" disabled={undoBusy || account.state !== "unlocked"} onClick={() => void performUndo()}>{undoBusy ? "Đang hoàn tác…" : "Hoàn tác"}</button>
+      </div>}
+      {undoError && <p className="widget-undo-error" role="alert">{undoError}</p>}
       <div className="widget-bar">
         <button className="widget-quick-add" type="button" disabled={account.state !== "unlocked"} aria-describedby={explanationId} aria-label="Thêm nhanh" onClick={() => onAddTask(view.anchor, null)}>+</button>
         <div className="widget-summary"><strong>{calendar === "work" ? "Lịch công việc" : "Lịch dấu mốc"}</strong><span role="status">{account.error || account.info || (account.state === "unlocked" ? "Dữ liệu cục bộ đã mở khóa." : "Chưa kết nối dữ liệu")}</span></div>

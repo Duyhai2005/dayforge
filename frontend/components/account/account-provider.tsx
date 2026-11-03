@@ -15,10 +15,10 @@ import {
   unlockOwner,
 } from "../../lib/storage/vault";
 import { startSyncCoordinator, type CoordinatorStatus, type SyncCoordinatorHandle } from "../../lib/sync/coordinator";
-import type { UUID } from "../../lib/sync/protocol";
+import type { SyncCommand, UUID } from "../../lib/sync/protocol";
 import { commitLocalMutation, LocalMutationNoOp, type LocalMutationResult } from "../../lib/sync/mutation";
 import { rebuildOwnerProjection } from "../../lib/sync/projection";
-import { semanticRootHash, type MilestoneData, type PlanData, type ProjectionState, type TaskData } from "../../lib/sync/reducer";
+import { bucketOrderHash, semanticRootHash, type MilestoneData, type Period, type PlanData, type ProjectionState, type SingleWorkRoot, type TaskData } from "../../lib/sync/reducer";
 import { useBuildGate } from "../offline/offline-bootstrap";
 
 interface OwnerView {
@@ -49,6 +49,43 @@ interface LocalOwner {
 
 export type AccountState = "loading" | "anonymous" | "locked" | "unlocked" | "offline";
 
+export type TaskUndoAction = {
+  operationId: UUID;
+  taskId: UUID;
+  expectedRootHash: string;
+  expectedStates: Array<{ root: { kind: "work_item"; id: UUID }; hash: string }>;
+  message: string;
+  createdAt: number;
+};
+
+type StoredTaskUndoAction = { ownerId: UUID; action: TaskUndoAction };
+
+function taskContentMatches(left: TaskData, right: TaskData): boolean {
+  return left.title === right.title && left.date === right.date && left.period === right.period &&
+    left.duration_minutes === right.duration_minutes && left.plan_id === right.plan_id &&
+    left.standalone_color_id === right.standalone_color_id && left.status === right.status;
+}
+
+function taskMoveMessage(previous: TaskData, next: TaskData): string {
+  if (previous.date === next.date && previous.period === next.period) return `Đã đổi thứ tự của “${next.title}”.`;
+  const period = next.period === "morning" ? "sáng" : next.period === "afternoon" ? "chiều" : "tối";
+  const weekday = new Intl.DateTimeFormat("vi-VN", { weekday: "long", timeZone: "UTC" })
+    .format(new Date(`${next.date}T00:00:00.000Z`)).toLocaleLowerCase("vi");
+  return `Đã chuyển “${next.title}” sang ${period} ${weekday}.`;
+}
+
+function singleTasksInBucket(projection: ProjectionState, date: string, period: Period): Array<{ id: UUID; data: TaskData; root: SingleWorkRoot }> {
+  return Object.entries(projection.roots)
+    .filter((entry): entry is [string, SingleWorkRoot] => entry[0].startsWith("work_item:") && !entry[1].deleted &&
+      "kind" in entry[1] && entry[1].kind === "single" && entry[1].single.date === date && entry[1].single.period === period)
+    .map(([key, root]) => ({ id: key.slice("work_item:".length) as UUID, data: root.single, root }))
+    .sort((left, right) => {
+      const leftRank = BigInt(left.data.order_key);
+      const rightRank = BigInt(right.data.order_key);
+      return (leftRank < rightRank ? -1 : leftRank > rightRank ? 1 : 0) || left.id.localeCompare(right.id);
+    });
+}
+
 interface AccountContextValue {
   state: AccountState;
   session: SessionView | null;
@@ -59,6 +96,7 @@ interface AccountContextValue {
   calendarProjection: ProjectionState | null;
   calendarReady: boolean;
   calendarError: string | null;
+  taskUndo: TaskUndoAction | null;
   login(email: string, password: string, rememberMe: boolean): Promise<void>;
   register(email: string): Promise<void>;
   requestPasswordReset(email: string): Promise<void>;
@@ -80,6 +118,8 @@ interface AccountContextValue {
   deleteMilestone(id: UUID, expectedRootHash: string): Promise<LocalMutationResult>;
   createTask(id: UUID, data: TaskData): Promise<LocalMutationResult>;
   replaceTask(id: UUID, data: TaskData, expectedRootHash: string): Promise<LocalMutationResult>;
+  repositionTask(id: UUID, data: TaskData, expectedRootHash: string, beforeTaskId: UUID | null): Promise<LocalMutationResult>;
+  undoTask(action: TaskUndoAction): Promise<void>;
 }
 
 const AccountContext = createContext<AccountContextValue | null>(null);
@@ -159,6 +199,7 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
   const [calendarProjection, setCalendarProjection] = useState<ProjectionState | null>(null);
   const [calendarReady, setCalendarReady] = useState(false);
   const [calendarError, setCalendarError] = useState<string | null>(null);
+  const [storedTaskUndo, setStoredTaskUndo] = useState<StoredTaskUndoAction | null>(null);
   const sessionRef = useRef<SessionView | null>(null);
   const databaseRef = useRef<IDBDatabase | null>(null);
   const coordinatorRef = useRef<SyncCoordinatorHandle | null>(null);
@@ -390,6 +431,7 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
       buildId: build.buildId,
       expectedLockEpoch,
     });
+    setStoredTaskUndo(null);
     setOwner({ id: next.owner.id, email: next.owner.email });
     setState("unlocked");
     setInfo("Đã mở kho local. Đồng bộ sẽ chạy khi kết nối được máy chủ.");
@@ -401,6 +443,7 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
     const ownerId = current?.owner?.id ?? owner?.id;
     if (!ownerId) { setState("anonymous"); return; }
     setError(null); setInfo(null);
+    setStoredTaskUndo(null);
     if (db) await lockOwner(db, ownerId, current?.logout_ticket ?? null);
     setState("locked");
     if (current?.logout_ticket) {
@@ -471,6 +514,7 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
       setCalendarProjection(result.projection);
       setCalendarReady(true);
       setCalendarError(null);
+      setStoredTaskUndo(null);
       coordinatorRef.current?.wake();
       setError(null);
       setInfo("Đã lưu kế hoạch trên thiết bị. Trạng thái đồng bộ được hiển thị riêng.");
@@ -534,6 +578,7 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
       setCalendarProjection(result.projection);
       setCalendarReady(true);
       setCalendarError(null);
+      setStoredTaskUndo(null);
       coordinatorRef.current?.wake();
       setError(null);
       setInfo(action === "milestone.delete" ? "Đã gỡ dấu mốc khỏi lịch." : "Đã lưu dấu mốc trên thiết bị. Trạng thái đồng bộ được hiển thị riêng.");
@@ -612,6 +657,7 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
       setCalendarProjection(result.projection);
       setCalendarReady(true);
       setCalendarError(null);
+      setStoredTaskUndo(null);
       coordinatorRef.current?.wake();
       setError(null);
       setInfo("Đã lưu công việc trên thiết bị. Trạng thái đồng bộ được hiển thị riêng.");
@@ -630,6 +676,234 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
     return writeTask(id, "single.replace", data, expectedRootHash);
   }, [calendarProjection, writeTask]);
 
+  const repositionTask = useCallback(async (
+    id: UUID,
+    data: TaskData,
+    expectedRootHash: string,
+    beforeTaskId: UUID | null,
+  ): Promise<LocalMutationResult> => {
+    const db = databaseRef.current;
+    const ownerId = owner?.id;
+    if (!db || !ownerId || state !== "unlocked") throw new Error("Hãy mở khóa kho local trước khi đổi lịch công việc.");
+    const operationId = crypto.randomUUID() as UUID;
+    const rootRef = { kind: "work_item" as const, id };
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const gate = await readBuildGate(db);
+      if (!gate) throw new Error("Trạng thái cập nhật offline chưa sẵn sàng.");
+      const snapshot = await readOwnerSnapshot(db, ownerId, build.buildId);
+      const projection = (await rebuildOwnerProjection({ snapshot })).replay.state;
+      const root = projection.roots[`work_item:${id}`];
+      const actualRootHash = await semanticRootHash(rootRef, root ?? null);
+      if (actualRootHash !== expectedRootHash) throw new Error("Công việc đã thay đổi ở nơi khác. Hãy mở lại rồi thử lần nữa.");
+      if (!root || !("kind" in root) || root.kind !== "single" || root.deleted) {
+        throw new Error("Chỉ có thể kéo thả công việc một lần. Hãy mở biểu mẫu để đổi lịch mục này.");
+      }
+
+      const source = root.single;
+      const sourceBucket = { date: source.date, period: source.period };
+      const destinationBucket = { date: data.date, period: data.period };
+      const sameBucket = source.date === data.date && source.period === data.period;
+      if (beforeTaskId === id) {
+        if (sameBucket) throw new Error("Công việc đã ở đúng vị trí này.");
+        throw new Error("Không thể chèn công việc trước chính nó.");
+      }
+      const peers = singleTasksInBucket(projection, data.date, data.period).filter((entry) => entry.id !== id);
+      const insertionIndex = beforeTaskId === null ? peers.length : peers.findIndex((entry) => entry.id === beforeTaskId);
+      if (insertionIndex < 0) throw new Error("Vị trí nhận đã thay đổi. Hãy thử thao tác lại.");
+      const orderedIds = peers.map((entry) => entry.id);
+      orderedIds.splice(insertionIndex, 0, id);
+      const previousIds = sameBucket
+        ? singleTasksInBucket(projection, source.date, source.period).map((entry) => entry.id)
+        : [];
+      const contentChanged = !taskContentMatches(source, data);
+      const orderChanged = !sameBucket || previousIds.length !== orderedIds.length || previousIds.some((entry, index) => entry !== orderedIds[index]);
+      if (!contentChanged && !orderChanged) throw new Error("Công việc đã ở đúng vị trí này.");
+
+      const sourceHash = await bucketOrderHash(projection, sourceBucket.date, sourceBucket.period);
+      const destinationHash = sameBucket ? sourceHash : await bucketOrderHash(projection, destinationBucket.date, destinationBucket.period);
+      const sourcePrecondition = { date: sourceBucket.date, period: sourceBucket.period, order_hash: sourceHash };
+      const destinationPrecondition = { date: destinationBucket.date, period: destinationBucket.period, order_hash: destinationHash };
+      const commands: SyncCommand[] = [];
+      if (contentChanged) {
+        commands.push({
+          root: rootRef,
+          action: "single.replace",
+          payload: { data: { ...data, order_key: source.order_key } },
+          precondition: { expected_root_hash: expectedRootHash, expected_bucket: destinationPrecondition },
+        });
+      }
+      const int64Min = -(1n << 63n);
+      const int64Max = (1n << 63n) - 1n;
+      const rankById = new Map(peers.map((entry) => [entry.id, BigInt(entry.data.order_key)]));
+      const movedIndex = orderedIds.indexOf(id);
+      let movedRank: bigint | null = null;
+      if (orderedIds.length === 1) movedRank = 0n;
+      else if (movedIndex === 0) {
+        const nextRank = rankById.get(orderedIds[1]);
+        if (nextRank !== undefined && nextRank > int64Min) movedRank = nextRank - 1n;
+      } else if (movedIndex === orderedIds.length - 1) {
+        const previousRank = rankById.get(orderedIds[movedIndex - 1]);
+        if (previousRank !== undefined && previousRank < int64Max) movedRank = previousRank + 1n;
+      } else {
+        const previousRank = rankById.get(orderedIds[movedIndex - 1]);
+        const nextRank = rankById.get(orderedIds[movedIndex + 1]);
+        if (previousRank !== undefined && nextRank !== undefined && nextRank - previousRank > 1n) {
+          movedRank = previousRank + (nextRank - previousRank) / 2n;
+        }
+      }
+      const rankAssignments = new Map<UUID, bigint>();
+      if (movedRank !== null) rankAssignments.set(id, movedRank);
+      else {
+        let start = Math.max(0, movedIndex - 1);
+        let end = Math.min(orderedIds.length - 1, movedIndex + 1);
+        while (true) {
+          const lowerRank = start === 0 ? int64Min : rankById.get(orderedIds[start - 1]);
+          const upperRank = end === orderedIds.length - 1 ? int64Max : rankById.get(orderedIds[end + 1]);
+          if (lowerRank === undefined || upperRank === undefined) throw new Error("Không thể xác định khoảng thứ tự an toàn.");
+          const count = BigInt(end - start + 1);
+          const available = upperRank - lowerRank;
+          if (available > count) {
+            const step = available / (count + 1n);
+            for (let index = start; index <= end; index += 1) {
+              rankAssignments.set(orderedIds[index], lowerRank + step * BigInt(index - start + 1));
+            }
+            break;
+          }
+          if (start === 0 && end === orderedIds.length - 1) throw new Error("Không còn khoảng thứ tự an toàn cho công việc này.");
+          if (start > 0) start -= 1;
+          if (end < orderedIds.length - 1) end += 1;
+        }
+      }
+      for (const [taskId, rank] of rankAssignments) {
+        const isMovedTask = taskId === id;
+        const peer = isMovedTask ? null : peers.find((entry) => entry.id === taskId);
+        if (!isMovedTask && !peer) throw new Error("Không tìm thấy công việc gần vị trí nhận.");
+        const targetRoot = isMovedTask ? rootRef : { kind: "work_item" as const, id: taskId };
+        const targetHash = isMovedTask ? expectedRootHash : await semanticRootHash(targetRoot, peer!.root);
+        commands.push({
+          root: targetRoot,
+          action: "set_order",
+          payload: { target: { kind: "single" }, order_key: rank.toString(), intent: isMovedTask ? "user_reorder" : "rank_maintenance" },
+          precondition: { expected_root_hash: targetHash, expected_bucket: isMovedTask ? sourcePrecondition : destinationPrecondition },
+        });
+      }
+
+      let result: LocalMutationResult;
+      try {
+        result = await commitLocalMutation({
+          database: db,
+          snapshot,
+          gate,
+          expectedBuild: build.buildId,
+          requireApplied: true,
+          draft: { operationId, commands },
+        });
+      } catch (cause) {
+        if (cause instanceof LocalMutationNoOp) {
+          if (cause.reason === "precondition_failed") throw new Error("Danh sách công việc đã đổi ở tab khác. Hãy thử kéo lại.");
+          if (cause.reason === "target_retired") throw new Error("Công việc không còn khả dụng. Hãy tải lại lịch rồi thử tiếp.");
+        }
+        throw cause;
+      }
+      if (!result.result.committed) {
+        if (result.result.reason === "stale_snapshot") continue;
+        throw new Error("Không thể đổi lịch khi kho local hoặc bản cập nhật đang đổi.");
+      }
+      if (owner?.id !== ownerId || databaseRef.current !== db) throw new Error("Kho local đã khóa trong lúc đổi lịch công việc.");
+      setStoredTaskUndo(null);
+      setCalendarProjection(result.projection);
+      setCalendarReady(true);
+      setCalendarError(null);
+      const expectedAfterHash = await semanticRootHash(rootRef, result.projection.roots[`work_item:${id}`] ?? null);
+      const expectedStates: TaskUndoAction["expectedStates"] = [];
+      const seenRoots = new Set<UUID>();
+      for (const command of commands) {
+        const commandId = command.root.id;
+        if (seenRoots.has(commandId)) continue;
+        seenRoots.add(commandId);
+        const commandRoot = { kind: "work_item" as const, id: commandId };
+        const beforeHash = await semanticRootHash(commandRoot, projection.roots[`work_item:${commandId}`] ?? null);
+        const afterHash = await semanticRootHash(commandRoot, result.projection.roots[`work_item:${commandId}`] ?? null);
+        if (beforeHash !== afterHash) expectedStates.push({ root: commandRoot, hash: afterHash });
+      }
+      setStoredTaskUndo({ ownerId, action: {
+        operationId: result.operation.operation_id,
+        taskId: id,
+        expectedRootHash: expectedAfterHash,
+        expectedStates,
+        message: taskMoveMessage(source, data),
+        createdAt: Date.now(),
+      } });
+      coordinatorRef.current?.wake();
+      setError(null);
+      setInfo("Đã lưu vị trí công việc trên thiết bị. Trạng thái đồng bộ được hiển thị riêng.");
+      return result;
+    }
+    throw new Error("Dữ liệu lịch liên tục thay đổi ở tab khác. Hãy thử lại.");
+  }, [build.buildId, owner?.id, state]);
+
+  const undoTask = useCallback(async (action: TaskUndoAction): Promise<void> => {
+    const db = databaseRef.current;
+    const ownerId = owner?.id;
+    if (!db || !ownerId || state !== "unlocked") throw new Error("Hãy mở khóa kho local trước khi hoàn tác.");
+    const root = { kind: "work_item" as const, id: action.taskId };
+    const operationId = crypto.randomUUID() as UUID;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const gate = await readBuildGate(db);
+      if (!gate) throw new Error("Trạng thái cập nhật offline chưa sẵn sàng.");
+      const snapshot = await readOwnerSnapshot(db, ownerId, build.buildId);
+      const projection = (await rebuildOwnerProjection({ snapshot })).replay.state;
+      const currentHash = await semanticRootHash(root, projection.roots[`work_item:${action.taskId}`] ?? null);
+      if (currentHash !== action.expectedRootHash) {
+        setStoredTaskUndo((current) => current?.action.operationId === action.operationId ? null : current);
+        throw new Error("Công việc đã thay đổi nên thao tác này không còn an toàn để hoàn tác.");
+      }
+      let result: LocalMutationResult;
+      try {
+        result = await commitLocalMutation({
+          database: db,
+          snapshot,
+          gate,
+          expectedBuild: build.buildId,
+          requireApplied: true,
+          draft: {
+            operationId,
+            dependencies: [action.operationId],
+            commands: [{
+              root,
+              action: "undo",
+              payload: {
+                original_operation_id: action.operationId,
+                expected_states: action.expectedStates,
+              },
+              precondition: null,
+            }],
+          },
+        });
+      } catch (cause) {
+        if (cause instanceof LocalMutationNoOp && cause.reason === "undo_not_applicable") {
+          setStoredTaskUndo((current) => current?.action.operationId === action.operationId ? null : current);
+          throw new Error("Công việc đã đổi ở nơi khác nên không thể hoàn tác lần này.");
+        }
+        throw cause;
+      }
+      if (!result.result.committed) {
+        if (result.result.reason === "stale_snapshot") continue;
+        throw new Error("Không thể hoàn tác khi kho local hoặc bản cập nhật đang đổi.");
+      }
+      if (owner?.id !== ownerId || databaseRef.current !== db) throw new Error("Kho local đã khóa trong lúc hoàn tác.");
+      setCalendarProjection(result.projection);
+      setCalendarReady(true);
+      setCalendarError(null);
+      setStoredTaskUndo((current) => current?.action.operationId === action.operationId ? null : current);
+      coordinatorRef.current?.wake();
+      setError(null);
+      setInfo("Đã hoàn tác thay đổi trên thiết bị. Trạng thái đồng bộ được hiển thị riêng.");
+      return;
+    }
+    throw new Error("Dữ liệu lịch liên tục thay đổi ở tab khác. Hãy thử hoàn tác lại.");
+  }, [build.buildId, owner?.id, state]);
+
   const clearNotice = useCallback(() => { setError(null); setInfo(null); }, []);
   const wakeSync = useCallback(() => {
     if (!coordinatorRef.current) return false;
@@ -646,11 +920,12 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
     () => coordinatorRef.current?.status() ?? syncStatus,
     [syncStatus],
   );
+  const taskUndo = storedTaskUndo && storedTaskUndo.ownerId === owner?.id ? storedTaskUndo.action : null;
   const value = useMemo<AccountContextValue>(() => ({
     state, session, owner, syncStatus, error, info, login, register, requestPasswordReset,
-    calendarProjection, calendarReady, calendarError, refreshCalendar, createPlan, replacePlan, createMilestone, replaceMilestone, deleteMilestone, createTask, replaceTask,
+    calendarProjection, calendarReady, calendarError, taskUndo, refreshCalendar, createPlan, replacePlan, createMilestone, replaceMilestone, deleteMilestone, createTask, replaceTask, repositionTask, undoTask,
     confirmEmail, resetPassword, logout, repairClockIssues, inspectPendingChanges, wakeSync, stopSync, coordinatorStatus, refreshSession, clearNotice,
-  }), [calendarError, calendarProjection, calendarReady, clearNotice, confirmEmail, coordinatorStatus, createMilestone, createPlan, createTask, deleteMilestone, error, info, inspectPendingChanges, login, logout, owner, refreshCalendar, refreshSession, register, repairClockIssues, replaceMilestone, replacePlan, replaceTask, requestPasswordReset, resetPassword, session, state, stopSync, syncStatus, wakeSync]);
+  }), [calendarError, calendarProjection, calendarReady, clearNotice, confirmEmail, coordinatorStatus, createMilestone, createPlan, createTask, deleteMilestone, error, info, inspectPendingChanges, login, logout, owner, refreshCalendar, refreshSession, register, repairClockIssues, replaceMilestone, replacePlan, replaceTask, repositionTask, requestPasswordReset, resetPassword, session, state, stopSync, syncStatus, taskUndo, undoTask, wakeSync]);
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;
 }
