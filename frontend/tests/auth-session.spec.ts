@@ -653,7 +653,7 @@ test("milestoneCalendarShowsHiddenMarkersAndOpensTheFullDayAndRelatedWorkWeek", 
   await page.getByRole("button", { name: "Mở tuần công việc", exact: true }).click();
   await expect(page).toHaveURL(/\/work\?date=2026-11-03$/);
   await expect(page.locator(".work-milestone-card")).toHaveCount(3);
-  await expect(page.locator(".work-milestone-card")).not.toContainText("Thi giữa kỳ");
+  await expect(page.locator(".work-milestone-card").filter({ hasText: "Thi giữa kỳ" })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Mở hoặc đóng điều hướng lịch" }).click();
   await page.getByRole("link", { name: "Lịch dấu mốc", exact: true }).click();
