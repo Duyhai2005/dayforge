@@ -12,7 +12,7 @@ Ngày cập nhật: **02/11/2026** · Branch/worktree: `codex/t10-sync-api`.
 | Owner isolation, epoch/cursor, dependency, idempotency, fixed watermark H, page cap/progress | Đạt MySQL integration tests. |
 | Event, receipt, change-log và head rollback nguyên tử; race duplicate và cursor liên tục | Đạt MySQL integration tests. |
 | Migration `0004_sync` và schema FK/index | Đạt MySQL integration và Alembic offline SQL. |
-| Ý nghĩa `effect_at_commit` | T03 contract 1.1 quy định `not_evaluated` khi chưa tích hợp reducer; không tuyên bố tác dụng nghiệp vụ giả. T12 sẽ ghi outcome thật khi reducer có mặt. |
+| Ý nghĩa `effect_at_commit` | Tại thời điểm T10, receipt dùng `not_evaluated` vì chưa tích hợp reducer. T12 hiện ghi outcome thật trong transaction tạo receipt; contract vẫn cho phép `not_evaluated` ở server chưa có reducer. |
 
 ## Lệnh và kết quả
 
@@ -68,4 +68,4 @@ Review không tìm thấy Critical hoặc Minor khác. Reviewer không chạy My
 
 ## T12 handoff — reducer và receipt effect
 
-T10 giữ immutable envelope, receipt, change log và tombstone; chưa xây projection lịch hay canonical LWW reducer. T12 cần tính trạng thái effect thật (`applied`, `superseded`, `no_op` cùng reason) và đưa kết quả đó vào receipt khi commit. T10 trả `not_evaluated` cho đến khi reducer có mặt; client không được xem receipt này là kết quả nghiệp vụ. Chạy lại receipt, retry/idempotency và MySQL acceptance sau khi tích hợp reducer.
+Tại thời điểm bàn giao T10, service chưa có reducer nên receipt trả `not_evaluated`; client không được xem giá trị này là kết quả nghiệp vụ. T12 hiện tích hợp reducer vào sync service và ghi `applied`, `superseded` hoặc `no_op` trong receipt gốc. MySQL acceptance cần chạy lại sau khi hòa giải rebase; xem trạng thái T12.

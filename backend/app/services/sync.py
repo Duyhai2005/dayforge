@@ -20,6 +20,7 @@ from app.core.values import format_utc_timestamp
 from app.models.owner import User
 from app.models.sync import ChangeLog, OperationReceipt, OwnerSyncState, RecordedOperation
 from app.schemas.sync import SyncPage, SyncPageGroup
+from app.services.reducer import ReducerValidationError, effect_at_commit
 from app.services.sync_clock import SERVER_CLOCK_MONITOR, validate_operation_time
 from app.services.sync_tokens import PageToken, create_page_token
 from app.services.sync_wire import ValidatedOperation
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
     from app.core.database import Database
 
 _SYNC_WRITE_FAILPOINT: Callable[[str], None] | None = None
+MAX_SYNC_CURSOR = (1 << 64) - 1
 
 
 def _sync_write_failpoint(stage: str) -> None:
@@ -365,6 +367,28 @@ async def record_operation(
                 if clock_error is not None:
                     raise SyncOperationError(clock_error, 422)
 
+                if state.head_cursor >= MAX_SYNC_CURSOR:
+                    raise ProblemHTTPException(status_code=503, code="service_unavailable")
+
+                existing_operations = (
+                    await session.scalars(
+                        select(RecordedOperation)
+                        .where(
+                            RecordedOperation.owner_id == owner_id,
+                            RecordedOperation.epoch == state.epoch,
+                        )
+                        .order_by(RecordedOperation.commit_cursor)
+                    )
+                ).all()
+                try:
+                    effect, reason = effect_at_commit(
+                        [json.loads(bytes(row.envelope)) for row in existing_operations],
+                        operation.envelope,
+                        str(owner_id),
+                    )
+                except ReducerValidationError:
+                    raise SyncOperationError("validation_failed", 422) from None
+
                 cursor = state.head_cursor + 1
                 event = RecordedOperation(
                     owner_id=owner_id,
@@ -392,8 +416,8 @@ async def record_operation(
                     request_hash=operation.request_hash,
                     recorded=True,
                     commit_cursor=cursor,
-                    effect_at_commit="not_evaluated",
-                    reason_at_commit=None,
+                    effect_at_commit=effect,
+                    reason_at_commit=reason,
                 )
                 session.add(receipt)
                 session.add(
@@ -416,8 +440,8 @@ async def record_operation(
                         operation_id=operation.operation_id,
                         request_hash=operation.request_hash,
                         commit_cursor=cursor,
-                        effect_at_commit="not_evaluated",
-                        reason_at_commit=None,
+                        effect_at_commit=effect,
+                        reason_at_commit=reason,
                     ),
                 )
     except SyncOperationError:

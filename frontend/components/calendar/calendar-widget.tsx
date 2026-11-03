@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { createPortal } from "react-dom";
 import { useEffect, useId, useRef, useState } from "react";
-import { useAuthSession } from "../../lib/auth/session-provider";
+import { useAccount } from "../account/account-provider";
 import { MAX_CALENDAR_DATE, MIN_CALENDAR_DATE, moveAnchor, parseViewState, todayInUtc7, type CalendarKind, type MilestoneScale, type ViewState } from "../../lib/calendar/view-state";
 
 export type CalendarWidgetProps = {
@@ -30,7 +30,7 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch }: Calenda
   const [logoutChanges, setLogoutChanges] = useState<{ pendingOperations: number; drafts: number } | null>(null);
   const [logoutError, setLogoutError] = useState("");
   const [logoutBusy, setLogoutBusy] = useState(false);
-  const auth = useAuthSession();
+  const account = useAccount();
   const root = useRef<HTMLDivElement>(null);
   const toggle = useRef<HTMLButtonElement>(null);
   const panelId = useId();
@@ -45,7 +45,7 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch }: Calenda
   const requestLogout = async () => {
     setLogoutError("");
     try {
-      const changes = await auth.inspectPendingChanges();
+      const changes = await account.inspectPendingChanges();
       if (changes.pendingOperations > 0 || changes.drafts > 0) {
         setLogoutChanges(changes);
         return;
@@ -60,7 +60,7 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch }: Calenda
     setLogoutBusy(true);
     setLogoutError("");
     try {
-      await auth.logout();
+      await account.logout();
       setLogoutChanges(null);
     } catch {
       setLogoutError("Không thể khóa dữ liệu cục bộ. Hãy thử lại trước khi đăng xuất.");
@@ -144,10 +144,10 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch }: Calenda
       </section>
       <div className="widget-bar">
         <button className="widget-quick-add" type="button" disabled aria-describedby={explanationId} aria-label="Thêm nhanh">+</button>
-        <div className="widget-summary"><strong>{calendar === "work" ? "Lịch công việc" : "Lịch dấu mốc"}</strong><span role="status">{auth.notice || (auth.ownerUnlocked ? "Dữ liệu cục bộ đã mở khóa." : "Chưa kết nối dữ liệu")}</span></div>
-        {(auth.session?.authenticated && auth.session.owner) || auth.ownerUnlocked ? <div className="widget-auth-control">
-          {auth.session?.authenticated && auth.session.owner && <span className="widget-auth-email">{auth.session.owner.email}</span>}
-          <button type="button" onClick={() => void requestLogout()}>{auth.session?.authenticated ? "Đăng xuất" : "Khóa dữ liệu"}</button>
+        <div className="widget-summary"><strong>{calendar === "work" ? "Lịch công việc" : "Lịch dấu mốc"}</strong><span role="status">{account.error || account.info || (account.state === "unlocked" ? "Dữ liệu cục bộ đã mở khóa." : "Chưa kết nối dữ liệu")}</span></div>
+        {(account.session?.authenticated && account.session.owner) || account.state === "unlocked" ? <div className="widget-auth-control">
+          {account.session?.authenticated && account.session.owner && <span className="widget-auth-email">{account.session.owner.email}</span>}
+          <button type="button" onClick={() => void requestLogout()}>{account.session?.authenticated ? "Đăng xuất" : "Khóa dữ liệu"}</button>
         </div> : null}
         <button ref={toggle} className="widget-toggle" type="button" aria-label="Mở hoặc đóng điều hướng lịch" aria-expanded={open} aria-controls={panelId} onClick={() => { if (open) close(); else setOpen(true); }}><span aria-hidden="true">{open ? "⌄" : "⌃"}</span></button>
       </div>

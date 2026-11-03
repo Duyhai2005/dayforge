@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { AuthSessionProvider } from "../../lib/auth/session-provider";
 
 export const metadata: Metadata = {
   title: { default: "Lịch | DAYFORGE", template: "%s | DAYFORGE" },
@@ -11,10 +10,8 @@ export default function CalendarLayout({
   children,
 }: Readonly<{ children: ReactNode }>): React.JSX.Element {
   return (
-    <AuthSessionProvider>
-      <main id="calendar-main" className="calendar-main" aria-labelledby="calendar-title" tabIndex={-1}>
-        <div className="calendar-content">{children}</div>
-      </main>
-    </AuthSessionProvider>
+    <main id="calendar-main" className="calendar-main" aria-labelledby="calendar-title" tabIndex={-1}>
+      <div className="calendar-content">{children}</div>
+    </main>
   );
 }

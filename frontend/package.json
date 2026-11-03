@@ -5,12 +5,13 @@
   "scripts": {
     "predev": "node ../scripts/check-local-api-origin.cjs",
     "dev": "next dev --hostname localhost --port 3000 --experimental-https --experimental-https-key ../.local/tls/localhost-key.pem --experimental-https-cert ../.local/tls/localhost.pem",
-    "build": "next build",
+    "build": "node ../scripts/build-frontend.cjs",
     "start": "next start --hostname 127.0.0.1 --port 3001",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
-    "test:e2e:prod": "cross-env PLAYWRIGHT_BASE_URL=http://127.0.0.1:3001 playwright test --config=playwright.production.config.ts"
+    "test:e2e:prod": "cross-env PLAYWRIGHT_BASE_URL=http://127.0.0.1:3001 playwright test --config=playwright.production.config.ts",
+    "test:e2e:offline": "playwright test --config=playwright.offline.config.ts"
   },
   "dependencies": {
     "next": "16.4.3",
