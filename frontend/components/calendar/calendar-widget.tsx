@@ -4,6 +4,7 @@ import Link from "next/link";
 import { createPortal } from "react-dom";
 import { useEffect, useId, useRef, useState } from "react";
 import { useAccount } from "../account/account-provider";
+import { syncStatusLabel } from "../../lib/sync/status-view";
 import { MAX_CALENDAR_DATE, MIN_CALENDAR_DATE, moveAnchor, parseViewState, todayInUtc7, type CalendarKind, type MilestoneScale, type ViewState } from "../../lib/calendar/view-state";
 import type { Period } from "../../lib/sync/reducer";
 
@@ -240,7 +241,7 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch, onOpenPla
       {undoError && <p className="widget-undo-error" role="alert">{undoError}</p>}
       <div className="widget-bar">
         <button className="widget-quick-add" type="button" disabled={account.state !== "unlocked"} aria-describedby={explanationId} aria-label="Thêm nhanh" onClick={() => onAddTask(view.anchor, null)}>+</button>
-        <div className="widget-summary"><strong>{calendar === "work" ? "Lịch công việc" : "Lịch dấu mốc"}</strong><span role="status">{account.error || account.info || (account.state === "unlocked" ? "Dữ liệu cục bộ đã mở khóa." : "Chưa kết nối dữ liệu")}</span></div>
+        <div className="widget-summary"><strong>{calendar === "work" ? "Lịch công việc" : "Lịch dấu mốc"}</strong><span role="status">{account.error || account.info || (account.state === "unlocked" ? syncStatusLabel(account.syncStatus) : "Chưa kết nối dữ liệu")}</span></div>
         {(account.session?.authenticated && account.session.owner) || account.state === "unlocked" ? <div className="widget-auth-control">
           {account.session?.authenticated && account.session.owner && <span className="widget-auth-email">{account.session.owner.email}</span>}
           <button type="button" onClick={() => void requestLogout()}>{account.session?.authenticated ? "Đăng xuất" : "Khóa dữ liệu"}</button>

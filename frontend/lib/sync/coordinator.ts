@@ -27,11 +27,13 @@ import { classifySyncFailure, nextRetryDecision, retryDelay } from "./retry";
 import { commitClockReauthorBatch, prepareClockReauthorBatch } from "./clock-recovery";
 import { persistEpochRecoveryJournal, publishEpochRecoveryStage } from "./recovery";
 import { calibrateOwnerClock, ownerNeedsClockCalibration, sampleOwnerClock } from "./calibration";
+import { countPendingOperations } from "./status-view";
 
 export type CoordinatorStatus =
   | { state: "stopped" }
   | { state: "waiting_for_leader" }
   | { state: "syncing"; pending: number }
+  | { state: "synced" }
   | { state: "offline"; pending: number; retry_at_ms: number }
   | { state: "auth_paused"; pending: number }
   | { state: "blocked"; pending: number; code: string }
@@ -71,16 +73,15 @@ class EpochRecoveryRequired extends Error {
   constructor() { super("The server sync epoch changed; local recovery is required"); this.name = "EpochRecoveryRequired"; }
 }
 
-function pendingCount(snapshot: OwnerSnapshot, entries: Awaited<ReturnType<typeof readActiveOutbox>>): number {
-  void snapshot;
-  return entries.filter((entry) => entry.state !== "ack_waiting_pull").length;
+function pendingCount(entries: Awaited<ReturnType<typeof readActiveOutbox>>): number {
+  return countPendingOperations(entries);
 }
 
 async function readPendingCount(input: { database: IDBDatabase; ownerId: UUID; buildId: string }): Promise<number> {
   try {
     const snapshot = await freshSnapshot(input);
     if (!snapshot.auth.locked && snapshot.auth.crypto_key) {
-      return pendingCount(snapshot, await readActiveOutbox(snapshot));
+      return pendingCount(await readActiveOutbox(snapshot));
     }
     return snapshot.outbox.filter((row) => !row.superseded_by && row.state !== "ack_waiting_pull").length;
   } catch {
@@ -594,7 +595,7 @@ export function startSyncCoordinator(input: {
         }
       }
       const entries = await readActiveOutbox(snapshot);
-      setStatus({ state: "syncing", pending: pendingCount(snapshot, entries) });
+      setStatus({ state: "syncing", pending: pendingCount(entries) });
       if (snapshot.metadata.server_epoch === null) {
         await bootstrapOwner({
           database: input.database,
@@ -616,19 +617,19 @@ export function startSyncCoordinator(input: {
         onRetry: (delayMs) => {
           const retryAtMs = Date.now() + delayMs;
           scheduleRetry(active, delayMs);
-          setStatus({ state: "offline", pending: pendingCount(snapshot, entries), retry_at_ms: retryAtMs });
+          setStatus({ state: "offline", pending: pendingCount(entries), retry_at_ms: retryAtMs });
           void readPendingCount(input).then((pending) => {
             if (!active.stopped) setStatus({ state: "offline", pending, retry_at_ms: retryAtMs });
           });
         },
         onAuthPause: () => {
-          setStatus({ state: "auth_paused", pending: pendingCount(snapshot, entries) });
+          setStatus({ state: "auth_paused", pending: pendingCount(entries) });
           void readPendingCount(input).then((pending) => setStatus({ state: "auth_paused", pending }));
         },
         onBlocked: (code, integrity) => {
           setStatus({
             state: integrity ? "integrity_error" : "blocked",
-            pending: pendingCount(snapshot, entries),
+            pending: pendingCount(entries),
             code,
           });
           void readPendingCount(input).then((pending) => setStatus({
@@ -655,11 +656,13 @@ export function startSyncCoordinator(input: {
       if (attention) {
         setStatus({
           state: "blocked",
-          pending: pendingCount(snapshot, remaining),
+          pending: pendingCount(remaining),
           code: attention.problem_code ?? "operation_blocked",
         });
       } else {
-        setStatus({ state: "syncing", pending: pendingCount(snapshot, remaining) });
+        setStatus(remaining.length === 0
+          ? { state: "synced" }
+          : { state: "syncing", pending: pendingCount(remaining) });
       }
     } catch (error) {
       if (isAbort(error) || active.abort.signal.aborted) return;
@@ -668,7 +671,7 @@ export function startSyncCoordinator(input: {
           const current = await freshSnapshot({ database: input.database, ownerId: input.ownerId, buildId: input.buildId });
           if (current.metadata.server_epoch === null) throw new Error("Epoch recovery requires a previously established server epoch");
           const currentEntries = await readActiveOutbox(current);
-          setStatus({ state: "syncing", pending: pendingCount(current, currentEntries) });
+          setStatus({ state: "syncing", pending: pendingCount(currentEntries) });
           await recoverOwnerEpoch({
             database: input.database,
             ownerId: input.ownerId,

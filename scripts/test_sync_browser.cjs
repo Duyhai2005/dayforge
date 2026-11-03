@@ -369,7 +369,8 @@ async function runBrowserScenario(baseURL) {
           window.__dayforgeSyncBrowserHarness.inspect(),
           window.__dayforgeSyncBrowserHarness.coordinatorDetails(),
         ]);
-        return state.clockCalibration?.calibrationId !== previousCalibrationId && coordinator.state === "syncing";
+        return state.clockCalibration?.calibrationId !== previousCalibrationId &&
+          (coordinator.state === "syncing" || coordinator.state === "synced");
       }, before.clockCalibration.calibrationId), `${label} to refresh its clock calibration`, 45_000);
     };
     await contextA.route("**/api/v1/sync/push", async (route) => {
@@ -1111,7 +1112,7 @@ async function runBrowserScenario(baseURL) {
         leaderPage.evaluate(() => window.__dayforgeSyncBrowserHarness.coordinatorState()),
         leaderPage.evaluate(() => window.__dayforgeSyncBrowserHarness.leaseState()),
       ]);
-      return state === "syncing" && lease?.fencing_token === leaseBeforeFailover.fencing_token &&
+      return (state === "syncing" || state === "synced") && lease?.fencing_token === leaseBeforeFailover.fencing_token &&
         lease.expires_at_ms > Date.now();
     }, "the promoted tab to hold its renewed leader lease before the stale-response test");
     await refreshLeaderClock(leaderPage, "the promoted tab before the stale-response test");

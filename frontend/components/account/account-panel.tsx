@@ -1,23 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { formatAccountError, useAccount } from "./account-provider";
+import { useEffect, useState } from "react";
+import { AccountRequestError, formatAccountError, useAccount } from "./account-provider";
 import { useHydrated } from "../../lib/use-hydrated";
+import { syncStatusLabel } from "../../lib/sync/status-view";
 
 type AccountForm = "login" | "register" | "forgot";
-
-function syncLabel(value: ReturnType<typeof useAccount>["syncStatus"]): string {
-  switch (value.state) {
-    case "syncing": return value.pending ? `Đang đồng bộ · ${value.pending} mục đang chờ` : "Đang kiểm tra đồng bộ";
-    case "offline": return `${value.pending} mục đang chờ kết nối lại`;
-    case "auth_paused": return `${value.pending} mục đang chờ đăng nhập`;
-    case "blocked": return `${value.pending} mục cần xử lý · ${value.code}`;
-    case "integrity_error": return `Lỗi toàn vẹn · ${value.code}`;
-    case "error": return value.message;
-    case "waiting_for_leader": return "Đang chờ tab điều phối đồng bộ";
-    case "stopped": return "Đồng bộ đang tạm dừng";
-  }
-}
 
 export function AccountPanel(): React.JSX.Element {
   const account = useAccount();
@@ -28,11 +16,31 @@ export function AccountPanel(): React.JSX.Element {
   const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [emailCooldownUntil, setEmailCooldownUntil] = useState<number | null>(null);
+  const [clockNow, setClockNow] = useState(() => Date.now());
+  const emailCooldownSeconds = emailCooldownUntil === null ? 0 : Math.max(0, Math.ceil((emailCooldownUntil - clockNow) / 1000));
 
-  const run = async (work: () => Promise<void>) => {
+  useEffect(() => {
+    if (emailCooldownSeconds <= 0) return;
+    const timer = window.setInterval(() => setClockNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [emailCooldownSeconds]);
+
+  const startEmailCooldown = (seconds: number) => {
+    setClockNow(Date.now());
+    setEmailCooldownUntil(Date.now() + seconds * 1000);
+  };
+
+  const run = async (work: () => Promise<void | number>) => {
     setBusy(true); setFormError(null); account.clearNotice();
-    try { await work(); }
-    catch (cause) { setFormError(`${formatAccountError(cause)} Dữ liệu local vẫn được giữ.`); }
+    try {
+      const result = await work();
+      if (typeof result === "number" && result > 0) startEmailCooldown(result);
+    }
+    catch (cause) {
+      setFormError(`${formatAccountError(cause)} Dữ liệu local vẫn được giữ.`);
+      if (cause instanceof AccountRequestError && cause.retryAfterSeconds) startEmailCooldown(cause.retryAfterSeconds);
+    }
     finally { setBusy(false); }
   };
 
@@ -51,7 +59,7 @@ export function AccountPanel(): React.JSX.Element {
         <div className="account-status" role="status">
           <strong>{account.owner.email ?? "Dữ liệu local trên thiết bị này"}</strong>
           <p>{isUnlocked ? "Kho local đang mở." : account.state === "locked" ? "Kho local đang khóa; hãy xác thực lại để mở." : "Kho local chưa được mở trên thiết bị này."}</p>
-          {account.session?.authenticated && isUnlocked && <p>{syncLabel(account.syncStatus)}</p>}
+          {account.session?.authenticated && isUnlocked && <p>{syncStatusLabel(account.syncStatus)}</p>}
           {account.session?.authenticated && isUnlocked && clockRecoveryAvailable && <>
             <p>Đồng hồ thiết bị đã được hiệu chỉnh. Bạn có thể lưu lại các thay đổi chưa được máy chủ ghi nhận bằng một nhánh thời gian mới.</p>
             <button type="button" className="account-secondary-button" disabled={busy} onClick={() => void run(account.repairClockIssues)}>
@@ -86,8 +94,8 @@ export function AccountPanel(): React.JSX.Element {
               <input id="account-password" name="password" type="password" autoComplete="current-password" required disabled={!canInteract} value={password} onChange={(event) => setPassword(event.target.value)} />
               <label className="account-checkbox" htmlFor="remember-me"><input id="remember-me" type="checkbox" disabled={!canInteract} checked={remember} onChange={(event) => setRemember(event.target.checked)} /> Ghi nhớ phiên trên thiết bị này</label>
             </>}
-            <button className="account-submit" type="submit" disabled={!canInteract || busy}>
-              {busy ? "Đang xử lý…" : form === "login" ? "Đăng nhập và mở kho local" : form === "register" ? "Gửi liên kết xác minh" : "Gửi hướng dẫn đặt lại"}
+            <button className="account-submit" type="submit" disabled={!canInteract || busy || (form !== "login" && emailCooldownSeconds > 0)}>
+              {busy ? "Đang xử lý…" : form !== "login" && emailCooldownSeconds > 0 ? `Thử lại sau ${emailCooldownSeconds} giây` : form === "login" ? "Đăng nhập và mở kho local" : form === "register" ? "Gửi liên kết xác minh" : "Gửi hướng dẫn đặt lại"}
             </button>
           </form>
 
