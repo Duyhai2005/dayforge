@@ -37,6 +37,12 @@ test("widgetTabOrderIncludesExpandedPanel", async ({ page }) => {
   const currentCalendar = panel.getByRole("link", { name: "Lịch công việc", exact: true });
   const otherCalendar = panel.getByRole("link", { name: "Lịch dấu mốc", exact: true });
 
+  // Complete one real state change first so the keyboard assertions run after production hydration.
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+
   await toggle.focus();
   await page.keyboard.press("Enter");
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
