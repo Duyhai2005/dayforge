@@ -74,6 +74,7 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
   const [fields, setFields] = useState<TaskFields>(firstFields);
   const [initial] = useState<TaskFields>(firstFields);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [planManagerOpen, setPlanManagerOpen] = useState(false);
   const [validationError, setValidationError] = useState<TaskValidationError | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -132,12 +133,15 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
-        if (confirmDiscard) setConfirmDiscard(false);
+        if (confirmDelete) setConfirmDelete(false);
+        else if (confirmDiscard) setConfirmDiscard(false);
         else requestClose();
         return;
       }
       if (event.key !== "Tab" || !dialog.current) return;
-      const activeDialog = confirmDiscard
+      const activeDialog = confirmDelete
+        ? dialog.current.querySelector<HTMLElement>(".task-delete-dialog")
+        : confirmDiscard
         ? dialog.current.querySelector<HTMLElement>(".task-discard-dialog")
         : dialog.current;
       if (!activeDialog) return;
@@ -157,7 +161,7 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
     };
     document.addEventListener("keydown", trap, true);
     return () => document.removeEventListener("keydown", trap, true);
-  }, [confirmDiscard, open, planManagerOpen, requestClose]);
+  }, [confirmDelete, confirmDiscard, open, planManagerOpen, requestClose]);
 
   if (!open || typeof document === "undefined") return null;
 
@@ -222,6 +226,21 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
       onClose();
     } catch (cause) {
       setSaveError(cause instanceof Error ? cause.message : "Không thể lưu công việc trên thiết bị.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteTask(): Promise<void> {
+    if (!editing) return;
+    setBusy(true);
+    setSaveError(null);
+    try {
+      await account.deleteTask(editing.id, editing.data.title, editing.expectedRootHash);
+      setConfirmDelete(false);
+      onClose();
+    } catch (cause) {
+      setSaveError(cause instanceof Error ? cause.message : "Không thể xóa công việc khỏi lịch.");
     } finally {
       setBusy(false);
     }
@@ -305,6 +324,7 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
             </div>}
             {saveError && <p className="account-error" role="alert">{saveError}</p>}
             <div className="plan-form-actions">
+              {editing && <button type="button" className="task-delete-button" disabled={busy || account.state !== "unlocked" || !account.calendarReady} onClick={() => setConfirmDelete(true)}>Xóa công việc</button>}
               <button type="button" disabled={busy} onClick={() => {
                 if (dirty) setConfirmDiscard(true);
                 else onClose();
@@ -322,6 +342,19 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
               <div className="plan-form-actions">
                 <button type="button" autoFocus onClick={() => setConfirmDiscard(false)}>Tiếp tục sửa</button>
                 <button type="button" onClick={onClose}>Bỏ thay đổi</button>
+              </div>
+            </section>
+          </div>}
+          {confirmDelete && editing && <div className="task-delete-backdrop">
+            <section className="task-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="task-delete-title">
+              <h3 id="task-delete-title">Xóa công việc khỏi lịch?</h3>
+              <p>“{editing.data.title}” sẽ biến mất khỏi lịch. Bạn có thể hoàn tác ngay sau đó.{dirty ? " Các chỉnh sửa chưa lưu sẽ bị bỏ." : ""}</p>
+              {saveError && <p className="account-error" role="alert">{saveError}</p>}
+              <div className="plan-form-actions">
+                <button type="button" autoFocus disabled={busy} onClick={() => setConfirmDelete(false)}>Giữ lại</button>
+                <button type="button" className="task-delete-button" disabled={busy || account.state !== "unlocked" || !account.calendarReady} onClick={() => void deleteTask()}>
+                  {busy ? "Đang xóa…" : "Xóa công việc"}
+                </button>
               </div>
             </section>
           </div>}

@@ -571,6 +571,77 @@ test("ownerCanCreateTaskAndNestedPlanWithoutLosingTheTaskDraft", async ({ page }
   await expect(wednesdayEvening.locator(".work-task-card")).toHaveCount(0);
 });
 
+test("ownerCanCompleteOverdueAndDeleteTasksWithOfflineUndoAtUtc7Midnight", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-11-02T16:59:50.000Z") });
+  await page.route("**/api/v1/sync/**", route => route.abort());
+  await mockAuthApi(page);
+  await page.goto("/account");
+  await page.getByLabel("Email").fill("owner@example.test");
+  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
+  await page.getByRole("button", { name: "Đăng nhập và mở kho local", exact: true }).click();
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
+
+  await page.goto("/work?date=2026-11-02");
+  const bucket = page.locator('.work-week-bucket[data-work-date="2026-11-02"][data-period="morning"]');
+  await bucket.locator(".work-week-add").click();
+  const taskDialog = page.getByRole("dialog", { name: "Thêm công việc" });
+  await taskDialog.getByLabel("Tên công việc").fill("Đọc sách");
+  await taskDialog.getByRole("button", { name: "Tạo kế hoạch", exact: true }).click();
+  const planDialog = page.getByRole("dialog", { name: "Kế hoạch" });
+  await planDialog.getByRole("button", { name: "Tạo kế hoạch", exact: true }).click();
+  await planDialog.getByLabel("Tên kế hoạch").fill("Học tập");
+  await planDialog.getByRole("radio", { name: "Xanh lá" }).check();
+  await planDialog.getByRole("button", { name: "Lưu kế hoạch", exact: true }).click();
+  await expect(planDialog).toBeHidden();
+  await expect(taskDialog.getByLabel("Kế hoạch")).toHaveValue(/.+/);
+  await taskDialog.getByRole("button", { name: "Lưu công việc", exact: true }).click();
+  await expect(taskDialog).toBeHidden();
+
+  const card = bucket.locator(".work-task-card").filter({ hasText: "Đọc sách" });
+  await expect(card).toBeVisible();
+  const plannedColor = await card.getAttribute("style");
+  await expect(card).not.toContainText("Chưa hoàn thành");
+  await bucket.getByRole("button", { name: "Đánh dấu Đọc sách hoàn thành" }).click();
+  await expect(card).toContainText("Đã hoàn thành");
+  await expect(card).toHaveAttribute("style", plannedColor ?? "");
+  const completeUndo = page.locator(".calendar-undo-toast");
+  await expect(completeUndo).toContainText("Đã hoàn thành “Đọc sách”.");
+  await completeUndo.getByRole("button", { name: "Hoàn tác", exact: true }).click();
+  await expect(card).not.toContainText("Đã hoàn thành");
+  await expect(card).toHaveAttribute("style", plannedColor ?? "");
+
+  await page.clock.fastForward(10_100);
+  await expect(card).toContainText("Chưa hoàn thành");
+  await expect(card).toHaveAttribute("style", plannedColor ?? "");
+  await bucket.getByRole("button", { name: "Đánh dấu Đọc sách hoàn thành" }).click();
+  await expect(card).toContainText("Đã hoàn thành");
+  await bucket.getByRole("button", { name: "Đánh dấu Đọc sách chưa hoàn thành" }).click();
+  await expect(card).toContainText("Chưa hoàn thành");
+
+  await card.click();
+  const editDialog = page.getByRole("dialog", { name: "Sửa công việc" });
+  await expect(editDialog.getByLabel("Ngày")).toHaveValue("2026-11-02");
+  await editDialog.getByRole("button", { name: "Xóa công việc", exact: true }).click();
+  const confirmDelete = page.getByRole("alertdialog", { name: "Xóa công việc khỏi lịch?" });
+  await expect(confirmDelete).toBeVisible();
+  await confirmDelete.getByRole("button", { name: "Xóa công việc", exact: true }).click();
+  await expect(editDialog).toBeHidden();
+  await expect(bucket.locator(".work-task-card")).toHaveCount(0);
+  expect(await readEncryptedOutbox(page)).toHaveLength(7);
+
+  await page.locator(".calendar-undo-toast").getByRole("button", { name: "Hoàn tác", exact: true }).click();
+  const restoredCard = bucket.locator(".work-task-card").filter({ hasText: "Đọc sách" });
+  await expect(restoredCard).toContainText("Chưa hoàn thành");
+  await expect(restoredCard).toHaveAttribute("style", plannedColor ?? "");
+  expect(await readEncryptedOutbox(page)).toHaveLength(8);
+
+  await page.reload();
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
+  await expect(bucket.locator(".work-task-card").filter({ hasText: "Đọc sách" })).toContainText("Chưa hoàn thành");
+  await expect(bucket.locator(".work-task-card").filter({ hasText: "Đọc sách" })).toHaveAttribute("style", plannedColor ?? "");
+  expect(await readEncryptedOutbox(page)).toHaveLength(8);
+});
+
 test("ownerCanCreateEditAndRemoveMilestoneWithWorkCalendarVisibility", async ({ page }) => {
   await mockAuthApi(page);
   await page.goto("/account");

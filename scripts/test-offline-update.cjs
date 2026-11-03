@@ -5,7 +5,7 @@ const { randomBytes, randomUUID } = require("node:crypto");
 const { spawn, spawnSync } = require("node:child_process");
 const { createServer } = require("node:net");
 const http = require("node:http");
-const { copyFile, mkdir, mkdtemp, rename, rm, stat } = require("node:fs/promises");
+const { copyFile, cp, mkdir, mkdtemp, rename, rm, stat } = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const { chromium } = require(path.join(__dirname, "..", "frontend", "node_modules", "@playwright", "test"));
@@ -77,13 +77,31 @@ function build(buildId) {
   if (result.status !== 0) throw new Error(`Production build ${buildId} failed with exit code ${result.status}`);
 }
 
+async function movePath(source, destination) {
+  try {
+    await rename(source, destination);
+  } catch (error) {
+    if (error?.code !== "EXDEV") throw error;
+    const sourceIsDirectory = (await stat(source)).isDirectory();
+    const stagedDestination = destination + ".copy-" + randomUUID();
+    try {
+      await cp(source, stagedDestination, { recursive: true, errorOnExist: true, force: false });
+      await rename(stagedDestination, destination);
+    } catch (copyError) {
+      await rm(stagedDestination, { recursive: true, force: true }).catch(() => undefined);
+      throw copyError;
+    }
+    await rm(source, { recursive: sourceIsDirectory, force: false });
+  }
+}
+
 async function moveBuiltArtifact(destination) {
-  await rename(nextDirectory, path.join(destination, ".next"));
-  await rename(manifestPath, path.join(destination, "dayforge-build.json"));
+  await movePath(nextDirectory, path.join(destination, ".next"));
+  await movePath(manifestPath, path.join(destination, "dayforge-build.json"));
 }
 
 async function installBuiltArtifact(source) {
-  await rename(path.join(source, ".next"), nextDirectory);
+  await movePath(path.join(source, ".next"), nextDirectory);
   await copyFile(path.join(source, "dayforge-build.json"), manifestPath);
 }
 
@@ -1027,8 +1045,8 @@ async function main() {
   let buildA = `offline-a-${process.pid}`;
   let buildB = `offline-b-${process.pid}`;
   try {
-    if (originalNextExists) await rename(nextDirectory, originalNext);
-    if (originalManifestExists) await rename(manifestPath, originalManifest);
+    if (originalNextExists) await movePath(nextDirectory, originalNext);
+    if (originalManifestExists) await movePath(manifestPath, originalManifest);
 
     build(buildA);
     await moveBuiltArtifact(artifactA);
@@ -1046,7 +1064,7 @@ async function main() {
     await runBrowserScenario(`http://127.0.0.1:${proxyPort}`, buildA, buildB, async () => {
       await stopServer(server);
       server = null;
-      await rename(nextDirectory, path.join(artifactA, ".next"));
+      await movePath(nextDirectory, path.join(artifactA, ".next"));
       await rm(manifestPath, { force: true });
       await installBuiltArtifact(artifactB);
       server = await startServer(port);
@@ -1064,8 +1082,8 @@ async function main() {
     if (apiServer?.listening) await new Promise((resolve) => apiServer.close(resolve));
     await rm(nextDirectory, { recursive: true, force: true });
     await rm(manifestPath, { force: true });
-    if (originalNextExists) await rename(originalNext, nextDirectory);
-    if (originalManifestExists) await rename(originalManifest, manifestPath);
+    if (originalNextExists) await movePath(originalNext, nextDirectory);
+    if (originalManifestExists) await movePath(originalManifest, manifestPath);
     await rm(temporary, { recursive: true, force: true });
   }
 }
