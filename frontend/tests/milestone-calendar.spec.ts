@@ -40,3 +40,15 @@ test("milestoneCalendarSupportsWeekMonthYearAndReturnsToItsSavedContext", async 
   await expect(page).toHaveURL(/\/milestones\?date=2026-11-01&scale=month$/);
   await expect(page.locator(".milestone-month-day")).toHaveCount(42);
 });
+
+test("milestoneDayDialogUsesThePanelMotionToken", async ({ page }) => {
+  await page.goto("/milestones?date=2026-11-03&scale=month");
+  await page.locator(".milestone-month-date").nth(8).click();
+  const dialog = page.locator(".milestone-day-dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveCSS("animation-name", "panel-arrival");
+  const duration = await dialog.evaluate((element) => getComputedStyle(element).animationDuration);
+  expect(Number.parseFloat(duration) * (duration.endsWith("ms") ? 1 : 1000)).toBe(180);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(dialog).toHaveCSS("animation-name", "none");
+});

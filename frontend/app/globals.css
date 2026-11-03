@@ -27,6 +27,11 @@
   --content-max-width: 1540px;
   --calendar-min-width: 960px;
   --widget-bottom-space: 160px;
+  --motion-control: 120ms;
+  --motion-panel: 180ms;
+  --motion-view: 260ms;
+  --motion-drop: 160ms;
+  --motion-related-day: 500ms;
 }
 
 * {
@@ -80,13 +85,14 @@ h1 {
 
 .calendar-heading h1 { margin-bottom: var(--space-3); }
 .calendar-kicker { color: var(--text-muted); font-size: var(--font-kicker); letter-spacing: 0.12em; margin: 0 0 var(--space-2); }
-.calendar-period { color: var(--text-secondary); margin: 0; animation: calendar-context 260ms ease-out; }
+.calendar-period { color: var(--text-secondary); margin: 0; animation: calendar-context var(--motion-view) ease-out; }
 .work-week { margin-top: var(--space-8); }
 .work-week-move-help { margin: 0 0 var(--space-3); color: var(--text-secondary); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .work-week-days, .work-week-buckets { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--space-2); }
 .work-week-day-heading { min-width: 0; padding: var(--space-3); color: var(--text-secondary); background: var(--panel); border: 1px solid #3c5048; border-radius: var(--radius-card); }
 .work-week-day-heading[data-today="true"] { border-color: var(--control-background); box-shadow: inset 0 0 0 1px var(--control-background); }
+.work-week-day-heading[data-related-day="true"] { animation: related-day-arrival var(--motion-related-day) ease-out both; }
 .work-week-day-heading h2 { margin: 0; color: var(--text-primary); font-size: 15px; font-weight: 600; text-transform: capitalize; }
 .work-week-day-heading p { margin: var(--space-1) 0 0; font-size: var(--font-meta); }
 .work-week-all-day { margin-top: var(--space-4); }
@@ -94,7 +100,7 @@ h1 {
 .work-week-all-day-bucket { display: flex; min-width: 0; flex-direction: column; align-items: stretch; gap: var(--space-2); padding: var(--space-2); background: #192428; border: 1px solid #33463f; border-radius: var(--radius-card); }
 .work-week-period { margin-top: var(--space-6); }
 .work-week-period-title { margin: 0 0 var(--space-2); color: var(--text-secondary); font-size: 16px; font-weight: 600; }
-.work-week-bucket { display: flex; min-width: 0; flex-direction: column; align-items: stretch; gap: var(--space-2); padding: var(--space-2); background: #192428; border: 1px solid #33463f; border-radius: var(--radius-card); transition: background-color 120ms, border-color 120ms, box-shadow 120ms; }
+.work-week-bucket { display: flex; min-width: 0; flex-direction: column; align-items: stretch; gap: var(--space-2); padding: var(--space-2); background: #192428; border: 1px solid #33463f; border-radius: var(--radius-card); transition: background-color var(--motion-control), border-color var(--motion-control), box-shadow var(--motion-control); }
 .work-week-bucket[data-drop-active="true"] { background: #20352f; border-color: #b5d4ba; box-shadow: inset 0 0 0 2px #8eb89a; }
 .work-task-drop-target { display: grid; gap: 2px; padding: var(--space-2); color: #d8f0dc; background: #294238; border: 1px solid #769b7f; border-radius: var(--radius-control); font-size: var(--font-meta); }
 .work-task-drop-target strong { color: var(--text-primary); font-size: var(--font-body); }
@@ -103,7 +109,9 @@ h1 {
 .work-week-add:disabled { color: var(--text-muted); cursor: not-allowed; }
 .work-task-entry { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) 32px; align-items: stretch; gap: 4px; }
 .work-task-entry[data-dragging="true"] { opacity: .46; }
-.work-task-card { position: relative; display: grid; width: 100%; min-width: 0; gap: var(--space-1); padding: var(--space-2) var(--space-2) var(--space-2) 25px; border: 0; border-radius: var(--radius-control); text-align: left; cursor: grab; touch-action: manipulation; }
+.work-task-entry[data-settled="true"] { animation: task-drop-settled var(--motion-drop) ease-out both; }
+.work-task-card { position: relative; display: grid; width: 100%; min-width: 0; gap: var(--space-1); padding: var(--space-2) var(--space-2) var(--space-2) 25px; border: 0; border-radius: var(--radius-control); text-align: left; cursor: grab; touch-action: manipulation; transition: filter var(--motion-control), box-shadow var(--motion-control); }
+.work-task-card:hover:not(:disabled) { filter: brightness(1.08); }
 .work-task-card:active { cursor: grabbing; }
 .work-task-card:focus-visible, .work-task-order-actions button:focus-visible { outline: 3px solid #d6e9d6; outline-offset: 2px; }
 .work-task-card:hover { filter: brightness(1.08); }
@@ -135,6 +143,7 @@ h1 {
 .milestone-week-period { display: grid; gap: var(--space-2); }
 .milestone-week-period h3 { margin: 0; color: var(--text-muted); font-size: var(--font-meta); font-weight: 500; }
 .milestone-calendar-event { display: grid; min-width: 0; gap: 2px; padding: var(--space-2); border: 0; border-left: 3px solid currentColor; border-radius: var(--radius-control); text-align: left; cursor: pointer; }
+.milestone-calendar-event { transition: filter var(--motion-control), box-shadow var(--motion-control); }
 .milestone-calendar-event:hover { filter: brightness(1.12); }
 .milestone-event-period { font-size: 10px; line-height: 1.3; opacity: .9; }
 .milestone-event-title { overflow-wrap: anywhere; font-weight: 600; }
@@ -155,6 +164,7 @@ h1 {
 .milestone-month-day[data-in-month="false"] .milestone-month-date { color: var(--text-muted); opacity: .7; }
 .milestone-month-day[data-today="true"] { box-shadow: inset 0 0 0 2px var(--control-background); }
 .milestone-month-date { align-self: flex-start; min-width: 30px; min-height: 30px; padding: 3px 7px; color: var(--text-primary); background: transparent; border: 0; border-radius: 50%; text-align: center; cursor: pointer; }
+.milestone-month-date { transition: background-color var(--motion-control), transform var(--motion-control); }
 .milestone-month-date:hover { background: #33473d; }
 .milestone-month-events { display: grid; min-width: 0; gap: 4px; }
 .milestone-more { justify-self: start; min-height: 26px; padding: 2px 5px; color: var(--text-secondary); background: transparent; border: 0; font-size: 10px; cursor: pointer; }
@@ -162,11 +172,12 @@ h1 {
 .milestone-year-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
 .milestone-year-month { min-width: 0; padding: var(--space-4); background: var(--panel); border: 1px solid #33463f; border-radius: var(--radius-card); }
 .milestone-year-month > header { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-2); }
-.milestone-year-month > header button { padding: 0; color: var(--text-primary); background: transparent; border: 0; font-size: 16px; font-weight: 600; text-transform: capitalize; cursor: pointer; }
+.milestone-year-month > header button { padding: 0; color: var(--text-primary); background: transparent; border: 0; font-size: 16px; font-weight: 600; text-transform: capitalize; cursor: pointer; transition: color var(--motion-control); }
 .milestone-year-month > header span { color: var(--text-muted); font-size: 10px; white-space: nowrap; }
 .milestone-mini-weekdays, .milestone-mini-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); text-align: center; }
 .milestone-mini-weekdays span { color: var(--text-muted); font-size: 9px; }
 .milestone-mini-days button, .milestone-mini-days > span { position: relative; display: grid; min-width: 0; min-height: 26px; place-items: center; padding: 1px; color: var(--text-secondary); background: transparent; border: 0; font-size: 10px; cursor: pointer; }
+.milestone-mini-days button { transition: color var(--motion-control), background-color var(--motion-control); }
 .milestone-mini-days button:hover { color: var(--control-text); background: var(--control-background); border-radius: 50%; }
 .milestone-mini-days button[data-has-milestone="true"] { color: var(--text-primary); font-weight: 700; }
 .milestone-mini-days button i { position: absolute; bottom: 2px; width: 4px; height: 4px; border-radius: 50%; }
@@ -182,6 +193,7 @@ h1 {
 .milestone-calendar-legend li { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-secondary); font-size: var(--font-meta); }
 .milestone-calendar-legend li span { width: 9px; height: 9px; border-radius: 50%; }
 .milestone-day-dialog { width: min(620px, calc(100vw - 32px)); max-height: min(780px, calc(100dvh - 32px)); overflow: auto; padding: var(--space-6); color: var(--text-primary); background: var(--panel); border: 1px solid #607469; border-radius: var(--radius-panel); box-shadow: 0 18px 56px #0009; }
+.milestone-day-dialog[open], .logout-dialog, .plan-manager, .task-editor, .milestone-editor { animation: panel-arrival var(--motion-panel) ease-out both; }
 .milestone-day-dialog::backdrop { background: #000a; }
 .milestone-day-dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-4); }
 .milestone-day-dialog-header h2 { margin: 0; font-size: 22px; font-weight: 600; text-transform: capitalize; }
@@ -194,7 +206,7 @@ h1 {
 .calendar-widget { position: fixed; z-index: 10; left: 50%; bottom: var(--space-4); width: min(480px, calc(100vw - 32px)); translate: -50% 0; }
 .widget-bar, .widget-panel { background: var(--panel); border: 1px solid #4a5d53; box-shadow: 0 12px 32px #0005; border-radius: var(--radius-panel); }
 .widget-bar { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3); }
-.calendar-widget button, .calendar-widget a, .calendar-widget input, .calendar-widget select { border-radius: var(--radius-control); min-height: 36px; border: 1px solid #52665b; transition: background-color 120ms, opacity 120ms, transform 120ms; }
+.calendar-widget button, .calendar-widget a, .calendar-widget input, .calendar-widget select { border-radius: var(--radius-control); min-height: 36px; border: 1px solid #52665b; transition: background-color var(--motion-control), opacity var(--motion-control), transform var(--motion-control); }
 .calendar-widget button, .calendar-widget a { color: var(--text-primary); background: var(--input-background); padding: var(--space-2) var(--space-3); }
 .calendar-widget a { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
 .calendar-widget button:not(:disabled), .calendar-widget select { cursor: pointer; }
@@ -211,7 +223,7 @@ h1 {
 .widget-auth-email { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: var(--font-meta); }
 .widget-auth-control button { min-height: 44px; white-space: nowrap; }
 .widget-save-explanation { margin: var(--space-2) var(--space-3) 0; color: var(--text-secondary); font-size: var(--font-meta); text-align: center; }
-.widget-panel { position: absolute; bottom: calc(100% + 12px); width: 100%; max-height: calc(100dvh - 160px); overflow-y: auto; padding: var(--space-4); opacity: 0; transform: translateY(8px); visibility: hidden; pointer-events: none; transition: opacity 180ms ease, transform 180ms ease, visibility 180ms; }
+.widget-panel { position: absolute; bottom: calc(100% + 12px); width: 100%; max-height: calc(100dvh - 160px); overflow-y: auto; padding: var(--space-4); opacity: 0; transform: translateY(8px); visibility: hidden; pointer-events: none; transition: opacity var(--motion-panel) ease, transform var(--motion-panel) ease, visibility var(--motion-panel); }
 .widget-panel[data-open="true"] { opacity: 1; transform: none; visibility: visible; pointer-events: auto; }
 .widget-task-undo { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); margin-bottom: var(--space-4); padding: var(--space-3); background: #273b32; border: 1px solid #769b7f; border-radius: var(--radius-control); }
 .widget-task-undo p { margin: 0; color: var(--text-primary); }
@@ -230,9 +242,12 @@ h1 {
 .widget-range-actions button { flex: 1; }
 .widget-period { text-align: center; font-size: var(--font-meta); color: var(--text-secondary); margin: var(--space-3) 0; }
 .widget-account { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; border-top: 1px solid #4a5d53; padding-top: var(--space-3); margin-top: var(--space-4); color: var(--text-muted); font-size: var(--font-meta); }
+@keyframes panel-arrival { from { opacity: .76; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes calendar-context { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes related-day-arrival { 0% { opacity: .68; transform: translateY(8px); background-color: #294238; } 100% { opacity: 1; transform: none; background-color: var(--panel); } }
+@keyframes task-drop-settled { 0% { opacity: .76; transform: translateY(6px); } 100% { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
-  .calendar-widget, .calendar-widget *, .calendar-period { animation: none; transform: none !important; transition-duration: 80ms; }
+  .calendar-widget, .calendar-widget *, .calendar-period, .work-week-day-heading[data-related-day="true"], .work-task-entry[data-settled="true"], .milestone-day-dialog[open], .logout-dialog, .plan-manager, .task-editor, .milestone-editor { animation: none; transform: none !important; transition-duration: 80ms; }
 }
 
 .account-main { min-height: 100vh; display: grid; place-items: center; padding: var(--space-8); }

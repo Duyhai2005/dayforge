@@ -120,7 +120,10 @@ export function CalendarView({ calendar }: CalendarViewProps): React.JSX.Element
       onNavigate={navigate}
       onEditMilestone={(editing) => setMilestoneEditor({ date: editing.data.date, editing })}
       onAddMilestone={(date) => setMilestoneEditor({ date })}
-      onOpenWorkWeek={(date) => navigate({ calendar: "work", anchor: date, scale: "week" })} />}
+      onOpenWorkWeek={(date) => {
+        try { window.sessionStorage.setItem("dayforge:related-work-day:v1", date); } catch { /* A visual hint must not block navigation. */ }
+        navigate({ calendar: "work", anchor: date, scale: "week" });
+      }} />}
     <PlanManager open={planManagerOpen} onClose={() => setPlanManagerOpen(false)} />
     {taskEditor && <TaskEditor key={`${taskEditor.date}:${taskEditor.period ?? "any"}:${taskEditor.editing?.id ?? "new"}:${taskEditor.editing?.target?.kind ?? "new"}:${taskEditor.editing?.target?.kind === "occurrence" ? taskEditor.editing.target.original_date : taskEditor.editing?.target?.kind === "detached" ? taskEditor.editing.target.task_id : ""}`} open date={taskEditor.date} period={taskEditor.period} editing={taskEditor.editing} onClose={() => setTaskEditor(null)} />}
     {milestoneEditor && <MilestoneEditor key={`${milestoneEditor.date}:${milestoneEditor.editing?.id ?? "new"}`} open date={milestoneEditor.date} editing={milestoneEditor.editing} onClose={() => setMilestoneEditor(null)} />}

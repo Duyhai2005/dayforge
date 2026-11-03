@@ -71,6 +71,8 @@ export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone
   const [dropPreview, setDropPreview] = useState<DropPreview | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [today, setToday] = useState(() => todayInUtc7(new Date()));
+  const [relatedDay, setRelatedDay] = useState<string | null>(null);
+  const [settledTaskId, setSettledTaskId] = useState<UUID | null>(null);
   const draggedTaskRef = useRef<UUID | null>(null);
   const autoScrollFrameRef = useRef<number | null>(null);
   useEffect(() => {
@@ -87,6 +89,35 @@ export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone
   const dates = useMemo(() => workWeekDates(anchor), [anchor]);
   const days = useMemo(() => dates.map(weekDayFor), [dates]);
   const projection = account.state === "unlocked" && account.calendarReady ? account.calendarProjection : null;
+  useEffect(() => {
+    let target: string | null = null;
+    try {
+      target = window.sessionStorage.getItem("dayforge:related-work-day:v1");
+      if (target && !dates.includes(target)) window.sessionStorage.removeItem("dayforge:related-work-day:v1");
+    } catch {
+      return;
+    }
+    if (!target || !dates.includes(target)) return;
+    const frame = window.requestAnimationFrame(() => {
+      try {
+        if (window.sessionStorage.getItem("dayforge:related-work-day:v1") === target) {
+          window.sessionStorage.removeItem("dayforge:related-work-day:v1");
+        }
+      } catch { /* The hint is visual state only. */ }
+      setRelatedDay(target);
+    });
+    const timer = window.setTimeout(() => setRelatedDay((current) => current === target ? null : current), 520);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [anchor, dates]);
+  useEffect(() => {
+    if (!settledTaskId) return;
+    const taskId = settledTaskId;
+    const timer = window.setTimeout(() => setSettledTaskId((current) => current === taskId ? null : current), 180);
+    return () => window.clearTimeout(timer);
+  }, [settledTaskId]);
   useEffect(() => {
     let current = true;
     void workItemsForDates(projection, dates).then((items) => {
@@ -148,6 +179,7 @@ export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone
       if (sameBucket && currentIds.length === nextIds.length && currentIds.every((entry, index) => entry === nextIds[index])) return;
       const expectedRootHash = await semanticRootHash({ kind: "work_item", id: card.root_id }, card.root);
       await onMoveTask({ id: card.root_id, data: card.data, expectedRootHash, target: card.target, root: card.root }, date, period, beforeTaskId);
+      setSettledTaskId(card.id);
     } catch (cause) {
       setMoveError(cause instanceof Error ? cause.message : "Không thể đổi lịch công việc.");
     }
@@ -248,7 +280,7 @@ export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone
     <p className="sr-only" role="status" aria-live="polite">{dropPreview ? `Điểm thả: ${days.find((day) => day.date === dropPreview.date)?.weekday ?? dropPreview.date}, buổi ${PERIODS.find((period) => period.id === dropPreview.period)?.name.toLocaleLowerCase("vi") ?? ""}${dropPreview.beforeTaskId ? ", trước công việc được chọn" : ", cuối danh sách"}.` : draggedTaskId ? "Đang kéo công việc. Thả vào một buổi trong tuần đang xem hoặc nhấn Escape để hủy." : ""}</p>
     {moveError && <p className="work-week-message account-error" role="alert">{moveError}</p>}
     <div className="work-week-days">
-      {days.map((day, index) => <div key={day.date ?? `outside-${index}`} className="work-week-day-heading" data-today={day.date === today}>
+      {days.map((day, index) => <div key={day.date ?? `outside-${index}`} className="work-week-day-heading" data-today={day.date === today} data-related-day={day.date === relatedDay || undefined}>
         <h2>{day.weekday}</h2>
         <p>{day.dateLabel}</p>
       </div>)}
@@ -305,7 +337,7 @@ export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone
               const showInsertionBefore = isDropActive && dropPreview.beforeTaskId === card.id;
               return <Fragment key={card.id}>
                 {showInsertionBefore && <div className="work-task-drop-marker" aria-label={`Thả trước ${card.data.title}`}><span />Thả trước {card.data.title}</div>}
-                <div className="work-task-entry" data-work-item-id={card.id} data-dragging={draggedTaskId === card.id ? "true" : undefined}>
+                <div className="work-task-entry" data-work-item-id={card.id} data-dragging={draggedTaskId === card.id ? "true" : undefined} data-settled={settledTaskId === card.id ? "true" : undefined}>
                   <button type="button" disabled={!ready} draggable={ready} className="work-task-card" style={{ backgroundColor: color.background, color: color.foreground }} aria-label={`${accessibleLabel}${card.target.kind === "occurrence" ? ", lần lặp" : card.target.kind === "detached" ? ", việc một lần đã tách" : ""}, mở biểu mẫu để sửa`} aria-describedby="work-week-move-help"
                     onClick={() => void editTask(card)} onDragStart={(event) => handleDragStart(event, card)} onDragEnd={handleDragEnd}>
                     <span className="work-task-grip" aria-hidden="true">⠿</span>

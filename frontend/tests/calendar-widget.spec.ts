@@ -148,3 +148,16 @@ test("widgetHonorsReducedMotion", async ({ page }) => {
   expect(motion.transitions.every(duration => duration <= 80)).toBe(true);
   expect(motion.animations.every(animation => animation.duration <= 80 && animation.frames.every(transform => transform === undefined || transform === "none"))).toBe(true);
 });
+
+test("relatedDayHighlightExpiresAndDoesNotReplayAfterReload", async ({ page }) => {
+  await page.addInitScript(() => {
+    sessionStorage.setItem("dayforge:related-work-day:v1", "2026-11-03");
+  });
+  await page.goto("/work?date=2026-11-03");
+  const heading = page.locator('.work-week-day-heading[data-related-day="true"]');
+  await expect(heading).toContainText("3 tháng 11, 2026");
+  await expect(heading).toHaveCSS("animation-name", "related-day-arrival");
+  await expect(heading).toHaveCount(0, { timeout: 1_000 });
+  await page.reload();
+  await expect(page.locator('.work-week-day-heading[data-related-day="true"]')).toHaveCount(0);
+});
