@@ -789,7 +789,7 @@ async function runBrowserScenario(baseURL) {
       return recurringLostResponse.lost && recurrenceEditRequests().length >= 2 && readyA && readyB;
     }, "future series edit to retry after its committed push response is lost and reach both devices", 90_000);
     const recurrenceEditRequestBodies = recurrenceEditRequests();
-    assert(recurrenceLostResponse.lost, "the future rule edit must pass through the lost-response fault");
+    assert(recurringLostResponse.lost, "the future rule edit must pass through the lost-response fault");
     assert(recurrenceEditRequestBodies.length >= 2, "the committed series edit must be retried after its response is lost");
     assert.equal(new Set(recurrenceEditRequestBodies).size, 1,
       "lost-response retry must preserve the exact byte-identical series operation body");
