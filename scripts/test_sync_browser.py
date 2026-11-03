@@ -149,6 +149,8 @@ def _verify_test_owner(settings) -> None:
 
 
 def _restore_test_sync_epoch(settings, owner_id: str) -> str:
+    from sqlalchemy import delete, select
+
     from app.core.database import create_database
     from app.models.sync import (
         ChangeLog,
@@ -156,7 +158,6 @@ def _restore_test_sync_epoch(settings, owner_id: str) -> str:
         OwnerSyncState,
         RecordedOperation,
     )
-    from sqlalchemy import delete, select
 
     try:
         parsed_owner = UUID(owner_id)

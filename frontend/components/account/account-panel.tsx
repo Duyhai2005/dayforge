@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { formatAccountError, useAccount } from "./account-provider";
+import { useHydrated } from "../../lib/use-hydrated";
 
 type AccountForm = "login" | "register" | "forgot";
 
@@ -20,6 +21,7 @@ function syncLabel(value: ReturnType<typeof useAccount>["syncStatus"]): string {
 
 export function AccountPanel(): React.JSX.Element {
   const account = useAccount();
+  const hydrated = useHydrated();
   const [form, setForm] = useState<AccountForm>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -83,7 +85,7 @@ export function AccountPanel(): React.JSX.Element {
               <input id="account-password" name="password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} />
               <label className="account-checkbox" htmlFor="remember-me"><input id="remember-me" type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} /> Ghi nhớ phiên trên thiết bị này</label>
             </>}
-            <button className="account-submit" type="submit" disabled={busy || account.state === "loading"}>
+            <button className="account-submit" type="submit" disabled={!hydrated || busy || account.state === "loading"}>
               {busy ? "Đang xử lý…" : form === "login" ? "Đăng nhập và mở kho local" : form === "register" ? "Gửi liên kết xác minh" : "Gửi hướng dẫn đặt lại"}
             </button>
           </form>

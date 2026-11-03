@@ -2,11 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { formatAccountError, useAccount } from "./account-provider";
+import { useHydrated } from "../../lib/use-hydrated";
 
 type EmailCallbackProps = Readonly<{ purpose: "verify-email" | "reset-password" }>;
 
 export function EmailCallback({ purpose }: EmailCallbackProps): React.JSX.Element {
   const account = useAccount();
+  const hydrated = useHydrated();
   const tokenRef = useRef<string | null>(null);
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -54,7 +56,7 @@ export function EmailCallback({ purpose }: EmailCallbackProps): React.JSX.Elemen
       <label htmlFor="callback-confirmation">Nhập lại mật khẩu</label>
       <input id="callback-confirmation" type="password" autoComplete="new-password" required value={confirmation} onChange={(event) => setConfirmation(event.target.value)} />
       <p className="account-copy">15–128 ký tự Unicode. Có thể dùng khoảng trắng và trình quản lý mật khẩu.</p>
-      <button className="account-submit" type="submit" disabled={busy}>{busy ? "Đang xác nhận…" : purpose === "verify-email" ? "Xác minh và tạo tài khoản" : "Đặt lại mật khẩu"}</button>
+      <button className="account-submit" type="submit" disabled={!hydrated || busy}>{busy ? "Đang xác nhận…" : purpose === "verify-email" ? "Xác minh và tạo tài khoản" : "Đặt lại mật khẩu"}</button>
     </form>}
   </>;
 }
