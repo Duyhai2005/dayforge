@@ -14,6 +14,7 @@ export type CalendarWidgetProps = {
   onSwitch(nextCalendar: CalendarKind): void;
   onOpenPlans(): void;
   onAddTask(date: string, period: Period | null): void;
+  onAddMilestone(date: string): void;
 };
 
 export function currentPeriod(view: ViewState): string {
@@ -28,7 +29,7 @@ export function currentPeriod(view: ViewState): string {
   return `${format(start)} – ${format(end)}`;
 }
 
-export function CalendarWidget({ calendar, view, onNavigate, onSwitch, onOpenPlans, onAddTask }: CalendarWidgetProps): React.JSX.Element {
+export function CalendarWidget({ calendar, view, onNavigate, onSwitch, onOpenPlans, onAddTask, onAddMilestone }: CalendarWidgetProps): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [logoutChanges, setLogoutChanges] = useState<{ pendingOperations: number; drafts: number } | null>(null);
   const [logoutError, setLogoutError] = useState("");
@@ -102,7 +103,7 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch, onOpenPla
       }
     };
     const outside = (event: MouseEvent) => {
-      if (event.target instanceof Element && event.target.closest(".plan-manager-backdrop, .task-editor-backdrop")) return;
+      if (event.target instanceof Element && event.target.closest(".plan-manager-backdrop, .task-editor-backdrop, .milestone-editor-backdrop")) return;
       if (event.target instanceof Node && !root.current?.contains(event.target)) {
         setOpen(false);
         toggle.current?.focus({ preventScroll: true });
@@ -124,7 +125,10 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch, onOpenPla
             setOpen(false);
             onAddTask(view.anchor, null);
           }}>Thêm công việc</button>
-          <button type="button" disabled aria-describedby={explanationId}>Thêm dấu mốc</button>
+          <button type="button" disabled={account.state !== "unlocked" || !account.calendarReady} aria-describedby={explanationId} onClick={() => {
+            setOpen(false);
+            onAddMilestone(view.anchor);
+          }}>Thêm dấu mốc</button>
           <button type="button" disabled={account.state !== "unlocked"} aria-describedby={explanationId} onClick={() => {
             setOpen(false);
             onOpenPlans();
@@ -164,8 +168,8 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch, onOpenPla
         <button ref={toggle} className="widget-toggle" type="button" aria-label="Mở hoặc đóng điều hướng lịch" aria-expanded={open} aria-controls={panelId} onClick={() => { if (open) close(); else setOpen(true); }}><span aria-hidden="true">{open ? "⌄" : "⌃"}</span></button>
       </div>
       <p id={explanationId} className="widget-save-explanation">{account.state === "unlocked"
-        ? "Công việc và kế hoạch được lưu trên thiết bị. Biểu mẫu dấu mốc sẽ được bổ sung tiếp theo."
-        : "Mở khóa kho local để thêm công việc hoặc quản lý kế hoạch. Biểu mẫu dấu mốc sẽ được bổ sung tiếp theo."}</p>
+        ? "Công việc, dấu mốc và kế hoạch được lưu trên thiết bị."
+        : "Mở khóa kho local để thêm công việc, dấu mốc hoặc quản lý kế hoạch."}</p>
       {logoutError && <p className="account-error" role="alert">{logoutError}</p>}
       {logoutDialog}
     </div>

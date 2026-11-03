@@ -1,6 +1,6 @@
 # T16 — Weekly work calendar
 
-Status: implementation and local verification complete on `feature/weekly-work-calendar`. PR and GitHub CI are pending.
+Status: complete on `feature/weekly-work-calendar`; PR #16 merged into `develop` as `98c415b90f18e0db70cbd35f6431d48b6a49a8b3` after all GitHub CI workflows passed.
 
 ## Delivered
 
@@ -20,7 +20,8 @@ Status: implementation and local verification complete on `feature/weekly-work-c
 | `pnpm --filter @dayforge/frontend exec playwright test tests/auth-session.spec.ts tests/calendar-widget.spec.ts tests/view-state.spec.ts --reporter=dot` | Passed, 36 tests |
 | `pnpm --filter @dayforge/frontend exec playwright test tests/routes.spec.ts --reporter=dot` | Passed, 3 tests |
 | `git diff --check` | Passed |
-| GitHub CI and Offline web shell workflows | Pending PR |
+| GitHub CI run #41611175596 (`quality`, `frontend`, `backend-mysql`) | Passed |
+| GitHub Offline web shell run #41611175619 | Passed |
 
 The browser suite verifies the 7×3 week layout across New Year, locked-vault add controls, saving and reloading a task, four tasks in one afternoon bucket without an inner scroll area, and editing a displayed task. Existing plan, navigation, account and view-state coverage also passed.
 

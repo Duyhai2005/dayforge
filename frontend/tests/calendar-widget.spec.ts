@@ -104,10 +104,11 @@ test("calendarMutationsRequireAnUnlockedLocalVault", async ({ page }) => {
   for (const name of ["Thêm công việc", "Thêm dấu mốc", "Quản lý kế hoạch"]) {
     const action = page.getByRole("button", { name, exact: true });
     await expect(action).toBeDisabled();
-    await expect(action).toHaveAccessibleDescription("Mở khóa kho local để thêm công việc hoặc quản lý kế hoạch. Biểu mẫu dấu mốc sẽ được bổ sung tiếp theo.");
+    await expect(action).toHaveAccessibleDescription("Mở khóa kho local để thêm công việc, dấu mốc hoặc quản lý kế hoạch.");
   }
-  await expect(page.getByText("Mở khóa kho local để thêm công việc hoặc quản lý kế hoạch. Biểu mẫu dấu mốc sẽ được bổ sung tiếp theo.")).toBeVisible();
-  await expect(page.locator(".work-week-add")).toHaveCount(21);
+  await expect(page.getByText("Mở khóa kho local để thêm công việc, dấu mốc hoặc quản lý kế hoạch.")).toBeVisible();
+  await expect(page.locator(".work-week-bucket .work-week-add")).toHaveCount(21);
+  await expect(page.locator(".work-week-all-day-bucket .work-week-add")).toHaveCount(7);
   await expect(page.locator(".work-week-add:not(:disabled)")).toHaveCount(0);
 });
 
@@ -123,7 +124,8 @@ test("workWeekShowsSevenDaysAndThreeAlignedPeriodsAcrossNewYear", async ({ page 
   for (const row of await page.locator(".work-week-buckets").all()) {
     await expect(row.locator(".work-week-bucket")).toHaveCount(7);
   }
-  await expect(page.locator(".work-week-add")).toHaveCount(21);
+  await expect(page.locator(".work-week-bucket .work-week-add")).toHaveCount(21);
+  await expect(page.locator(".work-week-all-day-bucket .work-week-add")).toHaveCount(7);
 });
 
 test("widgetHonorsReducedMotion", async ({ page }) => {

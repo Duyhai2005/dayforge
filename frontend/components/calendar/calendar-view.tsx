@@ -9,6 +9,7 @@ import { CalendarWidget, currentPeriod } from "./calendar-widget";
 import { PlanManager } from "./plan-manager";
 import { TaskEditor, type TaskEditorTarget } from "./task-editor";
 import { WorkWeekCalendar } from "./work-week-calendar";
+import { MilestoneEditor, type MilestoneEditorTarget } from "./milestone-editor";
 import type { Period } from "../../lib/sync/reducer";
 
 export type CalendarViewProps = { calendar: CalendarKind };
@@ -21,6 +22,7 @@ export function CalendarView({ calendar }: CalendarViewProps): React.JSX.Element
   const [view, setView] = useState<ViewState | null>(null);
   const [planManagerOpen, setPlanManagerOpen] = useState(false);
   const [taskEditor, setTaskEditor] = useState<{ date: string; period: Period | null; editing?: TaskEditorTarget } | null>(null);
+  const [milestoneEditor, setMilestoneEditor] = useState<{ date: string; editing?: MilestoneEditorTarget } | null>(null);
   const query = search.toString();
 
   useEffect(() => {
@@ -102,11 +104,14 @@ export function CalendarView({ calendar }: CalendarViewProps): React.JSX.Element
       <h1 id="calendar-title">{calendar === "work" ? "Lịch công việc" : "Lịch dấu mốc"}</h1>
       {view && <p key={`${calendar}:${view.anchor}:${view.scale}`} className="calendar-period" aria-label="Khoảng đang xem" aria-live="polite">{currentPeriod(view)}</p>}
     </header>
-    {view && <CalendarWidget calendar={calendar} view={view} onNavigate={navigate} onSwitch={switchCalendar} onOpenPlans={() => setPlanManagerOpen(true)} onAddTask={(date, period) => setTaskEditor({ date, period })} />}
+    {view && <CalendarWidget calendar={calendar} view={view} onNavigate={navigate} onSwitch={switchCalendar} onOpenPlans={() => setPlanManagerOpen(true)} onAddTask={(date, period) => setTaskEditor({ date, period })} onAddMilestone={(date) => setMilestoneEditor({ date })} />}
     {view && calendar === "work" && <WorkWeekCalendar anchor={view.anchor}
       onAddTask={(date, period) => setTaskEditor({ date, period })}
-      onEditTask={(editing) => setTaskEditor({ date: editing.data.date, period: editing.data.period, editing })} />}
+      onEditTask={(editing) => setTaskEditor({ date: editing.data.date, period: editing.data.period, editing })}
+      onAddMilestone={(date) => setMilestoneEditor({ date })}
+      onEditMilestone={(editing) => setMilestoneEditor({ date: editing.data.date, editing })} />}
     <PlanManager open={planManagerOpen} onClose={() => setPlanManagerOpen(false)} />
     {taskEditor && <TaskEditor key={`${taskEditor.date}:${taskEditor.period ?? "any"}:${taskEditor.editing?.id ?? "new"}`} open date={taskEditor.date} period={taskEditor.period} editing={taskEditor.editing} onClose={() => setTaskEditor(null)} />}
+    {milestoneEditor && <MilestoneEditor key={`${milestoneEditor.date}:${milestoneEditor.editing?.id ?? "new"}`} open date={milestoneEditor.date} editing={milestoneEditor.editing} onClose={() => setMilestoneEditor(null)} />}
   </>;
 }

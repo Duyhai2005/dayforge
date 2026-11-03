@@ -87,6 +87,9 @@ h1 {
 .work-week-day-heading[data-today="true"] { border-color: var(--control-background); box-shadow: inset 0 0 0 1px var(--control-background); }
 .work-week-day-heading h2 { margin: 0; color: var(--text-primary); font-size: 15px; font-weight: 600; text-transform: capitalize; }
 .work-week-day-heading p { margin: var(--space-1) 0 0; font-size: var(--font-meta); }
+.work-week-all-day { margin-top: var(--space-4); }
+.work-week-all-day-buckets { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--space-2); }
+.work-week-all-day-bucket { display: flex; min-width: 0; flex-direction: column; align-items: stretch; gap: var(--space-2); padding: var(--space-2); background: #192428; border: 1px solid #33463f; border-radius: var(--radius-card); }
 .work-week-period { margin-top: var(--space-6); }
 .work-week-period-title { margin: 0 0 var(--space-2); color: var(--text-secondary); font-size: 16px; font-weight: 600; }
 .work-week-bucket { display: flex; min-width: 0; flex-direction: column; align-items: stretch; gap: var(--space-2); padding: var(--space-2); background: #192428; border: 1px solid #33463f; border-radius: var(--radius-card); }
@@ -95,6 +98,7 @@ h1 {
 .work-week-add:disabled { color: var(--text-muted); cursor: not-allowed; }
 .work-task-card { display: grid; min-width: 0; gap: var(--space-1); padding: var(--space-2); border: 0; border-radius: var(--radius-control); text-align: left; cursor: pointer; }
 .work-task-card:hover { filter: brightness(1.08); }
+.work-milestone-card { border-left: 3px solid currentColor; }
 .work-task-title { overflow-wrap: anywhere; font-weight: 600; }
 .work-task-meta { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); font-size: var(--font-meta); }
 .work-task-state { font-weight: 600; }
@@ -200,16 +204,22 @@ h1 {
 .plan-discard-dialog .plan-form-actions button:last-child { color: var(--control-text); background: var(--control-background); }
 .task-editor-backdrop { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: var(--space-4); background: #000a; }
 .task-editor, .task-discard-dialog { position: relative; width: min(100%, 560px); max-height: calc(100dvh - 32px); overflow-y: auto; padding: var(--space-6); color: var(--text-primary); background: var(--panel); border: 1px solid #607469; border-radius: var(--radius-panel); box-shadow: 0 18px 56px #0009; }
+.milestone-editor-backdrop { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: var(--space-4); background: #000a; }
+.milestone-editor { position: relative; width: min(100%, 560px); max-height: calc(100dvh - 32px); overflow-y: auto; padding: var(--space-6); color: var(--text-primary); background: var(--panel); border: 1px solid #607469; border-radius: var(--radius-panel); box-shadow: 0 18px 56px #0009; }
+.milestone-editor .plan-manager-header { margin-bottom: var(--space-6); }
+.milestone-editor .plan-manager-header h2 { font-size: 24px; }
 .task-editor .plan-manager-header { margin-bottom: var(--space-6); }
 .task-editor .plan-manager-header h2 { font-size: 24px; }
 .task-form { display: grid; gap: var(--space-4); }
 .task-form input:not([type="radio"]), .task-form select { width: 100%; min-height: 46px; padding: var(--space-2) var(--space-3); color: var(--text-primary); background: var(--input-background); border: 1px solid #52665b; border-radius: var(--radius-control); }
+.milestone-form textarea { width: 100%; min-height: 120px; resize: vertical; padding: var(--space-2) var(--space-3); color: var(--text-primary); background: var(--input-background); border: 1px solid #52665b; border-radius: var(--radius-control); }
 .task-date-period { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
 .task-plan-color { margin: 0; padding: var(--space-3); color: var(--text-secondary); background: var(--input-background); border-radius: var(--radius-card); }
 .task-form .plan-form-actions { flex-wrap: wrap; margin-top: var(--space-2); }
 .task-form .plan-form-actions button, .task-create-plan { min-height: 44px; padding: var(--space-2) var(--space-3); color: var(--text-primary); background: var(--input-background); border: 1px solid #52665b; border-radius: var(--radius-control); cursor: pointer; }
 .task-form .plan-form-actions button:disabled { opacity: 0.65; cursor: wait; }
 .task-form .plan-form-actions .account-submit { margin: 0; color: var(--control-text); background: var(--control-background); font-weight: 600; }
+.milestone-delete-button { margin-right: auto; color: #ffd5d5 !important; border-color: #9a5555 !important; background: #492b2b !important; }
 .task-discard-backdrop { position: absolute; z-index: 2; inset: 0; display: grid; place-items: center; padding: var(--space-4); background: #000a; }
 .task-discard-dialog { width: min(100%, 400px); }
 .task-discard-dialog h3 { margin-top: 0; }
@@ -221,6 +231,7 @@ h1 {
   .widget-auth-email { display: none; }
   .plan-palette { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .task-editor { padding: var(--space-4); }
+  .milestone-editor { padding: var(--space-4); }
   .task-date-period { grid-template-columns: 1fr; }
 }
 

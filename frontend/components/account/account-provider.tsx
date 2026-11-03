@@ -18,7 +18,7 @@ import { startSyncCoordinator, type CoordinatorStatus, type SyncCoordinatorHandl
 import type { UUID } from "../../lib/sync/protocol";
 import { commitLocalMutation, LocalMutationNoOp, type LocalMutationResult } from "../../lib/sync/mutation";
 import { rebuildOwnerProjection } from "../../lib/sync/projection";
-import { semanticRootHash, type PlanData, type ProjectionState, type TaskData } from "../../lib/sync/reducer";
+import { semanticRootHash, type MilestoneData, type PlanData, type ProjectionState, type TaskData } from "../../lib/sync/reducer";
 import { useBuildGate } from "../offline/offline-bootstrap";
 
 interface OwnerView {
@@ -75,6 +75,9 @@ interface AccountContextValue {
   refreshCalendar(): Promise<void>;
   createPlan(id: UUID, data: PlanData): Promise<LocalMutationResult>;
   replacePlan(id: UUID, data: PlanData): Promise<LocalMutationResult>;
+  createMilestone(id: UUID, data: MilestoneData): Promise<LocalMutationResult>;
+  replaceMilestone(id: UUID, data: MilestoneData, expectedRootHash: string): Promise<LocalMutationResult>;
+  deleteMilestone(id: UUID, expectedRootHash: string): Promise<LocalMutationResult>;
   createTask(id: UUID, data: TaskData): Promise<LocalMutationResult>;
   replaceTask(id: UUID, data: TaskData, expectedRootHash: string): Promise<LocalMutationResult>;
 }
@@ -479,6 +482,84 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
   const createPlan = useCallback((id: UUID, data: PlanData) => writePlan(id, "plan.create", data), [writePlan]);
   const replacePlan = useCallback((id: UUID, data: PlanData) => writePlan(id, "plan.replace", data), [writePlan]);
 
+  const writeMilestone = useCallback(async (
+    id: UUID,
+    action: "milestone.create" | "milestone.replace" | "milestone.delete",
+    data?: MilestoneData,
+    expectedRootHash?: string,
+  ): Promise<LocalMutationResult> => {
+    const db = databaseRef.current;
+    const ownerId = owner?.id;
+    if (!db || !ownerId || state !== "unlocked") throw new Error("Hãy mở khóa kho local trước khi lưu dấu mốc.");
+    if (action !== "milestone.delete" && !data) throw new Error("Dữ liệu dấu mốc chưa đầy đủ.");
+    const operationId = crypto.randomUUID() as UUID;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const gate = await readBuildGate(db);
+      if (!gate) throw new Error("Trạng thái cập nhật offline chưa sẵn sàng.");
+      const snapshot = await readOwnerSnapshot(db, ownerId, build.buildId);
+      const precondition = action !== "milestone.create" && expectedRootHash
+        ? { expected_root_hash: expectedRootHash }
+        : null;
+      let result: LocalMutationResult;
+      try {
+        result = await commitLocalMutation({
+          database: db,
+          snapshot,
+          gate,
+          expectedBuild: build.buildId,
+          requireApplied: true,
+          draft: {
+            operationId,
+            commands: [{
+              root: { kind: "milestone", id },
+              action,
+              payload: action === "milestone.delete" ? {} : { data },
+              precondition,
+            }],
+          },
+        });
+      } catch (cause) {
+        if (cause instanceof LocalMutationNoOp) {
+          if (cause.reason === "precondition_failed") throw new Error("Dấu mốc đã thay đổi ở nơi khác. Hãy mở lại rồi thử lại.");
+          if (cause.reason === "reference_unavailable") throw new Error("Kế hoạch đã chọn không còn khả dụng. Hãy chọn lại rồi lưu.");
+          if (cause.reason === "target_retired") throw new Error("Dấu mốc không còn khả dụng. Hãy tải lại lịch rồi thử tiếp.");
+        }
+        throw cause;
+      }
+      if (!result.result.committed) {
+        if (result.result.reason === "stale_snapshot") continue;
+        throw new Error("Không thể lưu dấu mốc khi kho local hoặc bản cập nhật đang đổi.");
+      }
+      if (owner?.id !== ownerId || databaseRef.current !== db) throw new Error("Kho local đã khóa trong lúc lưu dấu mốc.");
+      setCalendarProjection(result.projection);
+      setCalendarReady(true);
+      setCalendarError(null);
+      coordinatorRef.current?.wake();
+      setError(null);
+      setInfo(action === "milestone.delete" ? "Đã gỡ dấu mốc khỏi lịch." : "Đã lưu dấu mốc trên thiết bị. Trạng thái đồng bộ được hiển thị riêng.");
+      return result;
+    }
+    throw new Error("Dữ liệu lịch liên tục thay đổi ở tab khác. Hãy thử lại.");
+  }, [build.buildId, owner?.id, state]);
+
+  const createMilestone = useCallback((id: UUID, data: MilestoneData) => writeMilestone(id, "milestone.create", data), [writeMilestone]);
+  const replaceMilestone = useCallback(async (id: UUID, data: MilestoneData, expectedRootHash: string) => {
+    const current = calendarProjection?.roots[`milestone:${id}`] ?? null;
+    const actualRootHash = await semanticRootHash({ kind: "milestone", id }, current);
+    if (actualRootHash !== expectedRootHash) {
+      throw new Error("Dấu mốc đã thay đổi ở nơi khác. Hãy mở lại rồi thử lại.");
+    }
+    return writeMilestone(id, "milestone.replace", data, expectedRootHash);
+  }, [calendarProjection, writeMilestone]);
+  const deleteMilestone = useCallback(async (id: UUID, expectedRootHash: string) => {
+    const current = calendarProjection?.roots[`milestone:${id}`] ?? null;
+    const actualRootHash = await semanticRootHash({ kind: "milestone", id }, current);
+    if (actualRootHash !== expectedRootHash) {
+      throw new Error("Dấu mốc đã thay đổi ở nơi khác. Hãy mở lại rồi thử lại.");
+    }
+    return writeMilestone(id, "milestone.delete", undefined, expectedRootHash);
+  }, [calendarProjection, writeMilestone]);
+
   const writeTask = useCallback(async (
     id: UUID,
     action: "work_item.create_single" | "single.replace",
@@ -567,9 +648,9 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
   );
   const value = useMemo<AccountContextValue>(() => ({
     state, session, owner, syncStatus, error, info, login, register, requestPasswordReset,
-    calendarProjection, calendarReady, calendarError, refreshCalendar, createPlan, replacePlan, createTask, replaceTask,
+    calendarProjection, calendarReady, calendarError, refreshCalendar, createPlan, replacePlan, createMilestone, replaceMilestone, deleteMilestone, createTask, replaceTask,
     confirmEmail, resetPassword, logout, repairClockIssues, inspectPendingChanges, wakeSync, stopSync, coordinatorStatus, refreshSession, clearNotice,
-  }), [calendarError, calendarProjection, calendarReady, clearNotice, confirmEmail, coordinatorStatus, createPlan, createTask, error, info, inspectPendingChanges, login, logout, owner, refreshCalendar, refreshSession, register, repairClockIssues, replacePlan, replaceTask, requestPasswordReset, resetPassword, session, state, stopSync, syncStatus, wakeSync]);
+  }), [calendarError, calendarProjection, calendarReady, clearNotice, confirmEmail, coordinatorStatus, createMilestone, createPlan, createTask, deleteMilestone, error, info, inspectPendingChanges, login, logout, owner, refreshCalendar, refreshSession, register, repairClockIssues, replaceMilestone, replacePlan, replaceTask, requestPasswordReset, resetPassword, session, state, stopSync, syncStatus, wakeSync]);
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;
 }
