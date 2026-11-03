@@ -7,8 +7,8 @@ Nhóm gồm T21–T23. T21 tạo và hiển thị chuỗi; T22 cung cấp thao t
 | Task | Mục tiêu | Phụ thuộc | Trạng thái |
 | --- | --- | --- | --- |
 | T21 | Tạo quy tắc lặp và chiếu occurrence trong tuần đang xem | T03, T08, T10 | Hoàn tất; PR #21 đã merge và CI xanh |
-| T22 | Sửa, dời, xóa, hoàn tác occurrence; sửa/dừng phần còn lại của chuỗi | T15, T19, T20, T21 | Đang triển khai trên `feature/recurring-series-actions`; kiểm tra local xanh, chờ PR/CI |
-| T23 | Chứng minh hành vi lặp giống nhau qua hai thiết bị và MySQL | T11, T12, T22 | Chưa bắt đầu; dự kiến nhánh `feature/recurring-sync-acceptance` sau khi T22 merge |
+| T22 | Sửa, dời, xóa, hoàn tác occurrence; sửa/dừng phần còn lại của chuỗi | T15, T19, T20, T21 | Hoàn tất; PR #22 squash-merge vào `develop`, CI và Offline web shell xanh |
+| T23 | Chứng minh hành vi lặp giống nhau qua hai thiết bị và MySQL | T11, T12, T22 | Đang triển khai trên `feature/recurring-sync-acceptance`; suite local chưa chạy được vì Docker Desktop Engine chưa hoạt động, chờ CI |
 
 ## T21 — Quy tắc lặp và occurrence nhìn thấy được
 
@@ -58,9 +58,11 @@ Nhóm gồm T21–T23. T21 tạo và hiển thị chuỗi; T22 cung cấp thao t
 - [x] Kiểm tra đổi quy tắc từ cutoff, giữ exception và plan/color, sửa task đã tách, dừng từ cutoff qua occurrence đã dời.
 - [x] Kiểm tra thứ tự hỗn hợp trong bucket có nhiều loại thẻ.
 - [x] Chạy typecheck, lint, `git diff --check` và các browser regression T22.
-- [ ] Mở PR tiếng Anh vào `develop`, theo dõi CI, xử lý lỗi, rồi squash merge khi mọi job bắt buộc xanh.
+- [x] Mở PR tiếng Anh vào `develop`, theo dõi CI, xử lý lỗi, rồi squash merge khi mọi job bắt buộc xanh; PR #22 đã merge sau khi CI và Offline web shell xanh.
 
 ## T23 — Nghiệm thu lưu trữ và đồng bộ lặp
+
+Trạng thái triển khai hiện tại: xem [báo cáo T23](t23/implementation-status.md). Runner mở rộng trên cùng harness client mutation, IndexedDB/outbox, hai Chromium context và MySQL cô lập của T11–T12.
 
 ### Thiết lập và luồng đồng thời
 

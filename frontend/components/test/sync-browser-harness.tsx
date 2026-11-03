@@ -10,6 +10,7 @@ import { stageBootstrapPage } from "../../lib/sync/bootstrap";
 import { readRecordedShadow, rebuildOwnerProjection } from "../../lib/sync/projection";
 import type { CoordinatorStatus } from "../../lib/sync/coordinator";
 import type { SyncCommand, UUID } from "../../lib/sync/protocol";
+import { semanticRootHash, workItemsForDates, type RecurrenceRule, type TaskData, type TaskTemplate } from "../../lib/sync/reducer";
 import { useAccount } from "../account/account-provider";
 
 const BUILD_ID = process.env.NEXT_PUBLIC_DAYFORGE_BUILD_ID ?? "development";
@@ -35,7 +36,7 @@ function currentOwnerId(): Promise<UUID> {
   return ownerIdPromise;
 }
 
-async function inspect(): Promise<{
+async function inspect(dates: string[] = []): Promise<{
   ownerId: UUID;
   deviceId: UUID;
   pullCursor: string;
@@ -46,6 +47,9 @@ async function inspect(): Promise<{
   diagnosticIds: string[];
   stagingCount: number;
   planNames: string[];
+  planColors: Array<{ id: UUID; name: string; colorId: string }>;
+  recurrenceFamilies: Array<{ rootId: UUID; rootHash: string; deleted: boolean; family: unknown }>;
+  workItems: Array<{ id: UUID; rootId: UUID; data: TaskData; target: unknown }>;
   deletedWorkItemIds: string[];
   localStateRevision: number;
   clockCalibration: {
@@ -74,6 +78,29 @@ async function inspect(): Promise<{
       .map(([, value]) => String((value as { data?: { name?: unknown } }).data?.name ?? ""))
       .filter(Boolean)
       .sort();
+    const planColors = Object.entries(projection.replay.state.roots)
+      .filter(([key, value]) => key.startsWith("plan:") && !value.deleted)
+      .map(([key, value]) => ({
+        id: key.slice("plan:".length) as UUID,
+        name: String((value as { data?: { name?: unknown } }).data?.name ?? ""),
+        colorId: String((value as { data?: { color_id?: unknown } }).data?.color_id ?? ""),
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id));
+    const recurrenceFamilies = (await Promise.all(Object.entries(projection.replay.state.roots)
+      .filter(([key, value]) => key.startsWith("work_item:") && "kind" in value && value.kind === "recurrence_family")
+      .map(async ([key, value]) => {
+        if (!("kind" in value) || value.kind !== "recurrence_family") throw new Error("Recurrence projection changed while inspecting the browser fixture");
+        const rootId = key.slice("work_item:".length) as UUID;
+        return {
+          rootId,
+          rootHash: await semanticRootHash({ kind: "work_item", id: rootId }, value),
+          deleted: value.deleted,
+          family: value.family,
+        };
+      })))
+      .sort((left, right) => left.rootId.localeCompare(right.rootId));
+    const workItems = (await workItemsForDates(projection.replay.state, dates))
+      .map(({ id, root_id, data, target }) => ({ id, rootId: root_id, data, target }));
     const deletedWorkItemIds = Object.entries(projection.replay.state.roots)
       .filter(([key, value]) => key.startsWith("work_item:") && "kind" in value && value.deleted)
       .map(([key]) => key.slice("work_item:".length))
@@ -93,6 +120,9 @@ async function inspect(): Promise<{
       diagnosticIds: snapshot.diagnostics.map((row) => row.record_id),
       stagingCount,
       planNames,
+      planColors,
+      recurrenceFamilies,
+      workItems,
       deletedWorkItemIds,
       localStateRevision: snapshot.metadata.local_state_revision,
       clockCalibration: snapshot.metadata.clock_calibration ? {
@@ -196,6 +226,129 @@ async function deleteWorkItem(workItemId: UUID, dependencyId: UUID): Promise<{ o
     payload: {},
     precondition: null,
   }], [dependencyId]);
+}
+
+async function createRecurringTask(input: {
+  planId: UUID;
+  dependencyIds: UUID[];
+  startDate: string;
+  weekdays: number[];
+}): Promise<{ operationId: UUID; requestHash: string; workItemId: UUID }> {
+  const workItemId = crypto.randomUUID() as UUID;
+  const rule: RecurrenceRule = { weekdays: [...input.weekdays].sort((left, right) => left - right) };
+  const template: TaskTemplate = {
+    title: "Recurring library review",
+    period: "morning",
+    duration_minutes: 30,
+    plan_id: input.planId,
+    standalone_color_id: "blue",
+    order_key: "0",
+  };
+  const result = await commitCommands([{
+    root: { kind: "work_item", id: workItemId },
+    action: "work_item.create_recurrence",
+    payload: { start_date: input.startDate, rule, template },
+    precondition: null,
+  }], input.dependencyIds);
+  return { ...result, workItemId };
+}
+
+async function replaceOccurrence(input: {
+  workItemId: UUID;
+  sourceSegmentId: UUID;
+  originalDate: string;
+  data: TaskData;
+  dependencyIds: UUID[];
+  clockOffsetMs?: number;
+}): Promise<{ operationId: UUID; requestHash: string }> {
+  return commitCommands([{
+    root: { kind: "work_item", id: input.workItemId },
+    action: "occurrence.replace",
+    payload: {
+      source_segment_id: input.sourceSegmentId,
+      original_date: input.originalDate,
+      data: input.data,
+    },
+    precondition: null,
+  }], input.dependencyIds, input.clockOffsetMs ?? 0);
+}
+
+async function editSeriesFuture(input: {
+  workItemId: UUID;
+  sourceSegmentId: UUID;
+  cutoffOriginalDate: string;
+  rule: RecurrenceRule;
+  template: TaskTemplate;
+  dependencyIds: UUID[];
+}): Promise<{ operationId: UUID; requestHash: string }> {
+  return commitCommands([{
+    root: { kind: "work_item", id: input.workItemId },
+    action: "series.edit_future",
+    payload: {
+      source_segment_id: input.sourceSegmentId,
+      cutoff_original_date: input.cutoffOriginalDate,
+      rule: input.rule,
+      template: input.template,
+    },
+    precondition: null,
+  }], input.dependencyIds);
+}
+
+async function stopSeriesFuture(input: {
+  workItemId: UUID;
+  sourceSegmentId: UUID;
+  cutoffOriginalDate: string;
+  dependencyIds: UUID[];
+}): Promise<{ operationId: UUID; requestHash: string }> {
+  return commitCommands([{
+    root: { kind: "work_item", id: input.workItemId },
+    action: "series.stop_future",
+    payload: {
+      source_segment_id: input.sourceSegmentId,
+      cutoff_original_date: input.cutoffOriginalDate,
+    },
+    precondition: null,
+  }], input.dependencyIds);
+}
+
+async function undoWorkItemOperation(input: {
+  workItemId: UUID;
+  originalOperationId: UUID;
+}): Promise<{ operationId: UUID; requestHash: string }> {
+  const owner = await currentOwnerId();
+  const database = await openVaultDatabase(BUILD_ID);
+  try {
+    const [snapshot, gate] = await Promise.all([
+      readOwnerSnapshot(database, owner, BUILD_ID),
+      readBuildGate(database),
+    ]);
+    if (!gate) throw new Error("Build gate is unavailable in the sync harness");
+    const projection = (await rebuildOwnerProjection({ snapshot })).replay.state;
+    const root = { kind: "work_item" as const, id: input.workItemId };
+    const hash = await semanticRootHash(root, projection.roots[`work_item:${input.workItemId}`] ?? null);
+    const result = await commitLocalMutation({
+      database,
+      snapshot,
+      gate,
+      expectedBuild: BUILD_ID,
+      requireApplied: true,
+      draft: {
+        dependencies: [input.originalOperationId],
+        commands: [{
+          root,
+          action: "undo",
+          payload: {
+            original_operation_id: input.originalOperationId,
+            expected_states: [{ root, hash }],
+          },
+          precondition: null,
+        }],
+      },
+    });
+    return { operationId: result.operation.operation_id, requestHash: result.requestHash };
+  } finally {
+    database.close();
+  }
 }
 
 function setClockOffsetForTest(offsetMs: number): void {
@@ -655,11 +808,16 @@ declare global {
   interface Window {
     __dayforgeSyncTestAbortOnReady?: OwnerWriteAbortTarget;
     __dayforgeSyncBrowserHarness?: {
-      inspect(): ReturnType<typeof inspect>;
+      inspect(dates?: string[]): ReturnType<typeof inspect>;
       createPlan(name: string, clockOffsetMs?: number): ReturnType<typeof createPlan>;
       replacePlan(planId: UUID, name: string, dependencyId: UUID): ReturnType<typeof replacePlan>;
       createWorkItem(planId: UUID, dependencyId: UUID): ReturnType<typeof createWorkItem>;
       deleteWorkItem(workItemId: UUID, dependencyId: UUID): ReturnType<typeof deleteWorkItem>;
+      createRecurringTask(input: Parameters<typeof createRecurringTask>[0]): ReturnType<typeof createRecurringTask>;
+      replaceOccurrence(input: Parameters<typeof replaceOccurrence>[0]): ReturnType<typeof replaceOccurrence>;
+      editSeriesFuture(input: Parameters<typeof editSeriesFuture>[0]): ReturnType<typeof editSeriesFuture>;
+      stopSeriesFuture(input: Parameters<typeof stopSeriesFuture>[0]): ReturnType<typeof stopSeriesFuture>;
+      undoWorkItemOperation(input: Parameters<typeof undoWorkItemOperation>[0]): ReturnType<typeof undoWorkItemOperation>;
       setClockOffsetForTest(offsetMs: number): void;
       expireClockCalibrationForTest(): ReturnType<typeof expireClockCalibrationForTest>;
       expireLeaseForClockTest(): ReturnType<typeof expireLeaseForClockTest>;
@@ -698,6 +856,11 @@ export function SyncBrowserHarness(): React.JSX.Element {
       replacePlan,
       createWorkItem,
       deleteWorkItem,
+      createRecurringTask,
+      replaceOccurrence,
+      editSeriesFuture,
+      stopSeriesFuture,
+      undoWorkItemOperation,
       setClockOffsetForTest,
       expireClockCalibrationForTest,
       expireLeaseForClockTest,
