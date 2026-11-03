@@ -531,7 +531,7 @@ test("ownerCanCreateTaskAndNestedPlanWithoutLosingTheTaskDraft", async ({ page }
   await expect(thursdayMorning.locator(".work-task-card")).toContainText("Nộp báo cáo cuối kỳ");
   await expect(page.locator(".calendar-undo-toast")).toContainText("Đã chuyển “Nộp báo cáo cuối kỳ” sang sáng thứ năm.");
   await page.locator(".calendar-undo-toast").getByRole("button", { name: "Hoàn tác", exact: true }).click();
-  await expect(afternoonBucket.locator(".work-task-card")).toContainText("Nộp báo cáo cuối kỳ");
+  await expect(afternoonBucket.locator(".work-task-card").filter({ hasText: "Nộp báo cáo cuối kỳ" })).toBeVisible();
   await expect(thursdayMorning.locator(".work-task-card")).toHaveCount(0);
 
   const beforeEscapeCancel = await readEncryptedOutbox(page);
@@ -567,7 +567,7 @@ test("ownerCanCreateTaskAndNestedPlanWithoutLosingTheTaskDraft", async ({ page }
   await expect(wednesdayEvening.locator(".work-task-card")).toContainText("Nộp báo cáo bản cuối");
   await expect(page.locator(".calendar-undo-toast")).toContainText("Đã chuyển “Nộp báo cáo bản cuối” sang tối thứ tư.");
   await page.locator(".calendar-undo-toast").getByRole("button", { name: "Hoàn tác", exact: true }).click();
-  await expect(afternoonBucket.locator(".work-task-card")).toContainText("Nộp báo cáo bản cuối");
+  await expect(afternoonBucket.locator(".work-task-card").filter({ hasText: "Nộp báo cáo bản cuối" })).toBeVisible();
   await expect(wednesdayEvening.locator(".work-task-card")).toHaveCount(0);
 });
 
