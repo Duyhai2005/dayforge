@@ -18,6 +18,7 @@ Status: implementation and local verification complete on `feature/weekly-work-c
 | `pnpm --filter @dayforge/frontend typecheck` | Passed |
 | `pnpm build:web` | Passed |
 | `pnpm --filter @dayforge/frontend exec playwright test tests/auth-session.spec.ts tests/calendar-widget.spec.ts tests/view-state.spec.ts --reporter=dot` | Passed, 36 tests |
+| `pnpm --filter @dayforge/frontend exec playwright test tests/routes.spec.ts --reporter=dot` | Passed, 3 tests |
 | `git diff --check` | Passed |
 | GitHub CI and Offline web shell workflows | Pending PR |
 
