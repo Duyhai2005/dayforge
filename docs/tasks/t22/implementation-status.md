@@ -1,6 +1,6 @@
 # T22 — Thao tác occurrence và chuỗi lặp
 
-Trạng thái: triển khai local xong trên `feature/recurring-series-actions`; typecheck, lint, regression browser local đã xanh. PR/CI còn chờ.
+Trạng thái: hoàn tất; PR #22 đã squash-merge vào `develop` sau khi CI và Offline web shell đều xanh.
 
 ## Đã triển khai
 
@@ -22,6 +22,7 @@ Trạng thái: triển khai local xong trên `feature/recurring-series-actions`;
 | Sửa quy tắc theo cutoff, giữ exception/plan/color, sửa detached, dừng qua occurrence đã dời | Passed |
 | Di chuyển và sắp xếp bucket trộn | Passed |
 | Regression tạo task và nested plan | Passed |
-| GitHub CI | Chưa chạy; PR chưa mở |
+| GitHub CI #83 | Passed: quality, development/production browser suites, production build/API check, MySQL integration và two-browser sync acceptance |
+| Offline web shell #70 | Passed: production offline suite và same-origin A/B update suite |
 
 T23 vẫn sẽ kiểm tra lại các hành vi này qua hai thiết bị, retry, lost response, MySQL và quy tắc hội tụ client/server. Local browser test T22 xác minh luồng UI với backend test hiện tại, không thay thế nghiệm thu đồng bộ đa thiết bị.

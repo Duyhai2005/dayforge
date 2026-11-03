@@ -7,8 +7,8 @@ Nhóm gồm T21–T23. T21 tạo và hiển thị chuỗi; T22 cung cấp thao t
 | Task | Mục tiêu | Phụ thuộc | Trạng thái |
 | --- | --- | --- | --- |
 | T21 | Tạo quy tắc lặp và chiếu occurrence trong tuần đang xem | T03, T08, T10 | Hoàn tất; PR #21 đã merge và CI xanh |
-| T22 | Sửa, dời, xóa, hoàn tác occurrence; sửa/dừng phần còn lại của chuỗi | T15, T19, T20, T21 | Đang triển khai trên `feature/recurring-series-actions`; kiểm tra local xanh, chờ PR/CI |
-| T23 | Chứng minh hành vi lặp giống nhau qua hai thiết bị và MySQL | T11, T12, T22 | Chưa bắt đầu; dự kiến nhánh `feature/recurring-sync-acceptance` sau khi T22 merge |
+| T22 | Sửa, dời, xóa, hoàn tác occurrence; sửa/dừng phần còn lại của chuỗi | T15, T19, T20, T21 | Hoàn tất; PR #22 squash-merge vào `develop`, CI và Offline web shell xanh |
+| T23 | Chứng minh hành vi lặp giống nhau qua hai thiết bị và MySQL | T11, T12, T22 | Hoàn tất kiểm chứng; PR #23 và CI/Offline web shell đều xanh |
 
 ## T21 — Quy tắc lặp và occurrence nhìn thấy được
 
@@ -58,30 +58,32 @@ Nhóm gồm T21–T23. T21 tạo và hiển thị chuỗi; T22 cung cấp thao t
 - [x] Kiểm tra đổi quy tắc từ cutoff, giữ exception và plan/color, sửa task đã tách, dừng từ cutoff qua occurrence đã dời.
 - [x] Kiểm tra thứ tự hỗn hợp trong bucket có nhiều loại thẻ.
 - [x] Chạy typecheck, lint, `git diff --check` và các browser regression T22.
-- [ ] Mở PR tiếng Anh vào `develop`, theo dõi CI, xử lý lỗi, rồi squash merge khi mọi job bắt buộc xanh.
+- [x] Mở PR tiếng Anh vào `develop`, theo dõi CI, xử lý lỗi, rồi squash merge khi mọi job bắt buộc xanh; PR #22 đã merge sau khi CI và Offline web shell xanh.
 
 ## T23 — Nghiệm thu lưu trữ và đồng bộ lặp
 
+Trạng thái triển khai hiện tại: xem [báo cáo T23](t23/implementation-status.md). Runner mở rộng trên cùng harness client mutation, IndexedDB/outbox, hai Chromium context và MySQL cô lập của T11–T12.
+
 ### Thiết lập và luồng đồng thời
 
-- [ ] Dùng hai browser context của cùng owner kết nối backend/MySQL kiểm thử thật, cùng một bộ dữ liệu chuỗi có occurrence thường, đã dời, đã tách và đã chỉnh.
-- [ ] Chỉnh occurrence trên thiết bị A trong khi B đang mở; kiểm tra B nhận đúng projection sau pull/reconnect và không đổi nhầm sibling.
-- [ ] Cho offline một thiết bị, thực hiện sửa/dời/tách/dừng, sau đó reconnect; thử retry byte-identical, response bị mất/trễ và cập nhật mới hơn ở thiết bị còn lại.
-- [ ] Kiểm tra quy tắc LWW/intent cho cùng mục tiêu và các mutation cấu trúc chuỗi đến theo thứ tự khác nhau; xung đột phải được chấp nhận hoặc từ chối nguyên tử theo hợp đồng T12.
+- [x] Dùng hai browser context của cùng owner kết nối backend/MySQL kiểm thử thật, cùng bộ dữ liệu chuỗi có occurrence thường, đã dời, đã tách và đã chỉnh.
+- [x] Chỉnh occurrence trên thiết bị A trong khi B đang mở; kiểm tra B nhận đúng projection sau pull/reconnect và không đổi nhầm sibling.
+- [x] Cho offline một thiết bị, sửa/dời occurrence rồi reconnect; kiểm tra operation ID, retry byte-identical, response bị mất và cập nhật mới hơn trên thiết bị còn lại.
+- [x] Kiểm tra LWW cho cùng mục tiêu, đồng thời giữ chỉnh sửa riêng của occurrence khác trên hai thiết bị.
 
 ### Dữ liệu phải giữ đúng
 
-- [ ] Việc đã tách tiếp tục là task một lần và giữ kế hoạch, màu, nội dung, trạng thái và thứ tự.
-- [ ] Occurrence đã dời xuất hiện tại ngày hiệu lực; thao tác sửa quy tắc/dừng vẫn dựa trên ngày gốc.
-- [ ] Lịch sử trước cutoff không đổi; occurrence sau cutoff bị gỡ đúng phạm vi; không có duplicate hoặc occurrence bị hồi sinh.
-- [ ] Undo chuỗi là nguyên tử; nếu tham chiếu sống hoặc event mới làm inverse không còn an toàn, toàn mutation bị từ chối và dữ liệu không bị cập nhật một phần.
-- [ ] Hai thiết bị hội tụ cùng projection/hash sau khi đồng bộ hoàn tất.
+- [x] Việc đã tách tiếp tục là task một lần và giữ ngày hiệu lực, kế hoạch, màu cùng nội dung ngoại lệ.
+- [x] Occurrence đã dời xuất hiện tại ngày hiệu lực; thao tác dừng vẫn dựa trên ngày gốc.
+- [x] Lịch sử trước cutoff được giữ; occurrence sau cutoff bị gỡ đúng phạm vi, kể cả lần đã dời; không có duplicate.
+- [x] Undo dừng chuỗi khôi phục nguyên tử projection và các ngoại lệ.
+- [x] Hai thiết bị hội tụ cùng projection/hash sau khi đồng bộ hoàn tất.
 
 ### Cổng hoàn tất nhóm
 
-- [ ] Chạy suite T23 riêng trên MySQL và hai browser context; giữ log/job run để có thể tái lập.
-- [ ] Chạy đầy đủ CI trên PR tiếng Anh của T23, sửa mọi failure và squash merge sau khi xanh.
-- [ ] Cập nhật checklist nhóm 5 và báo cáo trạng thái với các giới hạn môi trường còn lại (nếu có).
+- [x] Chạy suite T23 trên MySQL và hai browser context; CI run [#41674982176](https://github.com/Duyhai2005/dayforge/actions/runs/41674982176) ghi log và kết quả acceptance.
+- [x] Chạy đầy đủ CI trên PR tiếng Anh [#23](https://github.com/Duyhai2005/dayforge/pull/23), sửa lỗi runner và xác nhận mọi job xanh; Offline web shell run [#41674982174](https://github.com/Duyhai2005/dayforge/actions/runs/41674982174) cũng xanh.
+- [x] Cập nhật checklist nhóm 5 và báo cáo trạng thái; runner local vẫn bị giới hạn bởi Docker Desktop Engine chưa chạy.
 
 ## Kế hoạch nhánh/PR
 
@@ -89,4 +91,4 @@ Nhóm gồm T21–T23. T21 tạo và hiển thị chuỗi; T22 cung cấp thao t
 | --- | --- | --- | --- |
 | T21 | `feature/recurring-rules` | `develop` | PR #21 đã merge; CI và Offline web shell xanh |
 | T22 | `feature/recurring-series-actions` | `develop` tại merge T21 | CI xanh, squash merge; sau đó tạo nhánh T23 từ `develop` mới |
-| T23 | `feature/recurring-sync-acceptance` | `develop` tại merge T22 | Hai-browser/MySQL acceptance và CI xanh; squash merge |
+| T23 | `feature/recurring-sync-acceptance` | `develop` tại merge T22 | PR #23: two-browser/MySQL acceptance, CI và Offline web shell xanh; sẵn sàng squash merge |

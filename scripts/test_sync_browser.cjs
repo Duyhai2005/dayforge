@@ -341,6 +341,7 @@ async function runBrowserScenario(baseURL) {
     ])));
 
     const pushFaultEvidence = { requestBodies: [], serverResponses: [], serverResponseDetails: [] };
+    const recurringLostResponse = { rootId: null, action: null, armed: false, lost: false, requestBodies: [] };
     const staleLeaderResponse = { armed: false, held: false };
     let releaseStaleLeaderResponse = () => {};
     let signalStaleLeaderResponse = () => {};
@@ -354,6 +355,23 @@ async function runBrowserScenario(baseURL) {
     const recoveryProcessDeathResponse = { armed: false, held: false, terminated: false };
     let releaseRecoveryProcessDeathResponse = () => {};
     const recoveryProcessDeathResponseGate = new Promise((resolve) => { releaseRecoveryProcessDeathResponse = resolve; });
+    const refreshLeaderClock = async (page, label) => {
+      const before = await page.evaluate(() => window.__dayforgeSyncBrowserHarness.inspect());
+      assert(before.clockCalibration, `${label} requires an existing clock calibration`);
+      await page.evaluate(async () => {
+        window.__dayforgeSyncBrowserHarness.setClockOffsetForTest(0);
+        await window.__dayforgeSyncBrowserHarness.expireClockCalibrationForTest();
+        window.dispatchEvent(new Event("online"));
+        window.__dayforgeSyncBrowserHarness.wakeSync();
+      });
+      await waitFor(() => page.evaluate(async (previousCalibrationId) => {
+        const [state, coordinator] = await Promise.all([
+          window.__dayforgeSyncBrowserHarness.inspect(),
+          window.__dayforgeSyncBrowserHarness.coordinatorDetails(),
+        ]);
+        return state.clockCalibration?.calibrationId !== previousCalibrationId && coordinator.state === "syncing";
+      }, before.clockCalibration.calibrationId), `${label} to refresh its clock calibration`, 45_000);
+    };
     await contextA.route("**/api/v1/sync/push", async (route) => {
       const requestBody = route.request().postData() ?? "";
       pushFaultEvidence.requestBodies.push(requestBody);
@@ -386,6 +404,35 @@ async function runBrowserScenario(baseURL) {
           }),
         });
         return;
+      }
+      const parsedRequest = JSON.parse(requestBody);
+      const recurringOperation = recurringLostResponse.armed && recurringLostResponse.rootId
+        ? (parsedRequest.operations ?? []).find((operation) => operation.commands?.some((command) =>
+          command.root?.kind === "work_item" && command.root.id === recurringLostResponse.rootId &&
+          command.action === recurringLostResponse.action))
+        : null;
+      if (recurringOperation) {
+        recurringLostResponse.requestBodies.push(requestBody);
+        if (!recurringLostResponse.lost) {
+          recurringLostResponse.lost = true;
+          expectedLostPushResponseConsoleError = true;
+          await route.fulfill({
+            status: 503,
+            headers: { "cache-control": "private, no-store", "content-type": "application/problem+json" },
+            body: JSON.stringify({
+              type: "about:blank",
+              title: "Temporary recurrence response loss",
+              status: 503,
+              detail: "The recurrence operation was recorded before this test replaced its response.",
+              instance: "/api/v1/sync/push",
+              code: "service_unavailable",
+              request_id: crypto.randomUUID(),
+              retryable: true,
+              server_time: new Date().toISOString(),
+            }),
+          });
+          return;
+        }
       }
       if (staleLeaderResponse.armed && !staleLeaderResponse.held) {
         staleLeaderResponse.held = true;
@@ -566,7 +613,319 @@ async function runBrowserScenario(baseURL) {
     }
     console.log("Offline create/edit/delete operations reconnected in dependency order with original ids/hashes and converged through MySQL on both devices.");
 
-    await contextB.unroute("**/api/v1/sync/pull**");
+    const recurrenceDates = [
+      "2030-01-01", "2030-01-08", "2030-01-09", "2030-01-10", "2030-01-15", "2030-01-16",
+      "2030-01-17", "2030-01-20", "2030-01-22", "2030-01-24", "2030-01-29", "2030-01-31",
+    ];
+    const recurrencePlan = await pageA.evaluate((planName) =>
+      window.__dayforgeSyncBrowserHarness.createPlan(planName), `${name}-recurrence-plan`);
+    const exceptionPlan = await pageA.evaluate((planName) =>
+      window.__dayforgeSyncBrowserHarness.createPlan(planName), `${name}-recurrence-exception-plan`);
+    const exceptionPlanUpdate = await pageA.evaluate(({ planId, planName, dependencyId }) =>
+      window.__dayforgeSyncBrowserHarness.replacePlan(planId, planName, dependencyId), {
+      planId: exceptionPlan.planId,
+      planName: `${name}-recurrence-exception-plan-purple`,
+      dependencyId: exceptionPlan.operationId,
+    });
+    const recurringSeries = await pageA.evaluate((input) =>
+      window.__dayforgeSyncBrowserHarness.createRecurringTask(input), {
+      planId: recurrencePlan.planId,
+      dependencyIds: [recurrencePlan.operationId, exceptionPlanUpdate.operationId],
+      startDate: "2030-01-01",
+      weekdays: [2],
+    });
+    const readRecurrenceState = (page) => page.evaluate((dates) =>
+      window.__dayforgeSyncBrowserHarness.inspect(dates), recurrenceDates);
+    const recurringRootId = recurringSeries.workItemId;
+    const recurringRecordReady = async (page, operationIds) => page.evaluate(({ dates, rootId, expectedIds }) => {
+      return window.__dayforgeSyncBrowserHarness.inspect(dates).then((state) => {
+        const family = state.recurrenceFamilies.find((item) => item.rootId === rootId);
+        return Boolean(family) && expectedIds.every((id) => state.recordedEvents.some((event) => event.operationId === id) &&
+          !state.pending.some((entry) => entry.operationId === id));
+      });
+    }, { dates: recurrenceDates, rootId: recurringRootId, expectedIds: operationIds });
+    await waitFor(() => Promise.all([
+      recurringRecordReady(pageA, [recurrencePlan.operationId, exceptionPlan.operationId, exceptionPlanUpdate.operationId, recurringSeries.operationId]),
+      recurringRecordReady(pageB, [recurrencePlan.operationId, exceptionPlan.operationId, exceptionPlanUpdate.operationId, recurringSeries.operationId]),
+    ]).then((results) => results.every(Boolean)), "recurrence plan and series to be stored and pulled on both devices", 60_000);
+
+    const initialRecurrenceState = await readRecurrenceState(pageA);
+    const initialFamily = initialRecurrenceState.recurrenceFamilies.find((item) => item.rootId === recurringRootId);
+    assert(initialFamily, "the created recurrence family must exist in the local projection");
+    const originalSegment = initialFamily.family.segments.find((segment) => segment.from_date === "2030-01-01");
+    assert(originalSegment, "the recurrence must have its original segment");
+    assert.equal(initialRecurrenceState.workItems.filter((item) => item.rootId === recurringRootId && item.target.kind === "occurrence").length, 5,
+      "the initial Tuesday recurrence should expand into the selected visible dates");
+
+    await contextA.setOffline(true);
+    const movedFirstTuesday = await pageA.evaluate((input) =>
+      window.__dayforgeSyncBrowserHarness.replaceOccurrence(input), {
+      workItemId: recurringRootId,
+      sourceSegmentId: originalSegment.segment_id,
+      originalDate: "2030-01-08",
+      data: {
+        title: "Moved Tuesday exception",
+        date: "2030-01-09",
+        period: "afternoon",
+        duration_minutes: 40,
+        plan_id: exceptionPlan.planId,
+        standalone_color_id: "coral",
+        status: "completed",
+        order_key: "1024",
+      },
+      dependencyIds: [recurringSeries.operationId],
+    });
+    const olderSameTargetEdit = await pageA.evaluate((input) =>
+      window.__dayforgeSyncBrowserHarness.replaceOccurrence(input), {
+      workItemId: recurringRootId,
+      sourceSegmentId: originalSegment.segment_id,
+      originalDate: "2030-01-22",
+      data: {
+        title: "Older offline same-target edit",
+        date: "2030-01-22",
+        period: "morning",
+        duration_minutes: 25,
+        plan_id: exceptionPlan.planId,
+        standalone_color_id: "teal",
+        status: "pending",
+        order_key: "2048",
+      },
+      dependencyIds: [recurringSeries.operationId],
+    });
+    const queuedRecurrenceState = await readRecurrenceState(pageA);
+    assert([movedFirstTuesday.operationId, olderSameTargetEdit.operationId].every((id) =>
+      queuedRecurrenceState.pending.some((entry) => entry.operationId === id && entry.state === "queued")),
+    "offline recurrence edits must remain queued with their original operation ids");
+
+    const movedSecondTuesday = await pageB.evaluate((input) =>
+      window.__dayforgeSyncBrowserHarness.replaceOccurrence(input), {
+      workItemId: recurringRootId,
+      sourceSegmentId: originalSegment.segment_id,
+      originalDate: "2030-01-15",
+      data: {
+        title: "Moved second Tuesday exception",
+        date: "2030-01-16",
+        period: "evening",
+        duration_minutes: 35,
+        plan_id: exceptionPlan.planId,
+        standalone_color_id: "teal",
+        status: "completed",
+        order_key: "1024",
+      },
+      dependencyIds: [recurringSeries.operationId],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    const newerSameTargetEdit = await pageB.evaluate((input) =>
+      window.__dayforgeSyncBrowserHarness.replaceOccurrence(input), {
+      workItemId: recurringRootId,
+      sourceSegmentId: originalSegment.segment_id,
+      originalDate: "2030-01-22",
+      data: {
+        title: "Newer online same-target edit",
+        date: "2030-01-22",
+        period: "afternoon",
+        duration_minutes: 50,
+        plan_id: exceptionPlan.planId,
+        standalone_color_id: "coral",
+        status: "completed",
+        order_key: "3072",
+      },
+      dependencyIds: [recurringSeries.operationId],
+    });
+    await waitFor(() => Promise.all([
+      recurringRecordReady(pageB, [movedSecondTuesday.operationId, newerSameTargetEdit.operationId]),
+    ]).then((results) => results.every(Boolean)), "device B's recurrence edits to be recorded before A reconnects");
+    await contextA.setOffline(false);
+    await pageA.evaluate(() => { window.dispatchEvent(new Event("online")); window.__dayforgeSyncBrowserHarness.wakeSync(); });
+    await pageB.evaluate(() => { window.dispatchEvent(new Event("online")); window.__dayforgeSyncBrowserHarness.wakeSync(); });
+    const occurrenceOperations = [movedFirstTuesday, olderSameTargetEdit, movedSecondTuesday, newerSameTargetEdit];
+    await waitFor(() => Promise.all([
+      recurringRecordReady(pageA, occurrenceOperations.map((operation) => operation.operationId)),
+      recurringRecordReady(pageB, occurrenceOperations.map((operation) => operation.operationId)),
+    ]).then((results) => results.every(Boolean)), "offline/online occurrence edits to converge in MySQL and both device projections", 90_000);
+    let [occurrencesA, occurrencesB] = await Promise.all([readRecurrenceState(pageA), readRecurrenceState(pageB)]);
+    const movedFirstCard = occurrencesA.workItems.filter((item) => item.rootId === recurringRootId &&
+      item.target.kind === "occurrence" && item.target.original_date === "2030-01-08");
+    const movedSecondCard = occurrencesA.workItems.filter((item) => item.rootId === recurringRootId &&
+      item.target.kind === "occurrence" && item.target.original_date === "2030-01-15");
+    const sameTargetCard = occurrencesA.workItems.filter((item) => item.rootId === recurringRootId &&
+      item.target.kind === "occurrence" && item.target.original_date === "2030-01-22");
+    assert.equal(movedFirstCard.length, 1, "a moved occurrence must be projected once at its effective date");
+    assert.equal(movedFirstCard[0].data.date, "2030-01-09");
+    assert.equal(movedSecondCard.length, 1, "an independent edit on another occurrence must also survive");
+    assert.equal(movedSecondCard[0].data.date, "2030-01-16");
+    assert.equal(sameTargetCard.length, 1, "same-target replacements must not create duplicate occurrence cards");
+    assert.equal(sameTargetCard[0].data.title, "Newer online same-target edit",
+      "the later calibrated edit must win when an older offline replacement arrives afterward");
+    for (const state of [occurrencesA, occurrencesB]) {
+      const family = state.recurrenceFamilies.find((item) => item.rootId === recurringRootId);
+      assert(family, "each device must retain the recurrence family");
+      assert.equal(family.rootHash, occurrencesA.recurrenceFamilies.find((item) => item.rootId === recurringRootId).rootHash,
+        "both devices must compute the same semantic family hash after occurrence edits");
+      assert(state.planColors.some((plan) => plan.id === exceptionPlan.planId && plan.colorId === "purple"),
+        "the referenced exception plan and its purple color must sync");
+      for (const operation of occurrenceOperations) {
+        const recorded = state.recordedEvents.find((event) => event.operationId === operation.operationId);
+        assert(recorded, "both devices must publish each recurrence edit in recorded shadow");
+        assert.equal(recorded.requestHash, operation.requestHash, "occurrence sync must preserve the operation id and hash");
+        assert(!state.pending.some((entry) => entry.operationId === operation.operationId), "synced occurrence edits must leave the outbox");
+      }
+    }
+    console.log("Two devices converged distinct occurrence edits and a same-target LWW conflict; offline operation IDs and hashes were retained.");
+
+    recurringLostResponse.rootId = recurringRootId;
+    recurringLostResponse.action = "series.edit_future";
+    recurringLostResponse.armed = true;
+    const futureTemplate = {
+      title: "Review after rule change",
+      period: "evening",
+      duration_minutes: 45,
+      plan_id: recurrencePlan.planId,
+      standalone_color_id: "blue",
+      order_key: "0",
+    };
+    const futureRuleEdit = await pageA.evaluate((input) =>
+      window.__dayforgeSyncBrowserHarness.editSeriesFuture(input), {
+      workItemId: recurringRootId,
+      sourceSegmentId: originalSegment.segment_id,
+      cutoffOriginalDate: "2030-01-08",
+      rule: { weekdays: [4] },
+      template: futureTemplate,
+      dependencyIds: [recurringSeries.operationId, exceptionPlanUpdate.operationId,
+        ...occurrenceOperations.map((operation) => operation.operationId)],
+    });
+    const recurrenceEditRequests = () => recurringLostResponse.requestBodies.filter((raw) => {
+      const request = JSON.parse(raw);
+      return request.operations?.some((operation) => operation.operation_id === futureRuleEdit.operationId);
+    });
+    await waitFor(async () => {
+      const [readyA, readyB] = await Promise.all([
+        recurringRecordReady(pageA, [futureRuleEdit.operationId]),
+        recurringRecordReady(pageB, [futureRuleEdit.operationId]),
+      ]);
+      return recurringLostResponse.lost && recurrenceEditRequests().length >= 2 && readyA && readyB;
+    }, "future series edit to retry after its committed push response is lost and reach both devices", 90_000);
+    const recurrenceEditRequestBodies = recurrenceEditRequests();
+    assert(recurringLostResponse.lost, "the future rule edit must pass through the lost-response fault");
+    assert(recurrenceEditRequestBodies.length >= 2, "the committed series edit must be retried after its response is lost");
+    assert.equal(new Set(recurrenceEditRequestBodies).size, 1,
+      "lost-response retry must preserve the exact byte-identical series operation body");
+    [occurrencesA, occurrencesB] = await Promise.all([readRecurrenceState(pageA), readRecurrenceState(pageB)]);
+    const editedFamilyA = occurrencesA.recurrenceFamilies.find((item) => item.rootId === recurringRootId);
+    assert(editedFamilyA, "the future-edited family must exist");
+    const newSegment = editedFamilyA.family.segments.find((segment) => segment.from_date === "2030-01-08");
+    assert(newSegment, "the new rule segment must begin at the original-date cutoff");
+    assert.deepEqual(newSegment.rule.weekdays, [4], "the future rule must use Thursday occurrences");
+    const detachedByOriginalDate = new Map(editedFamilyA.family.detached.map((child) => [child.original_date, child]));
+    assert.equal(detachedByOriginalDate.size, 3, "all edited exceptions from the cutoff must become retained detached tasks");
+    assert.equal(detachedByOriginalDate.get("2030-01-08").data.date, "2030-01-09");
+    assert.equal(detachedByOriginalDate.get("2030-01-08").data.plan_id, exceptionPlan.planId);
+    assert.equal(detachedByOriginalDate.get("2030-01-08").data.standalone_color_id, "coral");
+    assert.equal(detachedByOriginalDate.get("2030-01-15").data.date, "2030-01-16");
+    assert.equal(detachedByOriginalDate.get("2030-01-22").data.title, "Newer online same-target edit");
+    assert(occurrencesA.workItems.some((item) => item.rootId === recurringRootId && item.data.date === "2030-01-10" &&
+      item.data.title === futureTemplate.title && item.target.kind === "occurrence"),
+    "the new template must generate its Thursday occurrence after the cutoff");
+    for (const state of [occurrencesA, occurrencesB]) {
+      const family = state.recurrenceFamilies.find((item) => item.rootId === recurringRootId);
+      assert(family, "both devices must retain the edited recurrence family");
+      assert.equal(family.rootHash, editedFamilyA.rootHash, "future rule edit and detached exceptions must have matching device hashes");
+      const child = family.family.detached.find((entry) => entry.original_date === "2030-01-08");
+      assert(child && !child.deleted, "the moved exception must remain as a live detached task on both devices");
+      assert.equal(child.data.plan_id, exceptionPlan.planId, "series edits must preserve the detached task's plan");
+      assert.equal(child.data.standalone_color_id, "coral", "series edits must preserve the detached task's color");
+    }
+    console.log("Future rule edit retried byte-identically; detached exceptions kept their effective dates, plan ids, and colors on both devices.");
+
+    const movedFutureOccurrence = await pageA.evaluate((input) =>
+      window.__dayforgeSyncBrowserHarness.replaceOccurrence(input), {
+      workItemId: recurringRootId,
+      sourceSegmentId: newSegment.segment_id,
+      originalDate: "2030-01-17",
+      data: {
+        title: "Moved future Thursday",
+        date: "2030-01-20",
+        period: "afternoon",
+        duration_minutes: 45,
+        plan_id: recurrencePlan.planId,
+        standalone_color_id: "blue",
+        status: "pending",
+        order_key: "1024",
+      },
+      dependencyIds: [futureRuleEdit.operationId],
+    });
+    await waitFor(() => Promise.all([
+      recurringRecordReady(pageA, [movedFutureOccurrence.operationId]),
+      recurringRecordReady(pageB, [movedFutureOccurrence.operationId]),
+    ]).then((results) => results.every(Boolean)), "the moved future occurrence to become visible on both devices");
+    const beforeStop = await readRecurrenceState(pageA);
+    const beforeStopFamily = beforeStop.recurrenceFamilies.find((item) => item.rootId === recurringRootId);
+    assert(beforeStopFamily, "the family must be present before stopping future occurrences");
+    assert(beforeStop.workItems.some((item) => item.rootId === recurringRootId && item.target.kind === "occurrence" &&
+      item.target.original_date === "2030-01-17" && item.data.date === "2030-01-20"),
+    "the rescheduled occurrence must be visible at its effective date before the stop");
+
+    const stopFuture = await pageA.evaluate((input) =>
+      window.__dayforgeSyncBrowserHarness.stopSeriesFuture(input), {
+      workItemId: recurringRootId,
+      sourceSegmentId: newSegment.segment_id,
+      cutoffOriginalDate: "2030-01-17",
+      dependencyIds: [futureRuleEdit.operationId, movedFutureOccurrence.operationId],
+    });
+    await waitFor(() => Promise.all([
+      recurringRecordReady(pageA, [stopFuture.operationId]),
+      recurringRecordReady(pageB, [stopFuture.operationId]),
+    ]).then((results) => results.every(Boolean)), "stop-by-original-date to remove later generated and moved members on both devices");
+    const [stoppedA, stoppedB] = await Promise.all([readRecurrenceState(pageA), readRecurrenceState(pageB)]);
+    const stoppedFamily = stoppedA.recurrenceFamilies.find((item) => item.rootId === recurringRootId);
+    assert(stoppedFamily, "the stopped family must remain for history");
+    assert(stoppedA.workItems.some((item) => item.rootId === recurringRootId && item.data.date === "2030-01-01"),
+      "the first historical occurrence must remain before the stop cutoff");
+    assert(stoppedA.workItems.some((item) => item.rootId === recurringRootId && item.data.date === "2030-01-10" && item.target.kind === "occurrence"),
+      "generated history before the stop cutoff must remain");
+    assert(!stoppedA.workItems.some((item) => item.rootId === recurringRootId && item.data.date === "2030-01-20"),
+      "a moved occurrence whose original date equals the cutoff must be removed");
+    assert(!stoppedA.workItems.some((item) => item.rootId === recurringRootId && ["2030-01-24", "2030-01-31"].includes(item.data.date)),
+      "future generated occurrences must be removed after the cutoff");
+    assert.equal(stoppedFamily.family.detached.length, 3, "detached tasks must survive stopping the future series");
+    assert.deepEqual(stoppedB.recurrenceFamilies.find((item) => item.rootId === recurringRootId).family, stoppedFamily.family,
+      "both devices must have the same stopped history and detached exceptions");
+
+    const undoStop = await pageA.evaluate((input) =>
+      window.__dayforgeSyncBrowserHarness.undoWorkItemOperation(input), {
+      workItemId: recurringRootId,
+      originalOperationId: stopFuture.operationId,
+    });
+    await waitFor(() => Promise.all([
+      recurringRecordReady(pageA, [undoStop.operationId]),
+      recurringRecordReady(pageB, [undoStop.operationId]),
+    ]).then((results) => results.every(Boolean)), "the atomic series-stop undo to replay on both devices");
+    const [undoneA, undoneB] = await Promise.all([readRecurrenceState(pageA), readRecurrenceState(pageB)]);
+    const undoneFamily = undoneA.recurrenceFamilies.find((item) => item.rootId === recurringRootId);
+    assert(undoneFamily, "the undone family must remain");
+    assert.equal(undoneFamily.rootHash, beforeStopFamily.rootHash, "undo must restore the exact pre-stop semantic family hash");
+    assert.deepEqual(undoneA.workItems.filter((item) => item.rootId === recurringRootId),
+      beforeStop.workItems.filter((item) => item.rootId === recurringRootId),
+    "undo must restore the complete recurrence projection, including the moved member and detached children");
+    assert.deepEqual(undoneB.recurrenceFamilies.find((item) => item.rootId === recurringRootId).family, undoneFamily.family,
+      "both devices must converge to the same restored family after undo");
+    const recurrenceOperations = [recurrencePlan, exceptionPlan, exceptionPlanUpdate, recurringSeries,
+      ...occurrenceOperations, futureRuleEdit, movedFutureOccurrence, stopFuture, undoStop];
+    for (const state of [undoneA, undoneB]) {
+      for (const operation of recurrenceOperations) {
+        const recorded = state.recordedEvents.find((event) => event.operationId === operation.operationId);
+        assert(recorded, "the complete recurrence operation history must be recorded on both devices");
+        assert.equal(recorded.requestHash, operation.requestHash, "the recurrence history must retain every original operation hash");
+        assert(!state.pending.some((entry) => entry.operationId === operation.operationId), "no recurrence operation may remain pending after convergence");
+      }
+    }
+    assert.equal(undoneA.recurrenceFamilies.find((item) => item.rootId === recurringRootId).rootHash,
+      undoneB.recurrenceFamilies.find((item) => item.rootId === recurringRootId).rootHash,
+    "the final semantic recurrence hashes must agree across device lanes");
+    console.log("Stop-by-original-date removed a moved member while retaining history and detached tasks; atomic undo restored both device projections and matching hashes.");
+
+    // Drain in-flight pull handlers before installing the next fault injector.
+    await contextB.unrouteAll({ behavior: "wait" });
     const pullAbortName = `${name}-pull-transaction-abort`;
     let pullAbortResponseCount = 0;
     let signalFirstPullAbortResponse = () => {};
@@ -631,7 +990,7 @@ async function runBrowserScenario(baseURL) {
     releaseRetryPullAbortResponse();
     await waitFor(() => isRecorded(pageB, pullAbortName, pullAbortOperation.operationId),
       "device B to publish the unchanged pull page after retry", 45_000);
-    await contextB.unroute("**/api/v1/sync/pull**");
+    await contextB.unrouteAll({ behavior: "wait" });
     console.log("Device B committed the exact pull page after retry with no partial state from the aborted transaction.");
 
     const [finalA, finalB] = await Promise.all([
@@ -743,17 +1102,63 @@ async function runBrowserScenario(baseURL) {
     leaseBeforeFailover = leaseAfterLongFreeze;
     console.log("An idle leader stayed frozen across three lease TTLs; its successor took over and kept renewing without forced lease edits.");
 
+    await leaderPage.bringToFront();
+    await waitFor(() => leaderPage.evaluate(() => document.visibilityState === "visible"),
+      "the successor leader tab to become visible before the stale-response test");
+    await leaderPage.evaluate(() => { window.dispatchEvent(new Event("online")); window.__dayforgeSyncBrowserHarness.wakeSync(); });
+    await waitFor(async () => {
+      const [state, lease] = await Promise.all([
+        leaderPage.evaluate(() => window.__dayforgeSyncBrowserHarness.coordinatorState()),
+        leaderPage.evaluate(() => window.__dayforgeSyncBrowserHarness.leaseState()),
+      ]);
+      return state === "syncing" && lease?.fencing_token === leaseBeforeFailover.fencing_token &&
+        lease.expires_at_ms > Date.now();
+    }, "the promoted tab to hold its renewed leader lease before the stale-response test");
+    await refreshLeaderClock(leaderPage, "the promoted tab before the stale-response test");
     const staleLeaderPlan = `${name}-stale-leader-response`;
     const beforeStaleLeader = await leaderPage.evaluate(() => window.__dayforgeSyncBrowserHarness.inspect());
     assert.equal(beforeStaleLeader.pending.length, 0, "stale-response fencing begins with an empty active outbox");
     const stalePushStartIndex = pushFaultEvidence.requestBodies.length;
     staleLeaderResponse.armed = true;
     const staleLeaderOperation = await leaderPage.evaluate(
-      (planName) => window.__dayforgeSyncBrowserHarness.createPlan(planName),
+      async (planName) => {
+        const operation = await window.__dayforgeSyncBrowserHarness.createPlan(planName);
+        window.dispatchEvent(new Event("online"));
+        return { ...operation, syncWoken: window.__dayforgeSyncBrowserHarness.wakeSync() };
+      },
       staleLeaderPlan,
     );
-    await waitFor(() => staleLeaderResponse.held,
-      "the old leader's push response to arrive from the server and pause before the browser receives it");
+    assert(staleLeaderOperation.syncWoken, "the successor leader coordinator must be available to push the stale-response operation");
+    try {
+      await waitFor(() => staleLeaderResponse.held,
+        "the old leader's push response to arrive from the server and pause before the browser receives it");
+    } catch (error) {
+      const diagnostics = await leaderPage.evaluate(async () => ({
+        online: navigator.onLine,
+        visibility: document.visibilityState,
+        coordinator: window.__dayforgeSyncBrowserHarness.coordinatorDetails(),
+        lease: await window.__dayforgeSyncBrowserHarness.leaseState(),
+        state: await window.__dayforgeSyncBrowserHarness.inspect(),
+      }));
+      const observedPushes = pushFaultEvidence.requestBodies.slice(stalePushStartIndex).map((body) => {
+        const request = JSON.parse(body);
+        return (request.operations ?? []).map((operation) => ({
+          operationId: operation.operation_id,
+          actions: operation.commands?.map((command) => command.action),
+          planNames: operation.commands?.map((command) => command.payload?.data?.name).filter(Boolean),
+        }));
+      });
+      console.error("Stale leader push diagnostics:", JSON.stringify({
+        online: diagnostics.online,
+        visibility: diagnostics.visibility,
+        coordinator: diagnostics.coordinator,
+        lease: diagnostics.lease,
+        pending: diagnostics.state.pending,
+        recorded: diagnostics.state.recordedEvents.filter((event) => event.operationId === staleLeaderOperation.operationId),
+        observedPushes,
+      }));
+      throw error;
+    }
     const staleLeaderCdp = await contextA.newCDPSession(leaderPage);
     await staleLeaderCdp.send("Page.setWebLifecycleState", { state: "frozen" });
     const injectedFence = await successorPage.evaluate(() => window.__dayforgeSyncBrowserHarness.fenceLeaseForTest());
@@ -795,6 +1200,7 @@ async function runBrowserScenario(baseURL) {
     const leaseAfterFailover = await successorPage.evaluate(() => window.__dayforgeSyncBrowserHarness.leaseState());
     assert(leaseAfterFailover && leaseAfterFailover.fencing_token > leaseBeforeFailover.fencing_token,
       "a successor must receive a strictly newer fencing token after the prior leader releases its lease");
+    await refreshLeaderClock(successorPage, "the same-profile successor before its failover operation");
     const failoverName = `${name}-leader-failover`;
     const failoverOperation = await successorPage.evaluate((planName) => window.__dayforgeSyncBrowserHarness.createPlan(planName), failoverName);
     await waitFor(() => isRecorded(successorPage, failoverName, failoverOperation.operationId),
@@ -824,6 +1230,7 @@ async function runBrowserScenario(baseURL) {
     const processDeathSuccessorPage = processDeathPages[1 - processDeathLeaderIndex];
     const leaseBeforeProcessDeath = await processDeathLeaderPage.evaluate(() => window.__dayforgeSyncBrowserHarness.leaseState());
     assert(leaseBeforeProcessDeath, "the renderer selected for process death must hold the owner lease");
+    await refreshLeaderClock(processDeathLeaderPage, "the fresh process-death leader before creating its operation");
     const processDeathPlan = `${name}-process-death-in-flight`;
     const processDeathStartIndex = pushFaultEvidence.requestBodies.length;
     processDeathResponse.armed = true;
@@ -861,6 +1268,7 @@ async function runBrowserScenario(baseURL) {
     evidenceSuccessor = watchSyncResponses(successorPage);
     console.log("The leader tab was terminated after server commit with the response in flight; a fresh tab retried the exact envelope and both devices converged.");
 
+    await refreshLeaderClock(successorPage, "the recovered process-death leader before clock-repair setup");
     const clockRepairName = `${name}-clock-repair`;
     const invalidClockOperation = await successorPage.evaluate(
       (planName) => window.__dayforgeSyncBrowserHarness.createPlan(planName, 3_600_000),
@@ -1117,7 +1525,7 @@ async function runBrowserScenario(baseURL) {
               state.recordedEvents.some((event) => event.operationId === id));
           return recovered(recoveredA) && recovered(recoveredB);
         }, "both devices to recover their acknowledged union after the isolated server epoch reset", 90_000);
-        await contextB.unroute("**/api/v1/sync/pull**");
+        await contextB.unrouteAll({ behavior: "wait" });
       } catch (error) {
         const diagnostics = await Promise.all([successorPage, pageB].map(async (page) => ({
           coordinator: await page.evaluate(() => window.__dayforgeSyncBrowserHarness.coordinatorState()).catch(() => "unavailable"),
@@ -1222,6 +1630,20 @@ async function runBrowserScenario(baseURL) {
         acknowledged_events_recovered: recoveryOperationIds.length,
         journals_cleared: true,
       } : null,
+      recurrence_sync: {
+        root_id: recurringRootId,
+        operation_count: recurrenceOperations.length,
+        offline_operation_ids_preserved: occurrenceOperations.every((operation) =>
+          undoneA.recordedEvents.some((event) => event.operationId === operation.operationId && event.requestHash === operation.requestHash)),
+        same_target_lww_winner: "Newer online same-target edit",
+        lost_response_retry_count: recurrenceEditRequestBodies.length,
+        retry_request_body_byte_identical: new Set(recurrenceEditRequestBodies).size === 1,
+        detached_exception_count: undoneA.recurrenceFamilies.find((item) => item.rootId === recurringRootId).family.detached.length,
+        stop_cutoff: "2030-01-17",
+        moved_future_member_removed_then_restored_by_undo: true,
+        device_a_root_hash: undoneA.recurrenceFamilies.find((item) => item.rootId === recurringRootId).rootHash,
+        device_b_root_hash: undoneB.recurrenceFamilies.find((item) => item.rootId === recurringRootId).rootHash,
+      },
       owner_lock: { shared_device_lane: true, lock_epoch: lockEpoch, stopped_all_tabs: true, stale_mutation_rejected: true },
     }, null, 2));
     return await contextA.storageState();
