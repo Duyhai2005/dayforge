@@ -1110,8 +1110,36 @@ async function runBrowserScenario(baseURL) {
       staleLeaderPlan,
     );
     assert(staleLeaderOperation.syncWoken, "the successor leader coordinator must be available to push the stale-response operation");
-    await waitFor(() => staleLeaderResponse.held,
-      "the old leader's push response to arrive from the server and pause before the browser receives it");
+    try {
+      await waitFor(() => staleLeaderResponse.held,
+        "the old leader's push response to arrive from the server and pause before the browser receives it");
+    } catch (error) {
+      const diagnostics = await leaderPage.evaluate(async () => ({
+        online: navigator.onLine,
+        visibility: document.visibilityState,
+        coordinator: window.__dayforgeSyncBrowserHarness.coordinatorDetails(),
+        lease: await window.__dayforgeSyncBrowserHarness.leaseState(),
+        state: await window.__dayforgeSyncBrowserHarness.inspect(),
+      }));
+      const observedPushes = pushFaultEvidence.requestBodies.slice(stalePushStartIndex).map((body) => {
+        const request = JSON.parse(body);
+        return (request.operations ?? []).map((operation) => ({
+          operationId: operation.operation_id,
+          actions: operation.commands?.map((command) => command.action),
+          planNames: operation.commands?.map((command) => command.payload?.data?.name).filter(Boolean),
+        }));
+      });
+      console.error("Stale leader push diagnostics:", JSON.stringify({
+        online: diagnostics.online,
+        visibility: diagnostics.visibility,
+        coordinator: diagnostics.coordinator,
+        lease: diagnostics.lease,
+        pending: diagnostics.state.pending,
+        recorded: diagnostics.state.recordedEvents.filter((event) => event.operationId === staleLeaderOperation.operationId),
+        observedPushes,
+      }));
+      throw error;
+    }
     const staleLeaderCdp = await contextA.newCDPSession(leaderPage);
     await staleLeaderCdp.send("Page.setWebLifecycleState", { state: "frozen" });
     const injectedFence = await successorPage.evaluate(() => window.__dayforgeSyncBrowserHarness.fenceLeaseForTest());
