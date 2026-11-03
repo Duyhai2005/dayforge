@@ -617,10 +617,10 @@ test("ownerCanCompleteOverdueAndDeleteTasksWithOfflineUndoAtUtc7Midnight", async
   await expect(card).toContainText("Đã hoàn thành");
   await bucket.getByRole("button", { name: "Đánh dấu Đọc sách chưa hoàn thành" }).click();
   await expect(card).toContainText("Chưa hoàn thành");
-  await expect(card).toHaveAttribute("data-work-date", "2026-11-02");
 
   await card.click();
   const editDialog = page.getByRole("dialog", { name: "Sửa công việc" });
+  await expect(editDialog.getByLabel("Ngày")).toHaveValue("2026-11-02");
   await editDialog.getByRole("button", { name: "Xóa công việc", exact: true }).click();
   const confirmDelete = page.getByRole("alertdialog", { name: "Xóa công việc khỏi lịch?" });
   await expect(confirmDelete).toBeVisible();
