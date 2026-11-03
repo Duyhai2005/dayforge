@@ -101,7 +101,11 @@ export function MilestoneCalendar({ anchor, scale, onNavigate, onEditMilestone, 
   const milestones = useMemo(() => milestonesFor(projection), [projection]);
   const byDate = useMemo(() => {
     const grouped = new Map<string, MilestoneCard[]>();
-    for (const milestone of milestones) grouped.set(milestone.data.date, [...(grouped.get(milestone.data.date) ?? []), milestone]);
+    for (const milestone of milestones) {
+      const bucket = grouped.get(milestone.data.date);
+      if (bucket) bucket.push(milestone);
+      else grouped.set(milestone.data.date, [milestone]);
+    }
     return grouped;
   }, [milestones]);
   const weekDates = useMemo(() => workWeekDates(anchor), [anchor]);
@@ -113,6 +117,18 @@ export function MilestoneCalendar({ anchor, scale, onNavigate, onEditMilestone, 
     anchor: milestoneMonthAnchor(year, monthIndex) ?? anchor,
     dates: milestoneMonthDates(year, monthIndex),
   })), [anchor, year]);
+  const milestonesByYearMonth = useMemo(() => {
+    const grouped = new Map<number, MilestoneCard[]>();
+    const yearPrefix = `${year}-`;
+    for (const milestone of milestones) {
+      if (!milestone.data.date.startsWith(yearPrefix)) continue;
+      const monthIndex = Number(milestone.data.date.slice(5, 7)) - 1;
+      const bucket = grouped.get(monthIndex);
+      if (bucket) bucket.push(milestone);
+      else grouped.set(monthIndex, [milestone]);
+    }
+    return grouped;
+  }, [milestones, year]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const dayDialog = useRef<HTMLDialogElement>(null);
   const dayTrigger = useRef<HTMLButtonElement | null>(null);
@@ -218,7 +234,7 @@ export function MilestoneCalendar({ anchor, scale, onNavigate, onEditMilestone, 
     {scale === "year" && <div className="milestone-year-grid" aria-label={`12 tháng trong năm ${year}`}>
       {yearMonths.map((entry) => {
         const monthPrefix = `${year}-${String(entry.monthIndex + 1).padStart(2, "0")}-`;
-        const monthCards = milestones.filter((card) => card.data.date.startsWith(monthPrefix));
+        const monthCards = milestonesByYearMonth.get(entry.monthIndex) ?? [];
         const monthName = formatDate(entry.anchor, { month: "long" });
         return <section key={entry.monthIndex} className="milestone-year-month" aria-label={`${monthName}, ${monthCards.length} dấu mốc`}>
           <header><button type="button" onClick={() => navigateToMonth(year, entry.monthIndex)}>{monthName}</button><span>{monthCards.length} dấu mốc</span></header>
