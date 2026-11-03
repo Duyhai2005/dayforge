@@ -1087,6 +1087,15 @@ async function runBrowserScenario(baseURL) {
     await leaderPage.bringToFront();
     await waitFor(() => leaderPage.evaluate(() => document.visibilityState === "visible"),
       "the successor leader tab to become visible before the stale-response test");
+    await leaderPage.evaluate(() => { window.dispatchEvent(new Event("online")); window.__dayforgeSyncBrowserHarness.wakeSync(); });
+    await waitFor(async () => {
+      const [state, lease] = await Promise.all([
+        leaderPage.evaluate(() => window.__dayforgeSyncBrowserHarness.coordinatorState()),
+        leaderPage.evaluate(() => window.__dayforgeSyncBrowserHarness.leaseState()),
+      ]);
+      return state === "syncing" && lease?.fencing_token === leaseBeforeFailover.fencing_token &&
+        lease.expires_at_ms > Date.now();
+    }, "the promoted tab to hold its renewed leader lease before the stale-response test");
     const staleLeaderPlan = `${name}-stale-leader-response`;
     const beforeStaleLeader = await leaderPage.evaluate(() => window.__dayforgeSyncBrowserHarness.inspect());
     assert.equal(beforeStaleLeader.pending.length, 0, "stale-response fencing begins with an empty active outbox");
