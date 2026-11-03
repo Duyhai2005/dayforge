@@ -355,6 +355,23 @@ async function runBrowserScenario(baseURL) {
     const recoveryProcessDeathResponse = { armed: false, held: false, terminated: false };
     let releaseRecoveryProcessDeathResponse = () => {};
     const recoveryProcessDeathResponseGate = new Promise((resolve) => { releaseRecoveryProcessDeathResponse = resolve; });
+    const refreshLeaderClock = async (page, label) => {
+      const before = await page.evaluate(() => window.__dayforgeSyncBrowserHarness.inspect());
+      assert(before.clockCalibration, `${label} requires an existing clock calibration`);
+      await page.evaluate(async () => {
+        window.__dayforgeSyncBrowserHarness.setClockOffsetForTest(0);
+        await window.__dayforgeSyncBrowserHarness.expireClockCalibrationForTest();
+        window.dispatchEvent(new Event("online"));
+        window.__dayforgeSyncBrowserHarness.wakeSync();
+      });
+      await waitFor(() => page.evaluate(async (previousCalibrationId) => {
+        const [state, coordinator] = await Promise.all([
+          window.__dayforgeSyncBrowserHarness.inspect(),
+          window.__dayforgeSyncBrowserHarness.coordinatorDetails(),
+        ]);
+        return state.clockCalibration?.calibrationId !== previousCalibrationId && coordinator.state === "syncing";
+      }, before.clockCalibration.calibrationId), `${label} to refresh its clock calibration`, 45_000);
+    };
     await contextA.route("**/api/v1/sync/push", async (route) => {
       const requestBody = route.request().postData() ?? "";
       pushFaultEvidence.requestBodies.push(requestBody);
@@ -1097,22 +1114,7 @@ async function runBrowserScenario(baseURL) {
       return state === "syncing" && lease?.fencing_token === leaseBeforeFailover.fencing_token &&
         lease.expires_at_ms > Date.now();
     }, "the promoted tab to hold its renewed leader lease before the stale-response test");
-    const clockBeforeStaleLeader = await leaderPage.evaluate(() => window.__dayforgeSyncBrowserHarness.inspect());
-    assert(clockBeforeStaleLeader.clockCalibration, "the promoted tab must have a clock calibration before refreshing it");
-    await leaderPage.evaluate(async () => {
-      window.__dayforgeSyncBrowserHarness.setClockOffsetForTest(0);
-      await window.__dayforgeSyncBrowserHarness.expireClockCalibrationForTest();
-      window.dispatchEvent(new Event("online"));
-      window.__dayforgeSyncBrowserHarness.wakeSync();
-    });
-    await waitFor(async () => leaderPage.evaluate(async (previousCalibrationId) => {
-      const [state, coordinator] = await Promise.all([
-        window.__dayforgeSyncBrowserHarness.inspect(),
-        window.__dayforgeSyncBrowserHarness.coordinatorDetails(),
-      ]);
-      return state.clockCalibration?.calibrationId !== previousCalibrationId && coordinator.state === "syncing";
-    }, clockBeforeStaleLeader.clockCalibration.calibrationId),
-    "the promoted tab to recalibrate its clock before creating a new operation", 45_000);
+    await refreshLeaderClock(leaderPage, "the promoted tab before the stale-response test");
     const staleLeaderPlan = `${name}-stale-leader-response`;
     const beforeStaleLeader = await leaderPage.evaluate(() => window.__dayforgeSyncBrowserHarness.inspect());
     assert.equal(beforeStaleLeader.pending.length, 0, "stale-response fencing begins with an empty active outbox");
@@ -1198,6 +1200,7 @@ async function runBrowserScenario(baseURL) {
     const leaseAfterFailover = await successorPage.evaluate(() => window.__dayforgeSyncBrowserHarness.leaseState());
     assert(leaseAfterFailover && leaseAfterFailover.fencing_token > leaseBeforeFailover.fencing_token,
       "a successor must receive a strictly newer fencing token after the prior leader releases its lease");
+    await refreshLeaderClock(successorPage, "the same-profile successor before its failover operation");
     const failoverName = `${name}-leader-failover`;
     const failoverOperation = await successorPage.evaluate((planName) => window.__dayforgeSyncBrowserHarness.createPlan(planName), failoverName);
     await waitFor(() => isRecorded(successorPage, failoverName, failoverOperation.operationId),
@@ -1227,6 +1230,7 @@ async function runBrowserScenario(baseURL) {
     const processDeathSuccessorPage = processDeathPages[1 - processDeathLeaderIndex];
     const leaseBeforeProcessDeath = await processDeathLeaderPage.evaluate(() => window.__dayforgeSyncBrowserHarness.leaseState());
     assert(leaseBeforeProcessDeath, "the renderer selected for process death must hold the owner lease");
+    await refreshLeaderClock(processDeathLeaderPage, "the fresh process-death leader before creating its operation");
     const processDeathPlan = `${name}-process-death-in-flight`;
     const processDeathStartIndex = pushFaultEvidence.requestBodies.length;
     processDeathResponse.armed = true;
@@ -1264,6 +1268,7 @@ async function runBrowserScenario(baseURL) {
     evidenceSuccessor = watchSyncResponses(successorPage);
     console.log("The leader tab was terminated after server commit with the response in flight; a fresh tab retried the exact envelope and both devices converged.");
 
+    await refreshLeaderClock(successorPage, "the recovered process-death leader before clock-repair setup");
     const clockRepairName = `${name}-clock-repair`;
     const invalidClockOperation = await successorPage.evaluate(
       (planName) => window.__dayforgeSyncBrowserHarness.createPlan(planName, 3_600_000),
