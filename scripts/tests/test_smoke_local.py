@@ -66,14 +66,12 @@ class SmokeTests(unittest.TestCase):
             return value
 
         stdout, stderr = io.StringIO(), io.StringIO()
-        with patch.object(
-            sys, "argv", ["smoke_local.py", "--ca-file", str(self.ca)]
-        ), patch.object(smoke_local.ssl, "create_default_context"), patch.object(
-            smoke_local, "_get", side_effect=get
-        ), redirect_stdout(
-            stdout
-        ), redirect_stderr(
-            stderr
+        with (
+            patch.object(sys, "argv", ["smoke_local.py", "--ca-file", str(self.ca)]),
+            patch.object(smoke_local.ssl, "create_default_context"),
+            patch.object(smoke_local, "_get", side_effect=get),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
         ):
             result = smoke_local.main()
         return result, stdout.getvalue(), stderr.getvalue()

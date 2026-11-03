@@ -178,7 +178,7 @@ def smoke_local(base_url: str, ca_file: Path, timeout_seconds: float = 10.0) -> 
         raise SmokeError("The local API probe did not return JSON.")
     try:
         api_document = json.loads(api_body)
-    except (json.JSONDecodeError, UnicodeDecodeError):
+    except json.JSONDecodeError, UnicodeDecodeError:
         raise SmokeError("The local API probe returned invalid JSON.") from None
 
     if (

@@ -44,6 +44,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     mysql = bool(arguments and arguments[0] == "--mysql")
     if mysql:
         arguments.pop(0)
+    sync_browser = "--sync-browser" in arguments
+    if sync_browser:
+        arguments.remove("--sync-browser")
+        if not mysql:
+            raise RunnerError("The sync browser suite requires isolated MySQL")
     if arguments[:1] == ["--"]:
         arguments.pop(0)
     pytest = [
@@ -95,6 +100,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
                 probe.bind(("127.0.0.1", 0))
                 test_port = str(probe.getsockname()[1])
+            sync_browser_port = None
+            if sync_browser:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                    probe.bind(("127.0.0.1", 0))
+                    sync_browser_port = str(probe.getsockname()[1])
             environ.update(
                 DAYFORGE_TEST_MYSQL_IMAGE=images[0],
                 DAYFORGE_TEST_MYSQL_PASSWORD=secrets.token_hex(32),
@@ -167,7 +177,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 EMAIL_SMTP_PORT="1025",
                 EMAIL_FROM="dayforge@example.test",
             )
-            exit_code = subprocess.run(pytest, cwd=BACKEND, env=test_environ).returncode
+            if sync_browser:
+                assert sync_browser_port is not None
+                test_environ["DAYFORGE_SYNC_BROWSER_PORT"] = sync_browser_port
+                command = [
+                    sys.executable,
+                    str(ROOT / "scripts" / "test_sync_browser.py"),
+                ]
+                cwd = ROOT
+            else:
+                command = pytest
+                cwd = BACKEND
+            exit_code = subprocess.run(command, cwd=cwd, env=test_environ).returncode
         except RunnerError, OSError:
             print(
                 "Isolated MySQL test runner failed; Docker details suppressed to protect credentials.",

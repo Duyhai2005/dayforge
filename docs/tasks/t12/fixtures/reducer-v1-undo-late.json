@@ -1,0 +1,155 @@
+{
+  "owner_id": "11111111-1111-4111-8111-111111111111",
+  "operations": [
+    {
+      "protocol_version": 1,
+      "reducer_version": 1,
+      "operation_id": "22222222-2222-4222-8222-222222222222",
+      "owner_id": "11111111-1111-4111-8111-111111111111",
+      "device_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "device_sequence": "1",
+      "edit_time": {
+        "physical_ms": 1000,
+        "logical": 0,
+        "calibration_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "raw_wall_ms": 1000,
+        "quality": "calibrated"
+      },
+      "dependencies": [],
+      "commands": [
+        {
+          "root": {
+            "kind": "work_item",
+            "id": "55555555-5555-4555-8555-555555555555"
+          },
+          "action": "work_item.create_single",
+          "payload": {
+            "data": {
+              "title": "Task to undo",
+              "date": "2026-11-02",
+              "period": "morning",
+              "duration_minutes": null,
+              "plan_id": null,
+              "standalone_color_id": "neutral",
+              "status": "pending",
+              "order_key": "0"
+            }
+          },
+          "precondition": null
+        }
+      ]
+    },
+    {
+      "protocol_version": 1,
+      "reducer_version": 1,
+      "operation_id": "99999999-9999-4999-8999-999999999999",
+      "owner_id": "11111111-1111-4111-8111-111111111111",
+      "device_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "device_sequence": "3",
+      "edit_time": {
+        "physical_ms": 1500,
+        "logical": 0,
+        "calibration_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "raw_wall_ms": 1500,
+        "quality": "calibrated"
+      },
+      "dependencies": [
+        "22222222-2222-4222-8222-222222222222"
+      ],
+      "commands": [
+        {
+          "root": {
+            "kind": "work_item",
+            "id": "55555555-5555-4555-8555-555555555555"
+          },
+          "action": "single.replace",
+          "payload": {
+            "data": {
+              "title": "Updated before undo",
+              "date": "2026-11-02",
+              "period": "morning",
+              "duration_minutes": null,
+              "plan_id": null,
+              "standalone_color_id": "neutral",
+              "status": "pending",
+              "order_key": "0"
+            }
+          },
+          "precondition": null
+        }
+      ]
+    },
+    {
+      "protocol_version": 1,
+      "reducer_version": 1,
+      "operation_id": "44444444-4444-4444-8444-444444444444",
+      "owner_id": "11111111-1111-4111-8111-111111111111",
+      "device_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "device_sequence": "2",
+      "edit_time": {
+        "physical_ms": 2000,
+        "logical": 0,
+        "calibration_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "raw_wall_ms": 2000,
+        "quality": "calibrated"
+      },
+      "dependencies": [
+        "22222222-2222-4222-8222-222222222222"
+      ],
+      "commands": [
+        {
+          "root": {
+            "kind": "work_item",
+            "id": "55555555-5555-4555-8555-555555555555"
+          },
+          "action": "undo",
+          "payload": {
+            "original_operation_id": "22222222-2222-4222-8222-222222222222",
+            "expected_states": [
+              {
+                "root": {
+                  "kind": "work_item",
+                  "id": "55555555-5555-4555-8555-555555555555"
+                },
+                "hash": "45ef79e31456c3509e13593cd124ee616d0c9c806e41e0c52cf417d4f834e24d"
+              }
+            ]
+          },
+          "precondition": null
+        }
+      ]
+    }
+  ],
+  "expected_projection": {
+    "owner_id": "11111111-1111-4111-8111-111111111111",
+    "roots": {
+      "work_item:55555555-5555-4555-8555-555555555555": {
+        "owner_id": "11111111-1111-4111-8111-111111111111",
+        "deleted": false,
+        "kind": "single",
+        "single": {
+          "title": "Updated before undo",
+          "date": "2026-11-02",
+          "period": "morning",
+          "duration_minutes": null,
+          "plan_id": null,
+          "standalone_color_id": "neutral",
+          "status": "pending",
+          "order_key": "0"
+        },
+        "segment_origins": [],
+        "family": null
+      }
+    }
+  },
+  "expected_effects": [
+    "applied",
+    "applied",
+    "no_op"
+  ],
+  "expected_reasons": [
+    null,
+    null,
+    "undo_not_applicable"
+  ]
+}

@@ -74,7 +74,7 @@ def test_push_retry_returns_original_receipt_and_different_hash_is_rejected(migr
             assert first.status == "recorded"
             assert duplicate.status == "duplicate"
             assert duplicate.receipt == first.receipt
-            assert first.receipt.effect_at_commit == "not_evaluated"
+            assert first.receipt.effect_at_commit == "applied"
             assert first.receipt.reason_at_commit is None
             assert first.head_cursor == duplicate.head_cursor == 1
 

@@ -4,10 +4,12 @@ const productionBaseURL = process.env.PLAYWRIGHT_BASE_URL;
 
 export default defineConfig({
   testDir: "./tests",
-  outputDir: "./.next/playwright-results",
+  testIgnore: ["**/offline-*.spec.ts"],
+  outputDir: "./.test-artifacts/web-dev",
   use: {
     baseURL: productionBaseURL ?? "http://127.0.0.1:3010",
     trace: "retain-on-failure",
+    serviceWorkers: "block",
   },
   webServer: productionBaseURL
     ? undefined

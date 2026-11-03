@@ -5,10 +5,11 @@ const KEY_ID = "22222222-2222-4222-8222-222222222222";
 const SESSION_ID = "33333333-3333-4333-8333-333333333333";
 const DEVICE_ID = "44444444-4444-4444-8444-444444444444";
 const OPERATION_ID = "55555555-5555-4555-8555-555555555555";
+const LOGOUT_TICKET = "A".repeat(64);
 const CSRF_TOKEN = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE";
 const LOCAL_KEY = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";
 const CALLBACK_TOKEN = "A".repeat(43);
-const APP_DB = "dayforge";
+const APP_DB = "dayforge-local";
 
 type SessionView = {
   authenticated: boolean;
@@ -56,7 +57,7 @@ function sessionView(authenticated = false): SessionView {
       : null,
     csrf_token: CSRF_TOKEN,
     server_time: "2026-11-01T00:00:00.000Z",
-    logout_ticket: authenticated ? "test-logout-ticket" : null,
+    logout_ticket: authenticated ? LOGOUT_TICKET : null,
   };
 }
 
@@ -71,6 +72,10 @@ async function mockAuthApi(page: Page, initial = sessionView()): Promise<ApiMock
     csrfFailures: [],
   };
   await page.route("**/api/v1/auth/**", async (route) => {
+    const fulfill = (options: NonNullable<Parameters<typeof route.fulfill>[0]>) => route.fulfill({
+      ...options,
+      headers: { "cache-control": "no-store", ...options.headers },
+    });
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const method = request.method();
@@ -87,7 +92,7 @@ async function mockAuthApi(page: Page, initial = sessionView()): Promise<ApiMock
         if (failure.refreshedToken) {
           state.currentSession = { ...state.currentSession, csrf_token: failure.refreshedToken };
         }
-        await route.fulfill({ status: 403, json: { code: "csrf_failed" } });
+        await fulfill({ status: 403, json: { code: "csrf_failed" } });
         return;
       }
     }
@@ -96,18 +101,18 @@ async function mockAuthApi(page: Page, initial = sessionView()): Promise<ApiMock
         await route.abort();
         return;
       }
-      await route.fulfill({ json: state.currentSession });
+      await fulfill({ json: state.currentSession });
       return;
     }
     if (path === "/api/v1/auth/login" && method === "POST") {
       state.loginBody = request.postDataJSON() as Record<string, unknown>;
       state.currentSession = sessionView(true);
-      await route.fulfill({ json: state.currentSession });
+      await fulfill({ json: state.currentSession });
       return;
     }
     if (path === "/api/v1/auth/local-key" && method === "GET") {
       state.localKeyRequests += 1;
-      await route.fulfill({
+      await fulfill({
         json: {
           owner_id: OWNER_ID,
           key_id: KEY_ID,
@@ -123,22 +128,22 @@ async function mockAuthApi(page: Page, initial = sessionView()): Promise<ApiMock
         return;
       }
       state.currentSession = sessionView();
-      await route.fulfill({ status: 204, body: "" });
+      await fulfill({ status: 204, body: "" });
       return;
     }
     if (path === "/api/v1/auth/verification/confirm" && method === "POST") {
-      await route.fulfill({ json: { status: "verified" } });
+      await fulfill({ json: { status: "verified" } });
       return;
     }
     if (path === "/api/v1/auth/password/reset" && method === "POST") {
-      await route.fulfill({ json: { status: "password_reset" } });
+      await fulfill({ json: { status: "password_reset" } });
       return;
     }
     if (["/api/v1/auth/register", "/api/v1/auth/verification/resend", "/api/v1/auth/password/forgot"].includes(path)) {
-      await route.fulfill({ status: 202, json: { status: "accepted", resend_after_seconds: 60 } });
+      await fulfill({ status: 202, json: { status: "accepted", resend_after_seconds: 60 } });
       return;
     }
-    await route.fulfill({ status: 404, json: { code: "not_found" } });
+    await fulfill({ status: 404, json: { code: "not_found" } });
   });
   return state;
 }
@@ -154,17 +159,23 @@ export async function readOwnerMeta(page: Page): Promise<Record<string, unknown>
         resolve(null);
         return;
       }
-      const tx = db.transaction(["owner_meta"], "readonly");
-      const get = tx.objectStore("owner_meta").get("11111111-1111-4111-8111-111111111111");
-      get.onsuccess = () => {
-        const value = (get.result ?? null) as Record<string, unknown> | null;
-        db.close();
-        resolve(value);
+      const tx = db.transaction(["owner_meta", "auth_state"], "readonly");
+      const ownerId = "11111111-1111-4111-8111-111111111111";
+      const metadataRequest = tx.objectStore("owner_meta").get(ownerId);
+      const authRequest = tx.objectStore("auth_state").get(ownerId);
+      let metadata: Record<string, unknown> | null = null;
+      let locked: boolean | undefined;
+      metadataRequest.onsuccess = () => { metadata = (metadataRequest.result ?? null) as Record<string, unknown> | null; };
+      authRequest.onsuccess = () => {
+        const auth = authRequest.result as { locked?: unknown } | undefined;
+        if (typeof auth?.locked === "boolean") locked = auth.locked;
       };
-      get.onerror = () => {
+      tx.oncomplete = () => {
         db.close();
-        resolve(null);
+        resolve(metadata ? { ...metadata, active_key_id: metadata.key_id, locked } : null);
       };
+      tx.onerror = () => { db.close(); resolve(null); };
+      tx.onabort = () => { db.close(); resolve(null); };
     };
   }), APP_DB);
 }
@@ -175,26 +186,23 @@ export async function readEncryptedOutbox(page: Page): Promise<unknown[]> {
     request.onerror = () => resolve([]);
     request.onsuccess = () => {
       const db = request.result;
-      if (!db.objectStoreNames.contains("operations")) {
+      if (!db.objectStoreNames.contains("outbox")) {
         db.close();
         resolve([]);
         return;
       }
-      const tx = db.transaction(["operations"], "readonly");
-      const range = IDBKeyRange.bound(
-        ["11111111-1111-4111-8111-111111111111", ""],
-        ["11111111-1111-4111-8111-111111111111", "\uffff"]
+      const tx = db.transaction(["outbox"], "readonly");
+      const get = tx.objectStore("outbox").index("by-owner").getAll(
+        IDBKeyRange.only("11111111-1111-4111-8111-111111111111")
       );
-      const get = tx.objectStore("operations").getAll(range);
       get.onsuccess = () => {
         const entries = (get.result as Array<Record<string, unknown>>).map((entry) => {
-          const envelope = entry.encrypted_envelope as Record<string, unknown>;
           return {
-            operation_id: entry.operation_id,
-            status: entry.status,
+            operation_id: entry.record_id,
+            status: entry.state,
             encrypted_envelope: {
-              iv: Array.from(new Uint8Array(envelope.iv as ArrayBuffer)),
-              ciphertext: Array.from(new Uint8Array(envelope.ciphertext as ArrayBuffer)),
+              iv: Array.from(new Uint8Array(entry.iv as ArrayBuffer)),
+              ciphertext: Array.from(new Uint8Array(entry.ciphertext as ArrayBuffer)),
             },
           };
         });
@@ -210,70 +218,46 @@ export async function readEncryptedOutbox(page: Page): Promise<unknown[]> {
 }
 
 async function seedLegacyPendingLogoutTicket(page: Page): Promise<void> {
-  await page.evaluate(async ({ dbName, sessionId }) => {
+  await page.evaluate(async ({ dbName, ownerId, ticket }) => {
     const request = indexedDB.open(dbName);
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
-    const transaction = db.transaction(["auth_state"], "readwrite");
-    transaction.objectStore("auth_state").put({
-      key: `logout:${sessionId}`,
-      kind: "logout",
-      session_id: sessionId,
-      ticket: "test-logout-ticket",
-      created_at: "2026-11-01T00:00:00.000Z",
-    });
+    const transaction = db.transaction(["auth_state", "owner_meta"], "readwrite");
+    const authStore = transaction.objectStore("auth_state");
+    const metadataStore = transaction.objectStore("owner_meta");
+    const authRequest = authStore.get(ownerId);
+    const metadataRequest = metadataStore.get(ownerId);
+    let remaining = 2;
+    let auth: Record<string, unknown> | null = null;
+    let metadata: Record<string, unknown> | null = null;
+    const commit = () => {
+      if (--remaining !== 0) return;
+      if (!auth || !metadata) {
+        transaction.abort();
+        return;
+      }
+      const epoch = Math.max(Number(auth.lock_epoch), Number(metadata.lock_epoch)) + 1;
+      authStore.put({ ...auth, owner_id: ownerId, locked: true, lock_epoch: epoch, crypto_key: null, logout_ticket: ticket });
+      metadataStore.put({
+        ...metadata,
+        lock_epoch: epoch,
+        local_state_revision: Number(metadata.local_state_revision) + 1,
+      });
+    };
+    authRequest.onsuccess = () => { auth = (authRequest.result ?? null) as Record<string, unknown> | null; commit(); };
+    metadataRequest.onsuccess = () => { metadata = (metadataRequest.result ?? null) as Record<string, unknown> | null; commit(); };
     await new Promise<void>((resolve, reject) => {
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
       transaction.onabort = () => reject(transaction.error);
     });
     db.close();
-  }, { dbName: APP_DB, sessionId: SESSION_ID });
+  }, { dbName: APP_DB, ownerId: OWNER_ID, ticket: LOGOUT_TICKET });
 }
 
-async function seedCommittedLogoutWithoutBroadcast(page: Page): Promise<void> {
-  // Reproduce a tab that committed logout, then crashed before broadcasting its lock.
-  await page.evaluate(async ({ dbName, ownerId, keyId, sessionId }) => {
-    const request = indexedDB.open(dbName);
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    try {
-      const transaction = db.transaction(["auth_state", "owner_meta", "crypto_keys"], "readwrite");
-      const owners = transaction.objectStore("owner_meta");
-      const ownerRequest = owners.get(ownerId);
-      ownerRequest.onsuccess = () => {
-        const owner = ownerRequest.result as { lock_epoch: number } | undefined;
-        if (!owner) {
-          transaction.abort();
-          return;
-        }
-        owners.put({ ...owner, owner_id: ownerId, locked: true, lock_epoch: owner.lock_epoch + 1 });
-      };
-      transaction.objectStore("crypto_keys").delete([ownerId, keyId]);
-      transaction.objectStore("auth_state").put({
-        key: "logout:" + sessionId,
-        kind: "logout",
-        session_id: sessionId,
-        owner_id: ownerId,
-        ticket: "test-logout-ticket",
-        created_at: "2026-11-01T00:00:00.000Z",
-      });
-      await new Promise<void>((resolve, reject) => {
-        transaction.oncomplete = () => resolve();
-        transaction.onerror = () => reject(transaction.error);
-        transaction.onabort = () => reject(transaction.error);
-      });
-    } finally {
-      db.close();
-    }
-  }, { dbName: APP_DB, ownerId: OWNER_ID, keyId: KEY_ID, sessionId: SESSION_ID });
-}
-
-async function readPendingLogoutRows(page: Page): Promise<Array<{ owner_id?: string; session_id: string }>> {
+async function readPendingLogoutRows(page: Page): Promise<Array<{ owner_id: string; logout_ticket: string }>> {
   return await page.evaluate(async (dbName) => {
     const request = indexedDB.open(dbName);
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -288,12 +272,10 @@ async function readPendingLogoutRows(page: Page): Promise<Array<{ owner_id?: str
     });
     db.close();
     return rows
-      .filter((value): value is { kind?: unknown; owner_id?: unknown; session_id?: unknown } => Boolean(value && typeof value === "object"))
-      .filter(value => value.kind === "logout" && typeof value.session_id === "string")
-      .map(value => ({
-        owner_id: typeof value.owner_id === "string" ? value.owner_id : undefined,
-        session_id: value.session_id as string,
-      }));
+      .filter((value): value is { owner_id?: unknown; logout_ticket?: unknown } => Boolean(value && typeof value === "object"))
+      .filter((value): value is { owner_id: string; logout_ticket: string } =>
+        typeof value.owner_id === "string" && typeof value.logout_ticket === "string")
+      .map(value => ({ owner_id: value.owner_id, logout_ticket: value.logout_ticket }));
   }, APP_DB);
 }
 
@@ -302,7 +284,7 @@ export async function prepareUnlockedOwnerWithPendingOperation(page: Page): Prom
   await page.goto("/account");
   await page.getByLabel("Email").fill("owner@example.test");
   await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
-  await page.getByRole("button", { name: "Đăng nhập" }).click();
+  await page.getByRole("button", { name: "Đăng nhập và mở kho local", exact: true }).click();
   await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
   const seeded = await page.evaluate(async ({ ownerId, keyId, deviceId, operationId, dbName }) => {
     const dbRequest = indexedDB.open(dbName);
@@ -311,17 +293,15 @@ export async function prepareUnlockedOwnerWithPendingOperation(page: Page): Prom
       dbRequest.onerror = () => reject(dbRequest.error);
     });
     const cryptoKey = await new Promise<CryptoKey>((resolve, reject) => {
-      const tx = db.transaction(["crypto_keys"], "readonly");
-      const request = tx.objectStore("crypto_keys").get([ownerId, keyId]);
+      const tx = db.transaction(["auth_state"], "readonly");
+      const request = tx.objectStore("auth_state").get(ownerId);
       request.onsuccess = () => {
-        const row = request.result as { key?: CryptoKey } | undefined;
-        if (row?.key) resolve(row.key);
+        const row = request.result as { crypto_key?: CryptoKey | null } | undefined;
+        if (row?.crypto_key) resolve(row.crypto_key);
         else reject(new Error("local key missing"));
       };
       request.onerror = () => reject(request.error);
     });
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const aad = new TextEncoder().encode(`${ownerId}:${keyId}:operations:${operationId}`);
     const envelopePayload = {
       commands: [{
         root: { kind: "plan", id: "66666666-6666-4666-8666-666666666666" },
@@ -350,40 +330,52 @@ export async function prepareUnlockedOwnerWithPendingOperation(page: Page): Prom
       const record = value as Record<string, unknown>;
       return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalize(record[key])}`).join(",")}}`;
     };
-    const canonicalEnvelope = canonicalize(envelopePayload);
+    const canonicalOperation = canonicalize(envelopePayload);
     const requestHashBytes = new Uint8Array(await crypto.subtle.digest(
       "SHA-256",
-      new TextEncoder().encode(canonicalEnvelope)
+      new TextEncoder().encode(canonicalOperation)
     ));
     const requestHash = Array.from(requestHashBytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    const storedEnvelope = {
+      operation: envelopePayload,
+      request_hash: requestHash,
+      state: "queued",
+      ever_recorded: false,
+      commit_uncertain: false,
+      attempts: 0,
+      next_attempt_at_ms: null,
+      superseded_by: null,
+      receipt: null,
+      problem_code: null,
+    };
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const aad = new TextEncoder().encode(`${ownerId}|outbox|${operationId}|v1`);
     const ciphertext = new Uint8Array(await crypto.subtle.encrypt(
       { name: "AES-GCM", iv, additionalData: aad, tagLength: 128 },
       cryptoKey,
-      new TextEncoder().encode(canonicalEnvelope)
+      new TextEncoder().encode(canonicalize(storedEnvelope))
     ));
-    const transaction = db.transaction(["operations", "drafts"], "readwrite");
-    transaction.objectStore("operations").put({
+    const transaction = db.transaction(["outbox", "drafts"], "readwrite");
+    transaction.objectStore("outbox").put({
+      id: `${ownerId}:${operationId}`,
       owner_id: ownerId,
-      operation_id: operationId,
-      device_sequence: "1",
-      status: "pending",
+      record_id: operationId,
+      key_id: keyId,
+      iv: iv.buffer.slice(0),
+      ciphertext: ciphertext.buffer.slice(0),
+      state: "queued",
       request_hash: requestHash,
-      encrypted_envelope: {
-        owner_id: ownerId,
-        store: "operations",
-        record_id: operationId,
-        key_id: keyId,
-        iv,
-        ciphertext,
-      },
-      created_at: "2026-11-01T00:00:00.000Z",
+      superseded_by: null,
+      created_at_ms: Date.now(),
     });
+    const draftIv = crypto.getRandomValues(new Uint8Array(12));
     transaction.objectStore("drafts").put({
+      id: `${ownerId}:draft-test-1`,
       owner_id: ownerId,
-      draft_id: "draft-test-1",
-      iv: new Uint8Array(12),
-      ciphertext: new Uint8Array([1, 2, 3]),
-      updated_at: "2026-11-01T00:00:00.000Z",
+      record_id: "draft-test-1",
+      key_id: keyId,
+      iv: draftIv.buffer.slice(0),
+      ciphertext: new Uint8Array([1, 2, 3]).buffer,
     });
     await new Promise<void>((resolve, reject) => {
       transaction.oncomplete = () => resolve();
@@ -401,11 +393,11 @@ test("accountLoginDefaultsRememberMeAndUnlocksOwner", async ({ page }) => {
   const api = await mockAuthApi(page);
   await page.goto("/account");
   await expect(page.getByRole("heading", { name: "Tài khoản", level: 1 })).toBeVisible();
-  await expect(page.getByLabel("Ghi nhớ đăng nhập")).toBeChecked();
+  await expect(page.getByLabel("Ghi nhớ phiên trên thiết bị này")).toBeChecked();
   await page.getByLabel("Email").fill("owner@example.test");
   await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
-  await page.getByRole("button", { name: "Đăng nhập" }).click();
-  await expect(page.getByRole("status")).toContainText("đã mở khóa");
+  await page.getByRole("button", { name: "Đăng nhập và mở kho local", exact: true }).click();
+  await expect(page.locator("p[role='status']")).toContainText("Đã mở kho local");
   expect(api.loginBody).toMatchObject({ email: "owner@example.test", remember_me: true });
   expect(api.localKeyRequests).toBe(1);
   await expect.poll(async () => readOwnerMeta(page)).toMatchObject({
@@ -423,14 +415,14 @@ test("loginRecoversFromExpiredCsrfByRefreshingAndRetryingOnce", async ({ page })
 
   await page.getByLabel("Email").fill("owner@example.test");
   await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
-  await page.getByRole("button", { name: "Đăng nhập" }).click();
+  await page.getByRole("button", { name: "Đăng nhập và mở kho local", exact: true }).click();
 
   await expect.poll(() => api.requests.filter(request => request.path === "/api/v1/auth/login").length).toBe(2);
   const loginRequests = api.requests.filter(request => request.path === "/api/v1/auth/login");
   expect(loginRequests).toHaveLength(2);
   expect(loginRequests[0].headers["x-csrf-token"]).toBe(CSRF_TOKEN);
   expect(loginRequests[1].headers["x-csrf-token"]).toBe(refreshedToken);
-  await expect(page.getByRole("status")).toContainText("đã mở khóa");
+  await expect(page.locator("p[role='status']")).toContainText("Đã mở kho local");
 });
 
 test("emailRequestRecoversFromExpiredCsrfByRefreshingAndRetryingOnce", async ({ page }) => {
@@ -440,28 +432,38 @@ test("emailRequestRecoversFromExpiredCsrfByRefreshingAndRetryingOnce", async ({ 
   api.csrfFailures.push({ path: "/api/v1/auth/register", remaining: 1, refreshedToken });
 
   await page.getByLabel("Email").fill("owner@example.test");
-  await page.getByRole("button", { name: "Thiết lập ban đầu" }).click();
-  await page.getByRole("button", { name: "Gửi email xác minh" }).click();
+  await page.getByRole("button", { name: "Tạo tài khoản", exact: true }).click();
+  await page.getByRole("button", { name: "Gửi liên kết xác minh", exact: true }).click();
 
   await expect.poll(() => api.requests.filter(request => request.path === "/api/v1/auth/register").length).toBe(2);
   const registerRequests = api.requests.filter(request => request.path === "/api/v1/auth/register");
   expect(registerRequests).toHaveLength(2);
   expect(registerRequests[0].headers["x-csrf-token"]).toBe(CSRF_TOKEN);
   expect(registerRequests[1].headers["x-csrf-token"]).toBe(refreshedToken);
-  await expect(page.getByRole("status")).toContainText("Nếu email phù hợp");
+  await expect(page.locator("p[role='status']")).toContainText("Nếu địa chỉ email đủ điều kiện");
 });
 
-test("legacyPendingLogoutTicketLocksVaultBeforeReplayAndAfterLaterReload", async ({ page }) => {
+test("pendingLogoutTicketSurvivesReloadAndIsReplayedBeforeLogin", async ({ page }) => {
   const api = await prepareUnlockedOwnerWithPendingOperation(page);
   await seedLegacyPendingLogoutTicket(page);
 
   await page.reload();
   await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
-  await expect.poll(() => api.requests.filter(request => request.path === "/api/v1/auth/logout").length).toBe(1);
-  expect(await readPendingLogoutRows(page)).toEqual([]);
+  expect(await readPendingLogoutRows(page)).toEqual([{ owner_id: OWNER_ID, logout_ticket: LOGOUT_TICKET }]);
 
-  await page.reload();
-  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
+  api.failLogout = true;
+  await page.getByLabel("Email").fill("owner@example.test");
+  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
+  await page.getByRole("button", { name: "Đăng nhập và mở kho local", exact: true }).click();
+  await expect(page.locator(".account-error")).toBeVisible();
+  expect(api.requests.filter(request => request.path === "/api/v1/auth/login")).toHaveLength(1);
+  expect(await readPendingLogoutRows(page)).toEqual([{ owner_id: OWNER_ID, logout_ticket: LOGOUT_TICKET }]);
+
+  api.failLogout = false;
+  await page.getByRole("button", { name: "Đăng nhập và mở kho local", exact: true }).click();
+  await expect.poll(async () => readPendingLogoutRows(page)).toEqual([]);
+  await expect.poll(() => api.requests.filter(request => request.path === "/api/v1/auth/login").length).toBe(2);
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
 });
 
 test("unicodeEmailReachesServerCanonicalization", async ({ page }) => {
@@ -470,7 +472,7 @@ test("unicodeEmailReachesServerCanonicalization", async ({ page }) => {
   await page.getByRole("button", { name: "Quên mật khẩu" }).click();
   await page.getByLabel("Email").fill("chủ@BÜCHER.example");
   await page.getByRole("button", { name: "Gửi hướng dẫn đặt lại" }).click();
-  await expect(page.getByRole("status")).toContainText("Nếu email phù hợp");
+  await expect(page.locator("p[role='status']")).toContainText("Nếu tài khoản tồn tại");
   const request = api.requests.find(item => item.path === "/api/v1/auth/password/forgot");
   expect(request?.method).toBe("POST");
   expect(JSON.parse(request?.body ?? "null")).toEqual({ email: "chủ@BÜCHER.example" });
@@ -480,11 +482,12 @@ test("verifyCallbackPostsOnlyAfterConfirmationAndScrubsFragment", async ({ page 
   const api = await mockAuthApi(page);
   await page.goto(`/verify-email#token=${CALLBACK_TOKEN}`);
   await expect(page).toHaveURL("/verify-email");
-  await expect(page.getByLabel("Mật khẩu")).toBeVisible();
+  await expect(page.getByLabel("Tạo mật khẩu")).toBeVisible();
   expect(api.requests.filter((request) => request.method === "POST")).toEqual([]);
-  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
-  await page.getByRole("button", { name: "Xác nhận email" }).click();
-  await expect(page.getByRole("status")).toContainText("đã xác minh");
+  await page.getByLabel("Tạo mật khẩu").fill("Sundial Maple Crane 7429");
+  await page.getByLabel("Nhập lại mật khẩu").fill("Sundial Maple Crane 7429");
+  await page.getByRole("button", { name: "Xác minh và tạo tài khoản" }).click();
+  await expect(page.locator("p[role='status']")).toContainText("được xác minh");
   const confirmation = api.requests.find((request) => request.path.endsWith("/verification/confirm"));
   expect(confirmation?.body).toContain(CALLBACK_TOKEN);
   expect(confirmation?.path).toBe("/api/v1/auth/verification/confirm");
@@ -498,33 +501,48 @@ test("resetCallbackRequiresMatchingPasswords", async ({ page }) => {
   await page.goto(`/reset-password#token=${CALLBACK_TOKEN}`);
   await expect(page).toHaveURL("/reset-password");
   await page.getByLabel("Mật khẩu mới", { exact: true }).fill("Sundial Maple Crane 7429");
-  await page.getByLabel("Nhập lại mật khẩu mới", { exact: true }).fill("Sundial Cedar Harbor 8153");
+  await page.getByLabel("Nhập lại mật khẩu", { exact: true }).fill("Sundial Cedar Harbor 8153");
   await page.getByRole("button", { name: "Đặt lại mật khẩu" }).click();
   await expect(page.locator(".account-error")).toContainText("khớp");
   expect(api.requests.some((request) => request.path.endsWith("/password/reset"))).toBe(false);
 });
 
-test("delayedLocalKeyCannotReopenOwnerAfterRemoteLogout", async ({ page, context }) => {
-  await mockAuthApi(page);
-  await page.goto("/account");
-  await page.getByLabel("Email").fill("owner@example.test");
-  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
-  await page.getByRole("button", { name: "Đăng nhập" }).click();
-  await expect(page.getByRole("status")).toContainText("đã mở khóa");
-
+test("logoutLocksOtherTabsAndPreservesEncryptedPendingData", async ({ page, context }) => {
+  const api = await prepareUnlockedOwnerWithPendingOperation(page);
   const otherTab = await context.newPage();
-  await mockAuthApi(otherTab, sessionView(true));
-  await otherTab.goto("/work");
-  await expect(otherTab.getByRole("button", { name: "Đăng xuất" })).toBeVisible();
+  await mockAuthApi(otherTab);
+  await otherTab.goto("/account");
+  await expect(otherTab.locator("div.account-status")).toContainText("Kho local đang mở");
+
+  const pendingBefore = await readEncryptedOutbox(page);
+  expect(pendingBefore).toHaveLength(1);
+  api.failLogout = true;
+  await page.getByRole("button", { name: "Đăng xuất và khóa kho local" }).click();
+
+  await expect(page.locator("p[role='status']")).toContainText("được gửi trước lần đăng nhập");
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
+  await expect.poll(async () => (await readOwnerMeta(otherTab))?.locked).toBe(true);
+  await expect(otherTab.locator("div.account-status")).toContainText("Kho local đang khóa");
+  expect(await readEncryptedOutbox(page)).toEqual(pendingBefore);
+  expect(await readPendingLogoutRows(page)).toEqual([{ owner_id: OWNER_ID, logout_ticket: LOGOUT_TICKET }]);
+});
+
+test("delayedLocalKeyResponseCannotUndoCrossTabLogout", async ({ page, context }) => {
+  await prepareUnlockedOwnerWithPendingOperation(page);
+  const loginTab = await context.newPage();
+  await mockAuthApi(loginTab);
+  await loginTab.goto("/account");
+  await expect(loginTab.getByRole("button", { name: "Đăng nhập và mở kho local", exact: true })).toBeVisible();
 
   let releaseLocalKey!: () => void;
   let signalLocalKeyStarted!: () => void;
   const localKeyGate = new Promise<void>(resolve => { releaseLocalKey = resolve; });
   const localKeyStarted = new Promise<void>(resolve => { signalLocalKeyStarted = resolve; });
-  await page.route("**/api/v1/auth/local-key", async route => {
+  await loginTab.route("**/api/v1/auth/local-key", async route => {
     signalLocalKeyStarted();
     await localKeyGate;
     await route.fulfill({
+      headers: { "cache-control": "no-store" },
       json: {
         owner_id: OWNER_ID,
         key_id: KEY_ID,
@@ -534,242 +552,27 @@ test("delayedLocalKeyCannotReopenOwnerAfterRemoteLogout", async ({ page, context
     });
   });
 
-  await page.getByLabel("Email").fill("owner@example.test");
-  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
-  await page.getByRole("button", { name: "Đăng nhập" }).click();
+  await loginTab.getByLabel("Email").fill("owner@example.test");
+  await loginTab.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
+  await loginTab.getByRole("button", { name: "Đăng nhập và mở kho local", exact: true }).click();
   await localKeyStarted;
 
-  await otherTab.getByRole("button", { name: "Đăng xuất" }).click();
-  await expect(otherTab.getByRole("status")).toContainText("Đã đăng xuất");
-  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
-
-  releaseLocalKey();
-  await expect(page.getByRole("button", { name: "Đăng nhập" })).toBeEnabled();
-  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
-});
-for (const releaseTiming of ["duringReplay", "afterReplay"] as const) {
-  test("delayedLocalKeyCannotReopenOwnerAfterCrashRecoveredLogout_" + releaseTiming, async ({ page }) => {
-    const api = await mockAuthApi(page);
-    await page.goto("/account");
-    await page.getByLabel("Email").fill("owner@example.test");
-    await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
-    await page.getByRole("button", { name: "Đăng nhập" }).click();
-    await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
-
-    let releaseLocalKey!: () => void;
-    let signalLocalKeyStarted!: () => void;
-    const localKeyGate = new Promise<void>(resolve => { releaseLocalKey = resolve; });
-    const localKeyStarted = new Promise<void>(resolve => { signalLocalKeyStarted = resolve; });
-    await page.route("**/api/v1/auth/local-key", async route => {
-      signalLocalKeyStarted();
-      await localKeyGate;
-      await route.fulfill({
-        json: {
-          owner_id: OWNER_ID,
-          key_id: KEY_ID,
-          algorithm: "A256GCM",
-          key_base64url: LOCAL_KEY,
-        },
-      });
-    });
-
-    let releaseLogout!: () => void;
-    let signalLogoutStarted!: () => void;
-    const logoutGate = new Promise<void>(resolve => { releaseLogout = resolve; });
-    const logoutStarted = new Promise<void>(resolve => { signalLogoutStarted = resolve; });
-    await page.route("**/api/v1/auth/logout", async route => {
-      signalLogoutStarted();
-      await logoutGate;
-      await route.fallback();
-    });
-
-    await page.getByRole("button", { name: "Đăng nhập" }).click();
-    await localKeyStarted;
-
-    try {
-      await seedCommittedLogoutWithoutBroadcast(page);
-      expect(await readPendingLogoutRows(page)).toEqual([{ owner_id: OWNER_ID, session_id: SESSION_ID }]);
-      await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
-
-      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-      await logoutStarted;
-      if (releaseTiming === "afterReplay") {
-        releaseLogout();
-        await expect.poll(async () => readPendingLogoutRows(page)).toEqual([]);
-        await expect(page.getByRole("status")).toContainText("Phiên đã hết hạn");
-      }
-
-      releaseLocalKey();
-      await expect(page.getByRole("button", { name: "Đăng nhập" })).toBeEnabled();
-      await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
-      await expect(page.getByRole("status")).not.toContainText("Dữ liệu cục bộ đã mở khóa.");
-
-      if (releaseTiming === "duringReplay") {
-        expect(await readPendingLogoutRows(page)).toEqual([{ owner_id: OWNER_ID, session_id: SESSION_ID }]);
-        releaseLogout();
-        await expect.poll(async () => readPendingLogoutRows(page)).toEqual([]);
-        await expect(page.getByRole("status")).toContainText("Phiên đã hết hạn");
-        await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
-      }
-      expect(api.requests.filter(request => request.path === "/api/v1/auth/logout")).toHaveLength(1);
-    } finally {
-      releaseLocalKey();
-      releaseLogout();
-    }
-  });
-}
-
-test("loginCompletesOnceWhenJoiningSlowBackgroundLogoutRecovery", async ({ page }) => {
-  const api = await mockAuthApi(page);
-  await page.goto("/account");
-  await page.getByLabel("Email").fill("owner@example.test");
-  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
-  await page.getByRole("button", { name: "Đăng nhập" }).click();
-  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
-  await seedCommittedLogoutWithoutBroadcast(page);
-
-  let releaseLogout!: () => void;
-  let signalLogoutStarted!: () => void;
-  const logoutGate = new Promise<void>(resolve => { releaseLogout = resolve; });
-  const logoutStarted = new Promise<void>(resolve => { signalLogoutStarted = resolve; });
-  await page.route("**/api/v1/auth/logout", async route => {
-    signalLogoutStarted();
-    await logoutGate;
-    await route.fallback();
-  });
-
   try {
-    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    await logoutStarted;
-    const loginCount = api.requests.filter(request => request.path === "/api/v1/auth/login").length;
-    await page.getByRole("button", { name: "Đăng nhập" }).click();
-    await expect(page.locator(".account-submit")).toBeDisabled();
-    expect(api.requests.filter(request => request.path === "/api/v1/auth/login")).toHaveLength(loginCount);
+    await page.getByRole("button", { name: "Đăng xuất và khóa kho local" }).click();
+    await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
+    releaseLocalKey();
 
-    releaseLogout();
-
-    await expect.poll(() => api.requests.filter(request => request.path === "/api/v1/auth/login").length)
-      .toBe(loginCount + 1);
-    await expect(page.getByRole("status")).toContainText("Dữ liệu cục bộ đã mở khóa.");
-    await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
-    await expect.poll(async () => readPendingLogoutRows(page)).toEqual([]);
-    expect(api.requests.filter(request => request.path === "/api/v1/auth/login")).toHaveLength(loginCount + 1);
+    await expect(loginTab.locator(".account-error")).toContainText("locked while local authentication was in progress");
+    await expect.poll(async () => (await readOwnerMeta(loginTab))?.locked).toBe(true);
   } finally {
-    releaseLogout();
+    releaseLocalKey();
   }
-});
-
-test("expiredSessionKeepsLocalVaultAvailable", async ({ page }) => {
-  const api = await prepareUnlockedOwnerWithPendingOperation(page);
-  api.currentSession = sessionView();
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await expect(page.getByRole("status")).toContainText("Phiên đã hết hạn");
-  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
-});
-
-test("expiredSessionStillAllowsManualLocalLock", async ({ page }) => {
-  const api = await prepareUnlockedOwnerWithPendingOperation(page);
-  await page.getByRole("link", { name: "Quay lại lịch công việc" }).click();
-  await expect(page.getByRole("heading", { name: "Lịch công việc" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Đăng xuất" })).toBeVisible();
-  api.currentSession = sessionView();
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await expect(page.getByRole("status")).toContainText("Phiên đã hết hạn");
-  await expect(page.getByRole("button", { name: "Khóa dữ liệu" })).toBeVisible();
-  await page.getByRole("button", { name: "Khóa dữ liệu" }).click();
-  await expect(page.getByRole("dialog")).toContainText("đang chờ đồng bộ");
-  await page.getByRole("button", { name: "Vẫn đăng xuất" }).click();
-  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
-  expect(api.requests.some(request => request.path === "/api/v1/auth/logout" && request.method === "POST")).toBe(false);
-});
-
-test("logoutOfflineLocksAllTabsAndPreservesPendingData", async ({ page, context }) => {
-  const api = await prepareUnlockedOwnerWithPendingOperation(page);
-  const otherTab = await context.newPage();
-  await otherTab.goto("/work");
-  await expect(otherTab.getByRole("heading", { name: "Lịch công việc" })).toBeVisible();
-  await otherTab.evaluate(() => {
-    const target = window as Window & { __ownerLockNotices?: string[] };
-    target.__ownerLockNotices = [];
-    window.addEventListener("dayforge:owner-locked", event => {
-      const detail = (event as CustomEvent<{ ownerId: string }>).detail;
-      target.__ownerLockNotices?.push(detail.ownerId);
-    });
-  });
-  await page.goto("/work");
-  await expect(page.getByRole("button", { name: "Đăng xuất" })).toBeVisible();
-  const pendingBefore = await readEncryptedOutbox(page);
-  expect(pendingBefore).toHaveLength(1);
-  api.failLogout = true;
-  await context.setOffline(true);
-  await page.getByRole("button", { name: "Đăng xuất" }).click();
-  await expect(page.getByRole("dialog")).toContainText("đang chờ đồng bộ");
-  await page.getByRole("button", { name: "Vẫn đăng xuất" }).click();
-  await expect(page.getByRole("status")).toContainText("chưa thu hồi trên máy chủ");
-  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
-  await expect.poll(async () => (await readOwnerMeta(otherTab))?.locked).toBe(true);
-  await expect.poll(async () => otherTab.evaluate(() => (window as Window & { __ownerLockNotices?: string[] }).__ownerLockNotices ?? [])).toEqual([OWNER_ID]);
-  expect(await readEncryptedOutbox(page)).toEqual(pendingBefore);
-  const authState = await page.evaluate((dbName) => new Promise<unknown[]>((resolve) => {
-    const request = indexedDB.open(dbName);
-    request.onerror = () => resolve([]);
-    request.onsuccess = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains("auth_state")) {
-        db.close();
-        resolve([]);
-        return;
-      }
-      const tx = db.transaction(["auth_state"], "readonly");
-      const get = tx.objectStore("auth_state").getAll();
-      get.onsuccess = () => { const rows = get.result; db.close(); resolve(rows); };
-      get.onerror = () => { db.close(); resolve([]); };
-    };
-  }), APP_DB);
-  expect(authState).toHaveLength(1);
-  expect(JSON.stringify(authState)).toContain("test-logout-ticket");
-  expect(await readPendingLogoutRows(page)).toEqual([{ owner_id: OWNER_ID, session_id: SESSION_ID }]);
-});
-
-test("loginCompletesAfterRecoveringPendingLogoutInSameTab", async ({ page, context }) => {
-  const api = await prepareUnlockedOwnerWithPendingOperation(page);
-  await page.goto("/work");
-  await expect(page.getByRole("button", { name: "Đăng xuất" })).toBeVisible();
-  api.failLogout = true;
-  await context.setOffline(true);
-  await page.getByRole("button", { name: "Đăng xuất" }).click();
-  await expect(page.getByRole("dialog")).toContainText("đang chờ đồng bộ");
-  await page.getByRole("button", { name: "Vẫn đăng xuất" }).click();
-  await expect(page.getByRole("status")).toContainText("chưa thu hồi trên máy chủ");
-  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(true);
-
-  await context.setOffline(false);
-  const loginCount = api.requests.filter(request => request.path === "/api/v1/auth/login").length;
-  await page.goto("/account");
-  await expect(page.getByRole("status")).toContainText("Có yêu cầu đăng xuất đang chờ kết nối");
-  await page.getByLabel("Email").fill("owner@example.test");
-  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
-  await page.getByRole("button", { name: "Đăng nhập" }).click();
-
-  await expect(page.locator(".account-error")).toBeVisible();
-  expect(api.requests.filter(request => request.path === "/api/v1/auth/login")).toHaveLength(loginCount);
-  await expect.poll(async () => readPendingLogoutRows(page)).toHaveLength(1);
-
-  api.failLogout = false;
-  await page.getByRole("button", { name: "Đăng nhập" }).click();
-
-  await expect.poll(async () => readPendingLogoutRows(page)).toEqual([]);
-  await expect.poll(() => api.requests.filter(request => request.path === "/api/v1/auth/login").length)
-    .toBe(loginCount + 1);
-  await expect(page.getByRole("status")).toContainText("đã mở khóa");
-  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
-  await expect.poll(async () => readPendingLogoutRows(page)).toEqual([]);
 });
 
 test("loginDoesNotAutoUnlockFromRestoredCookie", async ({ page }) => {
   const api = await mockAuthApi(page, sessionView(true));
   await page.goto("/account");
-  await expect(page.getByRole("status")).toContainText("dữ liệu cục bộ vẫn khóa");
+  await expect(page.locator("div.account-status[role='status']")).toContainText("Kho local đang khóa");
   expect(api.localKeyRequests).toBe(0);
   expect(await readOwnerMeta(page)).toBeNull();
 });
@@ -779,14 +582,15 @@ test("reloadRestoresUnlockedOwnerWhenSessionApiIsUnavailable", async ({ page }) 
   await page.goto("/account");
   await page.getByLabel("Email").fill("owner@example.test");
   await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
-  await page.getByRole("button", { name: "Đăng nhập" }).click();
+  await page.getByRole("button", { name: "Đăng nhập và mở kho local", exact: true }).click();
   await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
   await page.getByRole("link", { name: "Quay lại lịch công việc" }).click();
-  await expect(page.getByRole("status")).toContainText("Dữ liệu cục bộ đã mở khóa");
+  await expect(page.locator(".widget-summary span[role='status']")).toContainText("Đã mở kho local");
 
+  await page.goto("/account");
   api.failSession = true;
   await page.reload();
-  await expect(page.getByRole("status")).toContainText("Dữ liệu cục bộ đã mở khóa");
+  await expect(page.locator("div.account-status")).toContainText("Kho local đang mở");
   await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
   expect(api.localKeyRequests).toBe(1);
 });

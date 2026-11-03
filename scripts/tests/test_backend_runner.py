@@ -272,6 +272,45 @@ class BackendRunnerTests(unittest.TestCase):
             self.assertIn("DAYFORGE_TEST_RUN_ID", pytest_env)
             self.assertEqual(len(pytest_env["DAYFORGE_TEST_RUN_ID"]), 32)
 
+    def test_case_l_sync_browser_dispatches_with_isolated_mysql_environment(
+        self,
+    ) -> None:
+        test_env = {}
+        test_command = []
+
+        def fake_docker(args, env):
+            if "config" in args and "--images" in args:
+                return CANONICAL_IMAGE
+            if "up" in args:
+                return ""
+            if "port" in args:
+                port = env["DAYFORGE_TEST_MYSQL_PORT"]
+                return f"127.0.0.1:{port}"
+            if "ps" in args:
+                return "112233445566"
+            if "down" in args:
+                return ""
+            return ""
+
+        def fake_run(cmd, cwd=None, env=None, **_kwargs):
+            nonlocal test_env, test_command
+            test_env = env or {}
+            test_command = cmd
+            return MagicMock(returncode=0)
+
+        with (
+            patch("scripts.test_backend._docker", side_effect=fake_docker),
+            patch("subprocess.run", side_effect=fake_run),
+        ):
+            code = main(["--mysql", "--sync-browser"])
+
+        self.assertEqual(code, 0)
+        self.assertTrue(test_command[-1].endswith("test_sync_browser.py"))
+        self.assertRegex(
+            test_env.get("DAYFORGE_SYNC_BROWSER_PORT", ""), r"^[0-9]{4,5}$"
+        )
+        self.assertIn("DAYFORGE_TEST_RUN_ID", test_env)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -50,7 +50,7 @@ Set a unique random 32-byte `SYNC_PAGE_TOKEN_KEY_B64` in each environment before
 
 T10 stores and returns immutable envelopes; it does not apply calendar commands to a business projection or implement canonical LWW replay. T12 owns reducer behavior, semantic effect calculation, and projection.
 
-T10 does not apply calendar commands to a business projection or implement canonical LWW replay; T12 owns those behaviors. Under T03 contract 1.1, fresh and duplicate receipts from this server use `effect_at_commit="not_evaluated"` with a null reason. That value confirms only durable recording and never claims an applied, superseded, or no-op business outcome. When T12 adds the reducer, it must calculate the real outcome in the same transaction that creates the original receipt; retries must continue returning that immutable receipt.
+At the original T10 handoff the server did not apply calendar commands and returned `effect_at_commit="not_evaluated"`. T12 has since added the canonical reducer to the current sync service: new receipts now persist `applied`, `superseded`, or `no_op` (with its reason) in the same transaction as the event. Duplicate retries continue returning the immutable original receipt. The API still accepts `not_evaluated` in its contract for older/future implementations that do not have a reducer.
 
 ## Verification status
 
