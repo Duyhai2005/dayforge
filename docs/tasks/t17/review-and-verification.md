@@ -1,6 +1,6 @@
 # T17 — Milestone editor and work-calendar integration
 
-Status: implementation and local verification complete on `feature/milestone-editor`. PR and GitHub CI are pending.
+Status: complete. PR #17 merged into `develop` as `b20783a709a1b613f4fbe1a13e52a9ebae728125` after GitHub CI and Offline web shell passed.
 
 ## Delivered
 
@@ -20,11 +20,13 @@ Status: implementation and local verification complete on `feature/milestone-edi
 | `pnpm --filter @dayforge/frontend exec playwright test tests/auth-session.spec.ts tests/calendar-widget.spec.ts tests/routes.spec.ts tests/view-state.spec.ts --reporter=dot` | Passed, 41 tests |
 | Focused milestone CRUD/visibility tests after focus-return update | Passed, 2 tests |
 | `git diff --check` | Passed |
-| GitHub CI and Offline web shell workflows | Pending PR |
+| GitHub CI run #67 (`quality`, `frontend`, `backend-mysql`) | Passed; the backend job passed after a rerun of its two-browser acceptance step |
+| Offline web shell run #43 | Passed |
+| `git diff --check` after the offline checkpoint test stabilization | Passed |
 
 The browser suite covers create/edit/delete, same-record display in the work calendar, all-day/period fields, nested plan selection and draft retention, note privacy on cards, visibility opt-out, and locked-vault controls. Existing task, plan, navigation, account, route, and date-boundary cases also passed.
 
-The local browser tests mock authentication and application APIs. The local backend is unavailable, so the Next.js test server reports expected connection-refused messages during auth/version probes. The workstation reports Node `24.17.0` and pnpm `11.25.0`; GitHub CI will verify the repository-pinned runtime.
+The local browser tests mock authentication and application APIs. The local backend is unavailable, so the Next.js test server reports expected connection-refused messages during auth/version probes. The workstation reports Node `24.17.0` and pnpm `11.25.0`; GitHub CI passed with the repository-pinned runtime.
 
 ## Scope note
 

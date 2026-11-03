@@ -604,6 +604,78 @@ test("milestoneCanBeKeptOutOfTheWorkCalendar", async ({ page }) => {
   expect(await readEncryptedOutbox(page)).toHaveLength(1);
 });
 
+test("milestoneCalendarShowsHiddenMarkersAndOpensTheFullDayAndRelatedWorkWeek", async ({ page }) => {
+  await mockAuthApi(page);
+  await page.goto("/account");
+  await page.getByLabel("Email").fill("owner@example.test");
+  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
+  await page.getByRole("button", { name: "Đăng nhập và mở kho local", exact: true }).click();
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
+
+  await page.goto("/work?date=2026-11-03");
+  const addMilestone = async (title: string, period: string, note = "", showInWorkCalendar = true) => {
+    await page.getByRole("button", { name: "Mở hoặc đóng điều hướng lịch" }).click();
+    await page.getByRole("button", { name: "Thêm dấu mốc", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Thêm dấu mốc" });
+    await dialog.getByLabel("Tên dấu mốc").fill(title);
+    await dialog.getByLabel("Buổi").selectOption(period);
+    if (note) await dialog.getByLabel("Ghi chú liên quan (không bắt buộc)").fill(note);
+    if (!showInWorkCalendar) await dialog.getByLabel("Hiện dấu mốc trên lịch công việc").uncheck();
+    await dialog.getByRole("button", { name: "Thêm dấu mốc", exact: true }).click();
+    await expect(dialog).toBeHidden();
+  };
+
+  await addMilestone("Thi giữa kỳ", "", "Mang giấy tờ.\nCó mặt trước 8 giờ.", false);
+  await addMilestone("Báo cáo tuần", "morning");
+  await addMilestone("Nộp hồ sơ", "afternoon");
+  await addMilestone("Họp dự án", "evening");
+  await expect(page.locator(".work-milestone-card")).toHaveCount(3);
+
+  await page.goto("/milestones?date=2026-11-03&scale=month");
+  const day = page.locator('.milestone-month-day[data-milestone-date="2026-11-03"]');
+  await expect(day.locator(".milestone-calendar-event")).toHaveCount(2);
+  await expect(day.getByRole("button", { name: /2 dấu mốc khác/ })).toBeVisible();
+  await day.getByRole("button", { name: /2 dấu mốc khác/ }).click();
+  const dayDialog = page.locator(".milestone-day-dialog");
+  await expect(dayDialog).toBeVisible();
+  const events = dayDialog.locator(".milestone-day-dialog-list .milestone-calendar-event");
+  await expect(events).toHaveCount(4);
+  await expect(events).toContainText(["Thi giữa kỳ", "Báo cáo tuần", "Nộp hồ sơ", "Họp dự án"]);
+  await expect(dayDialog.locator(".milestone-day-dialog-list")).not.toContainText("Mang giấy tờ.");
+
+  await dayDialog.getByRole("button", { name: "Thi giữa kỳ, Cả ngày, Có ghi chú" }).click();
+  const editor = page.getByRole("dialog", { name: "Sửa dấu mốc" });
+  await expect(editor.getByLabel("Ghi chú liên quan (không bắt buộc)")).toHaveValue("Mang giấy tờ.\nCó mặt trước 8 giờ.");
+  await editor.getByRole("button", { name: "Hủy", exact: true }).click();
+  await expect(editor).toBeHidden();
+
+  await day.getByRole("button", { name: /Xem dấu mốc/ }).click();
+  await page.getByRole("button", { name: "Mở tuần công việc", exact: true }).click();
+  await expect(page).toHaveURL(/\/work\?date=2026-11-03$/);
+  await expect(page.locator(".work-milestone-card")).toHaveCount(3);
+  await expect(page.locator(".work-milestone-card")).not.toContainText("Thi giữa kỳ");
+
+  await page.getByRole("button", { name: "Mở hoặc đóng điều hướng lịch" }).click();
+  await page.getByRole("link", { name: "Lịch dấu mốc", exact: true }).click();
+  await expect(page).toHaveURL(/\/milestones\?date=2026-11-03&scale=month$/);
+  await expect(page.locator('.milestone-month-day[data-milestone-date="2026-11-03"] .milestone-calendar-event')).toHaveCount(2);
+
+  await page.getByRole("button", { name: "Mở hoặc đóng điều hướng lịch" }).click();
+  await page.getByLabel("Quy mô").selectOption("week");
+  await expect(page).toHaveURL(/\/milestones\?date=2026-11-03&scale=week$/);
+  await expect(page.locator(".milestone-week-day")).toHaveCount(7);
+  await expect(page.locator('.milestone-week-day[data-milestone-date="2026-11-03"] .milestone-calendar-event')).toHaveCount(4);
+
+  await page.getByLabel("Quy mô").selectOption("year");
+  await expect(page).toHaveURL(/\/milestones\?date=2026-11-03&scale=year$/);
+  const november = page.locator(".milestone-year-month").nth(10);
+  await expect(page.locator(".milestone-year-month")).toHaveCount(12);
+  await expect(november).toContainText("4 dấu mốc");
+  await expect(november).toContainText("Thi giữa kỳ");
+  await november.getByRole("button", { name: "Thi giữa kỳ", exact: true }).click();
+  await expect(page).toHaveURL(/\/milestones\?date=2026-11-03&scale=month$/);
+});
+
 test("loginRecoversFromExpiredCsrfByRefreshingAndRetryingOnce", async ({ page }) => {
   const api = await mockAuthApi(page);
   await page.goto("/account");
