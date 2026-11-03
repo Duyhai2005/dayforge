@@ -97,6 +97,19 @@ export interface FamilyWorkRoot {
 export type WorkRoot = SingleWorkRoot | FamilyWorkRoot;
 export type RootValue = PlanRoot | MilestoneRoot | WorkRoot;
 
+export type WorkItemTarget =
+  | { kind: "single" }
+  | { kind: "occurrence"; source_segment_id: UUID; original_date: string }
+  | { kind: "detached"; task_id: UUID };
+
+export interface WorkItemCard {
+  id: UUID;
+  root_id: UUID;
+  data: TaskData;
+  root: WorkRoot;
+  target: WorkItemTarget;
+}
+
 export interface ProjectionState {
   owner_id: UUID;
   roots: Record<string, RootValue>;
@@ -248,6 +261,23 @@ function isoWeekday(value: string): number {
   const priorMonths = [31, isLeapYear(year) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31].slice(0, month - 1).reduce((a, b) => a + b, 0);
   return ((beforeYear + priorMonths + day - 1) % 7) + 1;
 }
+
+export function firstOccurrenceDate(startDate: string, weekdays: readonly number[]): string | null {
+  assertLocalDate(startDate, "recurrence_start_date");
+  let date = startDate;
+  for (let offset = 0; offset < 7; offset += 1) {
+    if (weekdays.includes(isoWeekday(date))) return date;
+    if (offset < 6) {
+      try {
+        date = nextLocalDate(date);
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
 function dateBefore(left: string, right: string): boolean { return left < right; }
 function dateBeforeOrEqual(left: string, right: string): boolean { return left <= right; }
 function dateInSegment(date: string, segment: RuleSegment): boolean {
@@ -405,6 +435,83 @@ async function bucketCards(state: ProjectionState, date: string, period: Period)
   });
   return cards;
 }
+
+/** Expand only the requested calendar dates, including moved family exceptions. */
+export async function workItemsForDates(
+  state: ProjectionState | null,
+  dates: ReadonlyArray<string | null>,
+): Promise<WorkItemCard[]> {
+  if (!state) return [];
+  const visibleDates = new Set(dates.filter((date): date is string => date !== null));
+  for (const date of visibleDates) assertLocalDate(date, "work_item_view_date");
+
+  const cards: WorkItemCard[] = [];
+  const seen = new Set<string>();
+  const addCard = (rootId: UUID, cardId: UUID, root: WorkRoot, data: TaskData, target: WorkItemTarget) => {
+    const key = `${rootId}:${cardId}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    cards.push({ id: cardId, root_id: rootId, root, data, target });
+  };
+
+  for (const [key, value] of Object.entries(state.roots)) {
+    if (!key.startsWith("work_item:") || !value || value.deleted || !("kind" in value)) continue;
+    const rootId = key.slice("work_item:".length) as UUID;
+    if (value.kind === "single") {
+      if (visibleDates.has(value.single.date)) {
+        addCard(rootId, rootId, value, value.single, { kind: "single" });
+      }
+      continue;
+    }
+
+    for (const date of visibleDates) {
+      const segment = matchingSegment(value, date);
+      if (!segment) continue;
+      const override = findOverride(value, date);
+      if (!override) {
+        const data = taskFromTemplate(segment.template, date);
+        const rank = activeOrderOverride(value, date, segment.segment_id);
+        if (rank) data.order_key = rank.order_key;
+        addCard(rootId, await occurrenceId(rootId, date), value, data, {
+          kind: "occurrence",
+          source_segment_id: segment.segment_id,
+          original_date: date,
+        });
+      } else if (override.kind === "replacement" && override.replacement && visibleDates.has(override.replacement.date)) {
+        addCard(rootId, await occurrenceId(rootId, override.original_date), value, override.replacement, {
+          kind: "occurrence",
+          source_segment_id: override.source_segment_id,
+          original_date: override.original_date,
+        });
+      }
+    }
+
+    for (const override of value.family.overrides) {
+      if (override.kind !== "replacement" || !override.replacement || !visibleDates.has(override.replacement.date)) continue;
+      const segment = matchingSegment(value, override.original_date);
+      if (!segment || segment.segment_id !== override.source_segment_id) continue;
+      addCard(rootId, await occurrenceId(rootId, override.original_date), value, override.replacement, {
+        kind: "occurrence",
+        source_segment_id: override.source_segment_id,
+        original_date: override.original_date,
+      });
+    }
+
+    for (const child of value.family.detached) {
+      if (child.deleted || !visibleDates.has(child.data.date)) continue;
+      addCard(rootId, child.task_id, value, child.data, { kind: "detached", task_id: child.task_id });
+    }
+  }
+
+  const periodOrder: Record<Period, number> = { morning: 0, afternoon: 1, evening: 2 };
+  cards.sort((left, right) => left.data.date.localeCompare(right.data.date) ||
+    periodOrder[left.data.period] - periodOrder[right.data.period] ||
+    (BigInt(left.data.order_key) < BigInt(right.data.order_key) ? -1 :
+      BigInt(left.data.order_key) > BigInt(right.data.order_key) ? 1 : 0) ||
+    compareText(uuidOrder(left.id), uuidOrder(right.id)));
+  return cards;
+}
+
 export async function nextOrderKeyForBucket(state: ProjectionState, date: string, period: Period): Promise<string> {
   assertLocalDate(date, "bucket.date");
   const cards = await bucketCards(state, date, period);

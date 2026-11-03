@@ -571,6 +571,78 @@ test("ownerCanCreateTaskAndNestedPlanWithoutLosingTheTaskDraft", async ({ page }
   await expect(wednesdayEvening.locator(".work-task-card")).toHaveCount(0);
 });
 
+test("ownerCanCreateAWeeklyTaskAndSeeItsOccurrencesAcrossViewedWeeks", async ({ page }) => {
+  await page.route("**/api/v1/sync/**", route => route.abort());
+  await mockAuthApi(page);
+  await page.goto("/account");
+  await page.getByLabel("Email").fill("owner@example.test");
+  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
+  await page.getByRole("button", { name: "Đăng nhập và mở kho local", exact: true }).click();
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
+
+  await page.goto("/work?date=2026-11-03");
+  const tuesday = page.locator('.work-week-bucket[data-work-date="2026-11-03"][data-period="morning"]');
+  await tuesday.locator(".work-week-add").click();
+  const dialog = page.getByRole("dialog", { name: "Thêm công việc" });
+  await dialog.getByLabel("Tên công việc").fill("Ôn từ vựng tiếng Anh");
+  await dialog.getByLabel("Buổi").selectOption("morning");
+  await dialog.getByLabel("Lịch lặp").selectOption("weekly");
+  await dialog.locator('input[name="recurrence-weekday"][value="2"]').uncheck();
+  await dialog.locator('input[name="recurrence-weekday"][value="1"]').check();
+  await dialog.locator('input[name="recurrence-weekday"][value="3"]').check();
+  await expect(dialog).toContainText("Lần đầu sẽ là ngày");
+  await dialog.getByRole("button", { name: "Lưu công việc", exact: true }).click();
+  await expect(dialog).toBeHidden();
+
+  const wednesday = page.locator('.work-week-bucket[data-work-date="2026-11-04"][data-period="morning"]');
+  const firstOccurrence = wednesday.locator(".work-task-card").filter({ hasText: "Ôn từ vựng tiếng Anh" });
+  await expect(firstOccurrence).toBeVisible();
+  await expect(wednesday).toContainText("Lặp lại");
+  await expect(page.locator('.work-week-bucket[data-work-date="2026-11-03"][data-period="morning"] .work-task-card')).toHaveCount(0);
+
+  await page.goto("/work?date=2026-11-10");
+  const monday = page.locator('.work-week-bucket[data-work-date="2026-11-09"][data-period="morning"]');
+  const nextWednesday = page.locator('.work-week-bucket[data-work-date="2026-11-11"][data-period="morning"]');
+  await expect(monday.locator(".work-task-card").filter({ hasText: "Ôn từ vựng tiếng Anh" })).toBeVisible();
+  await expect(nextWednesday.locator(".work-task-card").filter({ hasText: "Ôn từ vựng tiếng Anh" })).toBeVisible();
+  await page.reload();
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
+  await expect(page.locator('.work-week-bucket[data-work-date="2026-11-09"][data-period="morning"] .work-task-card').filter({ hasText: "Ôn từ vựng tiếng Anh" })).toBeVisible();
+});
+
+test("ownerCanEnableRecurrenceWithoutChangingTheExistingFirstOccurrence", async ({ page }) => {
+  await page.route("**/api/v1/sync/**", route => route.abort());
+  await mockAuthApi(page);
+  await page.goto("/account");
+  await page.getByLabel("Email").fill("owner@example.test");
+  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
+  await page.getByRole("button", { name: "Đăng nhập và mở kho local", exact: true }).click();
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
+
+  await page.goto("/work?date=2026-11-10");
+  const monday = page.locator('.work-week-bucket[data-work-date="2026-11-09"][data-period="morning"]');
+  await monday.locator(".work-week-add").click();
+  const createDialog = page.getByRole("dialog", { name: "Thêm công việc" });
+  await createDialog.getByLabel("Tên công việc").fill("Học từ mới");
+  await createDialog.getByLabel("Buổi").selectOption("morning");
+  await createDialog.getByRole("button", { name: "Lưu công việc", exact: true }).click();
+  const firstTask = monday.locator(".work-task-card").filter({ hasText: "Học từ mới" });
+  await expect(firstTask).toBeVisible();
+  await monday.getByRole("button", { name: "Đánh dấu Học từ mới hoàn thành" }).click();
+  await expect(firstTask).toContainText("Đã hoàn thành");
+  await firstTask.click();
+
+  const editDialog = page.getByRole("dialog", { name: "Sửa công việc" });
+  await editDialog.getByLabel("Lịch lặp").selectOption("weekly");
+  await editDialog.locator('input[name="recurrence-weekday"][value="3"]').check();
+  await editDialog.getByRole("button", { name: "Lưu công việc", exact: true }).click();
+  await expect(editDialog).toBeHidden();
+  await expect(monday.locator(".work-task-card").filter({ hasText: "Học từ mới" })).toContainText("Đã hoàn thành");
+  const wednesday = page.locator('.work-week-bucket[data-work-date="2026-11-11"][data-period="morning"]');
+  await expect(wednesday.locator(".work-task-card").filter({ hasText: "Học từ mới" })).toBeVisible();
+  await expect(wednesday.locator(".work-task-card").filter({ hasText: "Học từ mới" })).not.toContainText("Đã hoàn thành");
+});
+
 test("ownerCanCompleteOverdueAndDeleteTasksWithOfflineUndoAtUtc7Midnight", async ({ page }) => {
   await page.clock.install({ time: new Date("2026-11-02T16:59:50.000Z") });
   await page.route("**/api/v1/sync/**", route => route.abort());

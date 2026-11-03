@@ -18,7 +18,7 @@ import { startSyncCoordinator, type CoordinatorStatus, type SyncCoordinatorHandl
 import type { SyncCommand, UUID } from "../../lib/sync/protocol";
 import { commitLocalMutation, LocalMutationNoOp, type LocalMutationResult } from "../../lib/sync/mutation";
 import { rebuildOwnerProjection } from "../../lib/sync/projection";
-import { bucketOrderHash, semanticRootHash, type MilestoneData, type Period, type PlanData, type ProjectionState, type SingleWorkRoot, type TaskData } from "../../lib/sync/reducer";
+import { bucketOrderHash, semanticRootHash, type MilestoneData, type Period, type PlanData, type ProjectionState, type RecurrenceRule, type SingleWorkRoot, type TaskData, type TaskTemplate } from "../../lib/sync/reducer";
 import { useBuildGate } from "../offline/offline-bootstrap";
 
 interface OwnerView {
@@ -124,6 +124,8 @@ interface AccountContextValue {
   replaceTask(id: UUID, data: TaskData, expectedRootHash: string): Promise<LocalMutationResult>;
   changeTaskStatus(id: UUID, data: TaskData, expectedRootHash: string): Promise<LocalMutationResult>;
   deleteTask(id: UUID, title: string, expectedRootHash: string): Promise<LocalMutationResult>;
+  createRecurringTask(id: UUID, startDate: string, rule: RecurrenceRule, template: TaskTemplate): Promise<LocalMutationResult>;
+  enableTaskRecurrence(id: UUID, data: TaskData, rule: RecurrenceRule, expectedRootHash: string): Promise<LocalMutationResult>;
   repositionTask(id: UUID, data: TaskData, expectedRootHash: string, beforeTaskId: UUID | null): Promise<LocalMutationResult>;
   undoTask(action: TaskUndoAction): Promise<void>;
 }
@@ -613,8 +615,8 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
 
   const writeTask = useCallback(async (
     id: UUID,
-    action: "work_item.create_single" | "single.replace",
-    data: TaskData,
+    action: "work_item.create_single" | "single.replace" | "work_item.create_recurrence" | "work_item.enable_recurrence",
+    payload: { data: TaskData } | { data: TaskData; rule: RecurrenceRule } | { start_date: string; rule: RecurrenceRule; template: TaskTemplate },
     expectedRootHash?: string,
   ): Promise<LocalMutationResult> => {
     const db = databaseRef.current;
@@ -626,6 +628,11 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
       if (!gate) throw new Error("Trạng thái cập nhật offline chưa sẵn sàng.");
       const snapshot = await readOwnerSnapshot(db, ownerId, build.buildId);
       const root = { kind: "work_item" as const, id };
+      if (expectedRootHash) {
+        const projection = (await rebuildOwnerProjection({ snapshot })).replay.state;
+        const actualRootHash = await semanticRootHash(root, projection.roots[`work_item:${id}`] ?? null);
+        if (actualRootHash !== expectedRootHash) throw new Error("Công việc đã thay đổi ở nơi khác. Hãy tải lại lịch rồi thử lại.");
+      }
       const precondition = action === "single.replace" && expectedRootHash
         ? { expected_root_hash: expectedRootHash }
         : null;
@@ -642,7 +649,7 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
             commands: [{
               root,
               action,
-              payload: { data },
+              payload,
               precondition,
             }],
           },
@@ -672,14 +679,24 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
     throw new Error("Dữ liệu lịch liên tục thay đổi ở tab khác. Hãy thử lưu lại.");
   }, [build.buildId, owner?.id, state]);
 
-  const createTask = useCallback((id: UUID, data: TaskData) => writeTask(id, "work_item.create_single", data), [writeTask]);
+  const createTask = useCallback((id: UUID, data: TaskData) => writeTask(id, "work_item.create_single", { data }), [writeTask]);
   const replaceTask = useCallback(async (id: UUID, data: TaskData, expectedRootHash: string) => {
     const current = calendarProjection?.roots[`work_item:${id}`] ?? null;
     const actualRootHash = await semanticRootHash({ kind: "work_item", id }, current);
     if (actualRootHash !== expectedRootHash) {
       throw new Error("Công việc đã thay đổi ở nơi khác. Hãy mở lại rồi thử sửa lần nữa.");
     }
-    return writeTask(id, "single.replace", data, expectedRootHash);
+    return writeTask(id, "single.replace", { data }, expectedRootHash);
+  }, [calendarProjection, writeTask]);
+
+  const createRecurringTask = useCallback((id: UUID, startDate: string, rule: RecurrenceRule, template: TaskTemplate) =>
+    writeTask(id, "work_item.create_recurrence", { start_date: startDate, rule, template }), [writeTask]);
+
+  const enableTaskRecurrence = useCallback(async (id: UUID, data: TaskData, rule: RecurrenceRule, expectedRootHash: string) => {
+    const current = calendarProjection?.roots[`work_item:${id}`] ?? null;
+    const actualRootHash = await semanticRootHash({ kind: "work_item", id }, current);
+    if (actualRootHash !== expectedRootHash) throw new Error("Công việc đã thay đổi ở nơi khác. Hãy mở lại rồi thử lần nữa.");
+    return writeTask(id, "work_item.enable_recurrence", { data, rule }, expectedRootHash);
   }, [calendarProjection, writeTask]);
 
   const mutateUndoableTask = useCallback(async (
@@ -1040,9 +1057,9 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
   const taskUndo = storedTaskUndo && storedTaskUndo.ownerId === owner?.id ? storedTaskUndo.action : null;
   const value = useMemo<AccountContextValue>(() => ({
     state, session, owner, syncStatus, error, info, login, register, requestPasswordReset,
-    calendarProjection, calendarReady, calendarError, taskUndo, refreshCalendar, createPlan, replacePlan, createMilestone, replaceMilestone, deleteMilestone, createTask, replaceTask, changeTaskStatus, deleteTask, repositionTask, undoTask,
+    calendarProjection, calendarReady, calendarError, taskUndo, refreshCalendar, createPlan, replacePlan, createMilestone, replaceMilestone, deleteMilestone, createTask, replaceTask, changeTaskStatus, deleteTask, createRecurringTask, enableTaskRecurrence, repositionTask, undoTask,
     confirmEmail, resetPassword, logout, repairClockIssues, inspectPendingChanges, wakeSync, stopSync, coordinatorStatus, refreshSession, clearNotice,
-  }), [calendarError, calendarProjection, calendarReady, changeTaskStatus, clearNotice, confirmEmail, coordinatorStatus, createMilestone, createPlan, createTask, deleteMilestone, deleteTask, error, info, inspectPendingChanges, login, logout, owner, refreshCalendar, refreshSession, register, repairClockIssues, replaceMilestone, replacePlan, replaceTask, repositionTask, requestPasswordReset, resetPassword, session, state, stopSync, syncStatus, taskUndo, undoTask, wakeSync]);
+  }), [calendarError, calendarProjection, calendarReady, changeTaskStatus, clearNotice, confirmEmail, coordinatorStatus, createMilestone, createPlan, createTask, createRecurringTask, deleteMilestone, deleteTask, enableTaskRecurrence, error, info, inspectPendingChanges, login, logout, owner, refreshCalendar, refreshSession, register, repairClockIssues, replaceMilestone, replacePlan, replaceTask, repositionTask, requestPasswordReset, resetPassword, session, state, stopSync, syncStatus, taskUndo, undoTask, wakeSync]);
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;
 }
