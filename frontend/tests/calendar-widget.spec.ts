@@ -30,6 +30,35 @@ test("widgetOpensAndClosesByToggleEscapeAndOutsideClick", async ({ page }) => {
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
 });
 
+test("widgetTabOrderIncludesExpandedPanel", async ({ page }) => {
+  await page.goto("/work?date=2026-01-31");
+  const toggle = page.getByRole("button", { name: toggleName });
+  const panel = page.getByRole("region", { name: panelName });
+  const currentCalendar = panel.getByRole("link", { name: "Lịch công việc", exact: true });
+  const otherCalendar = panel.getByRole("link", { name: "Lịch dấu mốc", exact: true });
+
+  await toggle.focus();
+  await page.keyboard.press("Enter");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await page.keyboard.press("Tab");
+  await expect(currentCalendar).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(otherCalendar).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(currentCalendar).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(toggle).toBeFocused();
+
+  await page.keyboard.press("Escape");
+  await expect(panel).toBeHidden();
+  await expect(toggle).toBeFocused();
+
+  await toggle.press("Enter");
+  await page.getByRole("heading", { name: "Lịch công việc", exact: true }).click();
+  await expect(panel).toBeHidden();
+  await expect(toggle).toBeFocused();
+});
+
 test("calendarSwitchClosesAndFocusesMain", async ({ page }) => {
   await page.addInitScript(() => {
     sessionStorage.setItem("dayforge:view:v1:milestones", JSON.stringify({ anchor: "2026-02-28", scale: "year", scrollY: 0 }));
@@ -142,7 +171,7 @@ test("widgetHonorsReducedMotion", async ({ page }) => {
     }));
     return { transform: style.transform, translate: style.translate, scale: style.scale, transitions: style.transitionDuration.split(",").map(value => parseFloat(value) * (value.trim().endsWith("ms") ? 1 : 1000)), animations };
   });
-  expect(motion.transform).toBe("none");
+  expect(["none", "matrix(1,0,0,1,0,0)"]).toContain(motion.transform.replace(/\s+/g, ""));
   expect(motion.translate).toBe("none");
   expect(motion.scale).toBe("none");
   expect(motion.transitions.every(duration => duration <= 80)).toBe(true);

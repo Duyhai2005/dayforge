@@ -681,6 +681,116 @@ test("ownerCanCreateTaskAndNestedPlanWithoutLosingTheTaskDraft", async ({ page }
   await expect(wednesdayEvening.locator(".work-task-card")).toHaveCount(0);
 });
 
+test("nestedDialogsTrapFocusAndEscapeClosesOnlyTopLayer", async ({ page }) => {
+  await page.route("**/api/v1/sync/**", (route) => route.abort());
+  await mockAuthApi(page);
+  await page.goto("/account");
+  await page.getByLabel("Email").fill("owner@example.test");
+  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
+  await page.getByRole("button", { name: "Đăng nhập và mở kho local", exact: true }).click();
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
+
+  await page.goto("/work?date=2026-11-03");
+  await page.getByRole("button", { name: "Mở hoặc đóng điều hướng lịch" }).click();
+  await page.getByRole("button", { name: "Thêm công việc", exact: true }).click();
+  const taskDialog = page.getByRole("dialog", { name: "Thêm công việc" });
+  const taskContainer = page.locator(".task-editor");
+  const taskTitle = taskDialog.getByLabel("Tên công việc");
+  const closeTask = taskDialog.getByRole("button", { name: "Đóng công việc", exact: true });
+  const saveTask = taskDialog.getByRole("button", { name: "Lưu công việc", exact: true });
+  await taskTitle.fill("Bản nháp cần giữ khi mở dialog lồng");
+
+  await closeTask.focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(saveTask).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(closeTask).toBeFocused();
+
+  const createPlanTrigger = taskDialog.getByRole("button", { name: "Tạo kế hoạch", exact: true });
+  await createPlanTrigger.click();
+  const planDialog = page.locator(".plan-manager");
+  await expect(planDialog).toBeVisible();
+  await expect(taskContainer).toHaveAttribute("aria-modal", "false");
+  await expect.poll(() => taskContainer.evaluate((element) => (element as HTMLElement).inert)).toBe(true);
+
+  const closePlan = planDialog.getByRole("button", { name: "Đóng kế hoạch", exact: true });
+  const startPlan = planDialog.getByRole("button", { name: "Tạo kế hoạch", exact: true });
+  await closePlan.focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(startPlan).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(closePlan).toBeFocused();
+
+  await startPlan.click();
+  const planName = planDialog.getByLabel("Tên kế hoạch");
+  await planName.fill("Kế hoạch nháp lồng");
+  await planDialog.getByRole("button", { name: "Quay lại", exact: true }).click();
+  const discardPlan = planDialog.getByRole("alertdialog", { name: "Bỏ thay đổi chưa lưu?" });
+  await expect(discardPlan).toBeVisible();
+  await expect(planDialog).toHaveAttribute("aria-modal", "false");
+  await expect(discardPlan).toHaveAttribute("aria-modal", "true");
+  const continuePlan = discardPlan.getByRole("button", { name: "Tiếp tục sửa", exact: true });
+  const discardPlanButton = discardPlan.getByRole("button", { name: "Bỏ thay đổi", exact: true });
+  await continuePlan.focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(discardPlanButton).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(continuePlan).toBeFocused();
+  await page.keyboard.press("Escape");
+
+  await expect(discardPlan).toBeHidden();
+  await expect(planDialog).toBeVisible();
+  await expect(planName).toHaveValue("Kế hoạch nháp lồng");
+  await expect(planDialog.getByRole("button", { name: "Quay lại", exact: true })).toBeFocused();
+  await planDialog.getByRole("button", { name: "Quay lại", exact: true }).click();
+  await planDialog.getByRole("alertdialog", { name: "Bỏ thay đổi chưa lưu?" })
+    .getByRole("button", { name: "Bỏ thay đổi", exact: true }).click();
+  await expect(planDialog).toBeHidden();
+  await expect(taskDialog).toBeVisible();
+  await expect(taskContainer).not.toHaveAttribute("inert", "");
+  await expect(createPlanTrigger).toBeFocused();
+  await expect(taskTitle).toHaveValue("Bản nháp cần giữ khi mở dialog lồng");
+
+  await taskDialog.getByRole("button", { name: "Hủy", exact: true }).click();
+  const discardTask = taskDialog.getByRole("alertdialog", { name: "Bỏ thay đổi chưa lưu?" });
+  await expect(discardTask).toBeVisible();
+  await expect(taskContainer).toHaveAttribute("aria-modal", "false");
+  await expect(discardTask).toHaveAttribute("aria-modal", "true");
+  await page.keyboard.press("Escape");
+  await expect(discardTask).toBeHidden();
+  await expect(taskDialog).toBeVisible();
+  await expect(taskTitle).toHaveValue("Bản nháp cần giữ khi mở dialog lồng");
+  await expect(taskDialog.getByRole("button", { name: "Hủy", exact: true })).toBeFocused();
+
+  await taskDialog.getByRole("button", { name: "Hủy", exact: true }).click();
+  await taskDialog.getByRole("alertdialog", { name: "Bỏ thay đổi chưa lưu?" })
+    .getByRole("button", { name: "Bỏ thay đổi", exact: true }).click();
+  await expect(taskDialog).toBeHidden();
+  const widgetToggle = page.getByRole("button", { name: "Mở hoặc đóng điều hướng lịch" });
+  await expect(widgetToggle).toBeFocused();
+
+  await widgetToggle.click();
+  await page.getByRole("button", { name: "Thêm dấu mốc", exact: true }).click();
+  const milestoneDialog = page.getByRole("dialog", { name: "Thêm dấu mốc" });
+  const milestoneTitle = milestoneDialog.getByLabel("Tên dấu mốc");
+  await milestoneTitle.fill("Bản nháp dấu mốc");
+  const cancelMilestone = milestoneDialog.getByRole("button", { name: "Hủy", exact: true });
+  await cancelMilestone.click();
+  const discardMilestone = milestoneDialog.getByRole("alertdialog", { name: "Bỏ thay đổi chưa lưu?" });
+  await expect(discardMilestone).toBeVisible();
+  await expect(milestoneDialog).toHaveAttribute("aria-modal", "false");
+  await expect(discardMilestone).toHaveAttribute("aria-modal", "true");
+  await page.keyboard.press("Escape");
+  await expect(discardMilestone).toBeHidden();
+  await expect(milestoneTitle).toHaveValue("Bản nháp dấu mốc");
+  await expect(cancelMilestone).toBeFocused();
+  await cancelMilestone.click();
+  await milestoneDialog.getByRole("alertdialog", { name: "Bỏ thay đổi chưa lưu?" })
+    .getByRole("button", { name: "Bỏ thay đổi", exact: true }).click();
+  await expect(milestoneDialog).toBeHidden();
+  await expect(widgetToggle).toBeFocused();
+});
+
 test("ownerCanCreateAWeeklyTaskAndSeeItsOccurrencesAcrossViewedWeeks", async ({ page }) => {
   await page.route("**/api/v1/sync/**", route => route.abort());
   await mockAuthApi(page);

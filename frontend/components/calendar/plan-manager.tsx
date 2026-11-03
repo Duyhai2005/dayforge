@@ -53,6 +53,7 @@ export function PlanManager({ open, onClose, onCreated, nested = false }: PlanMa
   const firstAction = useRef<HTMLButtonElement>(null);
   const planNameInput = useRef<HTMLInputElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
+  const confirmReturnFocus = useRef<HTMLElement | null>(null);
   const dirty = !sameFields(fields, initial);
 
   const plans = useMemo<PlanEntry[]>(() => {
@@ -64,10 +65,24 @@ export function PlanManager({ open, onClose, onCreated, nested = false }: PlanMa
       .sort((left, right) => left.root.data.name.localeCompare(right.root.data.name, "vi") || left.id.localeCompare(right.id));
   }, [account.calendarProjection]);
 
+  const openDiscardConfirmation = useCallback(() => {
+    confirmReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setConfirmDiscard(true);
+  }, []);
+
+  const closeDiscardConfirmation = useCallback(() => {
+    setConfirmDiscard(false);
+    requestAnimationFrame(() => {
+      const target = confirmReturnFocus.current;
+      const canRestore = target?.isConnected && !target.closest("[inert]") && target.getClientRects().length > 0;
+      (canRestore ? target : planNameInput.current)?.focus({ preventScroll: true });
+    });
+  }, []);
+
   const requestClose = useCallback(() => {
     if (busy) return;
     if (dirty) {
-      setConfirmDiscard(true);
+      openDiscardConfirmation();
       return;
     }
     setEditingId(null);
@@ -77,7 +92,7 @@ export function PlanManager({ open, onClose, onCreated, nested = false }: PlanMa
     setSaveError(null);
     setConfirmDiscard(false);
     onClose();
-  }, [busy, dirty, onClose]);
+  }, [busy, dirty, onClose, openDiscardConfirmation]);
 
   useEffect(() => {
     if (!open) return;
@@ -106,7 +121,7 @@ export function PlanManager({ open, onClose, onCreated, nested = false }: PlanMa
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
-        if (confirmDiscard) setConfirmDiscard(false);
+        if (confirmDiscard) closeDiscardConfirmation();
         else requestClose();
         return;
       }
@@ -131,7 +146,7 @@ export function PlanManager({ open, onClose, onCreated, nested = false }: PlanMa
     };
     document.addEventListener("keydown", trap, true);
     return () => document.removeEventListener("keydown", trap, true);
-  }, [confirmDiscard, open, requestClose]);
+  }, [closeDiscardConfirmation, confirmDiscard, open, requestClose]);
 
   if (!open || typeof document === "undefined") return null;
 
@@ -190,7 +205,7 @@ export function PlanManager({ open, onClose, onCreated, nested = false }: PlanMa
     <div className="plan-manager-backdrop" data-nested={nested || undefined} onMouseDown={(event) => {
       if (event.target === event.currentTarget) requestClose();
     }}>
-      <section ref={dialog} className="plan-manager" role="dialog" aria-modal="true" aria-labelledby="plan-manager-title" data-dayforge-dirty={dirty ? "true" : "false"}>
+      <section ref={dialog} className="plan-manager" role="dialog" aria-modal={!confirmDiscard} aria-labelledby="plan-manager-title" data-dayforge-dirty={dirty ? "true" : "false"}>
         <header className="plan-manager-header">
           <div>
             <p className="calendar-kicker">DAYFORGE · KẾ HOẠCH</p>
@@ -238,7 +253,7 @@ export function PlanManager({ open, onClose, onCreated, nested = false }: PlanMa
           {account.error && <p className="account-error" role="alert">{account.error}</p>}
           <div className="plan-form-actions">
             <button type="button" disabled={busy} onClick={() => {
-              if (dirty) setConfirmDiscard(true);
+              if (dirty) openDiscardConfirmation();
               else resetEditor();
             }}>Quay lại</button>
             <button type="submit" className="account-submit" disabled={busy}>{busy ? "Đang lưu…" : "Lưu kế hoạch"}</button>
@@ -250,7 +265,7 @@ export function PlanManager({ open, onClose, onCreated, nested = false }: PlanMa
             <h3 id="plan-discard-title">Bỏ thay đổi chưa lưu?</h3>
             <p>Tên hoặc màu kế hoạch sẽ không được lưu.</p>
             <div className="plan-form-actions">
-              <button type="button" autoFocus onClick={() => setConfirmDiscard(false)}>Tiếp tục sửa</button>
+              <button type="button" autoFocus onClick={closeDiscardConfirmation}>Tiếp tục sửa</button>
               <button type="button" onClick={() => { resetEditor(); onClose(); }}>Bỏ thay đổi</button>
             </div>
           </section>
