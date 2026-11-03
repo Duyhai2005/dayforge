@@ -215,7 +215,7 @@ test("production shell survives a browser restart offline and keeps private path
       await restarted.setOffline(true);
       const page = restarted.pages()[0] ?? await restarted.newPage();
       await page.goto(`${baseURL}/`);
-      await expect(page).toHaveURL(/\/work$/);
+      await expect(page).toHaveURL(url => url.pathname === "/work");
       await expect(page.locator("main")).toBeVisible();
     } finally {
       await restarted.close();
