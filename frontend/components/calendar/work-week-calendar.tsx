@@ -113,9 +113,8 @@ export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone
   const ready = account.state === "unlocked" && account.calendarReady;
 
   async function editTask(card: WorkCard): Promise<void> {
-    if (card.root.kind !== "single") return;
     const expectedRootHash = await semanticRootHash({ kind: "work_item", id: card.root_id }, card.root);
-    onEditTask({ id: card.root_id, data: card.data, expectedRootHash, target: card.target });
+    onEditTask({ id: card.root_id, data: card.data, expectedRootHash, target: card.target, root: card.root });
   }
 
   async function editMilestone(milestone: WorkMilestone): Promise<void> {
@@ -124,12 +123,11 @@ export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone
   }
 
   async function toggleTaskStatus(card: WorkCard): Promise<void> {
-    if (card.root.kind !== "single") return;
     try {
       setMoveError(null);
       const expectedRootHash = await semanticRootHash({ kind: "work_item", id: card.root_id }, card.root);
       const status = card.data.status === "completed" ? "pending" : "completed";
-      await account.changeTaskStatus(card.root_id, { ...card.data, status }, expectedRootHash);
+      await account.changeWorkItemStatus(card.root_id, card.target, { ...card.data, status }, expectedRootHash);
     } catch (cause) {
       setMoveError(cause instanceof Error ? cause.message : "Không thể đổi trạng thái công việc.");
     }
@@ -148,9 +146,8 @@ export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone
       const sameBucket = card.data.date === date && card.data.period === period;
       const currentIds = destinationCards.map((entry) => entry.id);
       if (sameBucket && currentIds.length === nextIds.length && currentIds.every((entry, index) => entry === nextIds[index])) return;
-      if (card.root.kind !== "single") throw new Error("Có thể kéo việc một lần. Hãy mở biểu mẫu để đổi lần lặp.");
       const expectedRootHash = await semanticRootHash({ kind: "work_item", id: card.root_id }, card.root);
-      await onMoveTask({ id: card.root_id, data: card.data, expectedRootHash, target: card.target }, date, period, beforeTaskId);
+      await onMoveTask({ id: card.root_id, data: card.data, expectedRootHash, target: card.target, root: card.root }, date, period, beforeTaskId);
     } catch (cause) {
       setMoveError(cause instanceof Error ? cause.message : "Không thể đổi lịch công việc.");
     }
@@ -309,7 +306,7 @@ export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone
               return <Fragment key={card.id}>
                 {showInsertionBefore && <div className="work-task-drop-marker" aria-label={`Thả trước ${card.data.title}`}><span />Thả trước {card.data.title}</div>}
                 <div className="work-task-entry" data-work-item-id={card.id} data-dragging={draggedTaskId === card.id ? "true" : undefined}>
-                  <button type="button" disabled={card.root.kind !== "single"} draggable={ready && card.root.kind === "single"} className="work-task-card" style={{ backgroundColor: color.background, color: color.foreground }} aria-label={`${accessibleLabel}${card.target.kind === "occurrence" ? ", lần lặp" : card.target.kind === "detached" ? ", việc một lần đã tách" : ""}${card.root.kind === "single" ? ", mở biểu mẫu để sửa" : ""}`} aria-describedby="work-week-move-help"
+                  <button type="button" disabled={!ready} draggable={ready} className="work-task-card" style={{ backgroundColor: color.background, color: color.foreground }} aria-label={`${accessibleLabel}${card.target.kind === "occurrence" ? ", lần lặp" : card.target.kind === "detached" ? ", việc một lần đã tách" : ""}, mở biểu mẫu để sửa`} aria-describedby="work-week-move-help"
                     onClick={() => void editTask(card)} onDragStart={(event) => handleDragStart(event, card)} onDragEnd={handleDragEnd}>
                     <span className="work-task-grip" aria-hidden="true">⠿</span>
                     <span className="work-task-title">{card.data.title}</span>
@@ -321,7 +318,7 @@ export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone
                     </span>
                   </button>
                   <div className="work-task-order-actions" aria-label={"Thao tác " + card.data.title}>
-                    <button type="button" className="work-task-status-toggle" disabled={!ready || card.root.kind !== "single"}
+                    <button type="button" className="work-task-status-toggle" disabled={!ready}
                       aria-label={"Đánh dấu " + card.data.title + " " + (card.data.status === "completed" ? "chưa hoàn thành" : "hoàn thành")}
                       aria-pressed={card.data.status === "completed"} title={card.data.status === "completed" ? "Bỏ hoàn thành" : "Đánh dấu hoàn thành"}
                       onClick={() => void toggleTaskStatus(card)}>{card.data.status === "completed" ? "↶" : "✓"}</button>

@@ -18,7 +18,7 @@ import { startSyncCoordinator, type CoordinatorStatus, type SyncCoordinatorHandl
 import type { SyncCommand, UUID } from "../../lib/sync/protocol";
 import { commitLocalMutation, LocalMutationNoOp, type LocalMutationResult } from "../../lib/sync/mutation";
 import { rebuildOwnerProjection } from "../../lib/sync/projection";
-import { bucketOrderHash, semanticRootHash, type MilestoneData, type Period, type PlanData, type ProjectionState, type RecurrenceRule, type SingleWorkRoot, type TaskData, type TaskTemplate } from "../../lib/sync/reducer";
+import { bucketOrderHash, semanticRootHash, workItemsForDates, type MilestoneData, type Period, type PlanData, type ProjectionState, type RecurrenceRule, type TaskData, type TaskTemplate, type WorkItemCard, type WorkItemTarget } from "../../lib/sync/reducer";
 import { useBuildGate } from "../offline/offline-bootstrap";
 
 interface OwnerView {
@@ -60,7 +60,13 @@ export type TaskUndoAction = {
 
 type UndoableTaskCommand =
   | { action: "single.replace"; payload: { data: TaskData } }
-  | { action: "single.delete"; payload: Record<string, never> };
+  | { action: "single.delete"; payload: Record<string, never> }
+  | { action: "occurrence.replace"; payload: { source_segment_id: UUID; original_date: string; data: TaskData } }
+  | { action: "occurrence.delete"; payload: { source_segment_id: UUID; original_date: string } }
+  | { action: "detached.replace"; payload: { task_id: UUID; data: TaskData } }
+  | { action: "detached.delete"; payload: { task_id: UUID } }
+  | { action: "series.edit_future"; payload: { source_segment_id: UUID; cutoff_original_date: string; rule: RecurrenceRule; template: TaskTemplate } }
+  | { action: "series.stop_future"; payload: { source_segment_id: UUID; cutoff_original_date: string } };
 
 type StoredTaskUndoAction = { ownerId: UUID; action: TaskUndoAction };
 
@@ -76,18 +82,6 @@ function taskMoveMessage(previous: TaskData, next: TaskData): string {
   const weekday = new Intl.DateTimeFormat("vi-VN", { weekday: "long", timeZone: "UTC" })
     .format(new Date(`${next.date}T00:00:00.000Z`)).toLocaleLowerCase("vi");
   return `Đã chuyển “${next.title}” sang ${period} ${weekday}.`;
-}
-
-function singleTasksInBucket(projection: ProjectionState, date: string, period: Period): Array<{ id: UUID; data: TaskData; root: SingleWorkRoot }> {
-  return Object.entries(projection.roots)
-    .filter((entry): entry is [string, SingleWorkRoot] => entry[0].startsWith("work_item:") && !entry[1].deleted &&
-      "kind" in entry[1] && entry[1].kind === "single" && entry[1].single.date === date && entry[1].single.period === period)
-    .map(([key, root]) => ({ id: key.slice("work_item:".length) as UUID, data: root.single, root }))
-    .sort((left, right) => {
-      const leftRank = BigInt(left.data.order_key);
-      const rightRank = BigInt(right.data.order_key);
-      return (leftRank < rightRank ? -1 : leftRank > rightRank ? 1 : 0) || left.id.localeCompare(right.id);
-    });
 }
 
 interface AccountContextValue {
@@ -123,10 +117,15 @@ interface AccountContextValue {
   createTask(id: UUID, data: TaskData): Promise<LocalMutationResult>;
   replaceTask(id: UUID, data: TaskData, expectedRootHash: string): Promise<LocalMutationResult>;
   changeTaskStatus(id: UUID, data: TaskData, expectedRootHash: string): Promise<LocalMutationResult>;
+  changeWorkItemStatus(id: UUID, target: WorkItemTarget, data: TaskData, expectedRootHash: string): Promise<LocalMutationResult>;
   deleteTask(id: UUID, title: string, expectedRootHash: string): Promise<LocalMutationResult>;
+  replaceWorkItemTarget(id: UUID, target: WorkItemTarget, data: TaskData, expectedRootHash: string): Promise<LocalMutationResult>;
+  deleteWorkItemTarget(id: UUID, target: WorkItemTarget, title: string, expectedRootHash: string): Promise<LocalMutationResult>;
+  editSeriesFuture(id: UUID, sourceSegmentId: UUID, cutoffOriginalDate: string, rule: RecurrenceRule, template: TaskTemplate, expectedRootHash: string): Promise<LocalMutationResult>;
+  stopSeriesFuture(id: UUID, sourceSegmentId: UUID, cutoffOriginalDate: string, title: string, expectedRootHash: string): Promise<LocalMutationResult>;
   createRecurringTask(id: UUID, startDate: string, rule: RecurrenceRule, template: TaskTemplate): Promise<LocalMutationResult>;
   enableTaskRecurrence(id: UUID, data: TaskData, rule: RecurrenceRule, expectedRootHash: string): Promise<LocalMutationResult>;
-  repositionTask(id: UUID, data: TaskData, expectedRootHash: string, beforeTaskId: UUID | null): Promise<LocalMutationResult>;
+  repositionTask(id: UUID, sourceData: TaskData, destination: TaskData, expectedRootHash: string, beforeTaskId: UUID | null, target: WorkItemTarget): Promise<LocalMutationResult>;
   undoTask(action: TaskUndoAction): Promise<void>;
 }
 
@@ -721,13 +720,15 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
       if (actualRootHash !== expectedRootHash) {
         throw new Error("Công việc đã thay đổi ở nơi khác. Hãy tải lại lịch rồi thử lại.");
       }
-      if (!current || !("kind" in current) || current.kind !== "single" || current.deleted) {
-        throw new Error("Chỉ có thể thay đổi trạng thái hoặc xóa công việc một lần còn trong lịch.");
+      if (!current || !("kind" in current) || current.deleted) {
+        throw new Error("Công việc không còn trong lịch. Hãy tải lại rồi thử tiếp.");
       }
-      if (command.action === "single.replace" && command.payload.data.status === current.single.status) {
-        throw new Error("Công việc đã ở trạng thái này.");
+      if ((command.action === "single.replace" || command.action === "single.delete") && current.kind !== "single") {
+        throw new Error("Thao tác này chỉ áp dụng cho công việc một lần.");
       }
-
+      if (command.action !== "single.replace" && command.action !== "single.delete" && current.kind !== "recurrence_family") {
+        throw new Error("Không tìm thấy chuỗi lặp của công việc này.");
+      }
       let result: LocalMutationResult;
       try {
         result = await commitLocalMutation({
@@ -802,6 +803,30 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
     );
   }, [mutateUndoableTask]);
 
+  const replaceWorkItemTarget = useCallback((id: UUID, target: WorkItemTarget, data: TaskData, expectedRootHash: string) => {
+    const command: UndoableTaskCommand = target.kind === "single"
+      ? { action: "single.replace", payload: { data } }
+      : target.kind === "occurrence"
+        ? { action: "occurrence.replace", payload: { source_segment_id: target.source_segment_id, original_date: target.original_date, data } }
+        : { action: "detached.replace", payload: { task_id: target.task_id, data } };
+    const message = `Đã cập nhật “${data.title}”.`;
+    return mutateUndoableTask(id, expectedRootHash, command, message,
+      "Đã lưu thay đổi trên thiết bị. Trạng thái đồng bộ được hiển thị riêng.");
+  }, [mutateUndoableTask]);
+
+  const changeWorkItemStatus = useCallback((id: UUID, target: WorkItemTarget, data: TaskData, expectedRootHash: string) => {
+    const command: UndoableTaskCommand = target.kind === "single"
+      ? { action: "single.replace", payload: { data } }
+      : target.kind === "occurrence"
+        ? { action: "occurrence.replace", payload: { source_segment_id: target.source_segment_id, original_date: target.original_date, data } }
+        : { action: "detached.replace", payload: { task_id: target.task_id, data } };
+    const message = data.status === "completed"
+      ? `Đã hoàn thành “${data.title}”.`
+      : `Đã đánh dấu “${data.title}” chưa hoàn thành.`;
+    return mutateUndoableTask(id, expectedRootHash, command, message,
+      "Đã lưu trạng thái công việc trên thiết bị. Trạng thái đồng bộ được hiển thị riêng.");
+  }, [mutateUndoableTask]);
+
   const deleteTask = useCallback((id: UUID, title: string, expectedRootHash: string) => mutateUndoableTask(
     id,
     expectedRootHash,
@@ -810,11 +835,39 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
     "Đã gỡ công việc khỏi lịch trên thiết bị. Có thể hoàn tác thao tác này.",
   ), [mutateUndoableTask]);
 
+  const deleteWorkItemTarget = useCallback((id: UUID, target: WorkItemTarget, title: string, expectedRootHash: string) => {
+    const command: UndoableTaskCommand = target.kind === "single"
+      ? { action: "single.delete", payload: {} }
+      : target.kind === "occurrence"
+        ? { action: "occurrence.delete", payload: { source_segment_id: target.source_segment_id, original_date: target.original_date } }
+        : { action: "detached.delete", payload: { task_id: target.task_id } };
+    const actionName = target.kind === "occurrence" ? "lần lặp" : target.kind === "detached" ? "việc một lần" : "công việc";
+    return mutateUndoableTask(id, expectedRootHash, command,
+      `Đã gỡ ${actionName} “${title}” khỏi lịch.`,
+      "Đã gỡ công việc khỏi lịch trên thiết bị. Có thể hoàn tác thao tác này.");
+  }, [mutateUndoableTask]);
+
+  const editSeriesFuture = useCallback((id: UUID, sourceSegmentId: UUID, cutoffOriginalDate: string, rule: RecurrenceRule, template: TaskTemplate, expectedRootHash: string) =>
+    mutateUndoableTask(id, expectedRootHash, {
+      action: "series.edit_future",
+      payload: { source_segment_id: sourceSegmentId, cutoff_original_date: cutoffOriginalDate, rule, template },
+    }, `Đã đổi lịch lặp từ ${cutoffOriginalDate}.`,
+    "Đã lưu lịch lặp mới trên thiết bị. Trạng thái đồng bộ được hiển thị riêng."), [mutateUndoableTask]);
+
+  const stopSeriesFuture = useCallback((id: UUID, sourceSegmentId: UUID, cutoffOriginalDate: string, title: string, expectedRootHash: string) =>
+    mutateUndoableTask(id, expectedRootHash, {
+      action: "series.stop_future",
+      payload: { source_segment_id: sourceSegmentId, cutoff_original_date: cutoffOriginalDate },
+    }, `Đã dừng “${title}” từ ${cutoffOriginalDate}.`,
+    "Đã dừng các lần lặp tương lai trên thiết bị. Lịch sử trước mốc vẫn được giữ."), [mutateUndoableTask]);
+
   const repositionTask = useCallback(async (
     id: UUID,
-    data: TaskData,
+    sourceData: TaskData,
+    destination: TaskData,
     expectedRootHash: string,
     beforeTaskId: UUID | null,
+    target: WorkItemTarget,
   ): Promise<LocalMutationResult> => {
     const db = databaseRef.current;
     const ownerId = owner?.id;
@@ -829,25 +882,30 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
       const root = projection.roots[`work_item:${id}`];
       const actualRootHash = await semanticRootHash(rootRef, root ?? null);
       if (actualRootHash !== expectedRootHash) throw new Error("Công việc đã thay đổi ở nơi khác. Hãy mở lại rồi thử lần nữa.");
-      if (!root || !("kind" in root) || root.kind !== "single" || root.deleted) {
-        throw new Error("Chỉ có thể kéo thả công việc một lần. Hãy mở biểu mẫu để đổi lịch mục này.");
-      }
-
-      const source = root.single;
+      if (!root || !("kind" in root) || root.deleted) throw new Error("Công việc không còn trong lịch. Hãy tải lại rồi thử tiếp.");
+      const visibleCards = await workItemsForDates(projection, [sourceData.date, destination.date]);
+      const matchesTarget = (card: WorkItemCard) => card.root_id === id && card.target.kind === target.kind &&
+        (target.kind === "single" || (target.kind === "occurrence" && card.target.kind === "occurrence" &&
+          target.source_segment_id === card.target.source_segment_id && target.original_date === card.target.original_date) ||
+          (target.kind === "detached" && card.target.kind === "detached" && target.task_id === card.target.task_id));
+      const sourceCard = visibleCards.find(matchesTarget);
+      if (!sourceCard) throw new Error("Công việc đã chuyển khỏi tuần đang xem. Hãy tải lại lịch rồi thử tiếp.");
+      const source = sourceCard.data;
+      const data = destination;
       const sourceBucket = { date: source.date, period: source.period };
       const destinationBucket = { date: data.date, period: data.period };
       const sameBucket = source.date === data.date && source.period === data.period;
-      if (beforeTaskId === id) {
+      if (beforeTaskId === sourceCard.id) {
         if (sameBucket) throw new Error("Công việc đã ở đúng vị trí này.");
         throw new Error("Không thể chèn công việc trước chính nó.");
       }
-      const peers = singleTasksInBucket(projection, data.date, data.period).filter((entry) => entry.id !== id);
+      const peers = visibleCards.filter((entry) => entry.data.date === data.date && entry.data.period === data.period && entry.id !== sourceCard.id);
       const insertionIndex = beforeTaskId === null ? peers.length : peers.findIndex((entry) => entry.id === beforeTaskId);
       if (insertionIndex < 0) throw new Error("Vị trí nhận đã thay đổi. Hãy thử thao tác lại.");
       const orderedIds = peers.map((entry) => entry.id);
-      orderedIds.splice(insertionIndex, 0, id);
+      orderedIds.splice(insertionIndex, 0, sourceCard.id);
       const previousIds = sameBucket
-        ? singleTasksInBucket(projection, source.date, source.period).map((entry) => entry.id)
+        ? visibleCards.filter((entry) => entry.data.date === source.date && entry.data.period === source.period).map((entry) => entry.id)
         : [];
       const contentChanged = !taskContentMatches(source, data);
       const orderChanged = !sameBucket || previousIds.length !== orderedIds.length || previousIds.some((entry, index) => entry !== orderedIds[index]);
@@ -859,17 +917,23 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
       const destinationPrecondition = { date: destinationBucket.date, period: destinationBucket.period, order_hash: destinationHash };
       const commands: SyncCommand[] = [];
       if (contentChanged) {
+        const payload = { data: { ...data, order_key: source.order_key } };
+        const replacement = target.kind === "single"
+          ? { action: "single.replace", payload }
+          : target.kind === "occurrence"
+            ? { action: "occurrence.replace", payload: { source_segment_id: target.source_segment_id, original_date: target.original_date, ...payload } }
+            : { action: "detached.replace", payload: { task_id: target.task_id, ...payload } };
         commands.push({
           root: rootRef,
-          action: "single.replace",
-          payload: { data: { ...data, order_key: source.order_key } },
+          action: replacement.action,
+          payload: replacement.payload,
           precondition: { expected_root_hash: expectedRootHash, expected_bucket: destinationPrecondition },
         });
       }
       const int64Min = -(1n << 63n);
       const int64Max = (1n << 63n) - 1n;
       const rankById = new Map(peers.map((entry) => [entry.id, BigInt(entry.data.order_key)]));
-      const movedIndex = orderedIds.indexOf(id);
+      const movedIndex = orderedIds.indexOf(sourceCard.id);
       let movedRank: bigint | null = null;
       if (orderedIds.length === 1) movedRank = 0n;
       else if (movedIndex === 0) {
@@ -886,7 +950,7 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
         }
       }
       const rankAssignments = new Map<UUID, bigint>();
-      if (movedRank !== null) rankAssignments.set(id, movedRank);
+      if (movedRank !== null) rankAssignments.set(sourceCard.id, movedRank);
       else {
         let start = Math.max(0, movedIndex - 1);
         let end = Math.min(orderedIds.length - 1, movedIndex + 1);
@@ -909,15 +973,15 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
         }
       }
       for (const [taskId, rank] of rankAssignments) {
-        const isMovedTask = taskId === id;
-        const peer = isMovedTask ? null : peers.find((entry) => entry.id === taskId);
+        const isMovedTask = taskId === sourceCard.id;
+        const peer = isMovedTask ? sourceCard : peers.find((entry) => entry.id === taskId);
         if (!isMovedTask && !peer) throw new Error("Không tìm thấy công việc gần vị trí nhận.");
-        const targetRoot = isMovedTask ? rootRef : { kind: "work_item" as const, id: taskId };
-        const targetHash = isMovedTask ? expectedRootHash : await semanticRootHash(targetRoot, peer!.root);
+        const targetRoot = { kind: "work_item" as const, id: peer!.root_id };
+        const targetHash = peer!.root_id === id ? expectedRootHash : await semanticRootHash(targetRoot, peer!.root);
         commands.push({
           root: targetRoot,
           action: "set_order",
-          payload: { target: { kind: "single" }, order_key: rank.toString(), intent: isMovedTask ? "user_reorder" : "rank_maintenance" },
+          payload: { target: peer!.target, order_key: rank.toString(), intent: isMovedTask ? "user_reorder" : "rank_maintenance" },
           precondition: { expected_root_hash: targetHash, expected_bucket: isMovedTask ? sourcePrecondition : destinationPrecondition },
         });
       }
@@ -1057,9 +1121,9 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
   const taskUndo = storedTaskUndo && storedTaskUndo.ownerId === owner?.id ? storedTaskUndo.action : null;
   const value = useMemo<AccountContextValue>(() => ({
     state, session, owner, syncStatus, error, info, login, register, requestPasswordReset,
-    calendarProjection, calendarReady, calendarError, taskUndo, refreshCalendar, createPlan, replacePlan, createMilestone, replaceMilestone, deleteMilestone, createTask, replaceTask, changeTaskStatus, deleteTask, createRecurringTask, enableTaskRecurrence, repositionTask, undoTask,
+    calendarProjection, calendarReady, calendarError, taskUndo, refreshCalendar, createPlan, replacePlan, createMilestone, replaceMilestone, deleteMilestone, createTask, replaceTask, changeTaskStatus, changeWorkItemStatus, deleteTask, replaceWorkItemTarget, deleteWorkItemTarget, editSeriesFuture, stopSeriesFuture, createRecurringTask, enableTaskRecurrence, repositionTask, undoTask,
     confirmEmail, resetPassword, logout, repairClockIssues, inspectPendingChanges, wakeSync, stopSync, coordinatorStatus, refreshSession, clearNotice,
-  }), [calendarError, calendarProjection, calendarReady, changeTaskStatus, clearNotice, confirmEmail, coordinatorStatus, createMilestone, createPlan, createTask, createRecurringTask, deleteMilestone, deleteTask, enableTaskRecurrence, error, info, inspectPendingChanges, login, logout, owner, refreshCalendar, refreshSession, register, repairClockIssues, replaceMilestone, replacePlan, replaceTask, repositionTask, requestPasswordReset, resetPassword, session, state, stopSync, syncStatus, taskUndo, undoTask, wakeSync]);
+  }), [calendarError, calendarProjection, calendarReady, changeTaskStatus, changeWorkItemStatus, clearNotice, confirmEmail, coordinatorStatus, createMilestone, createPlan, createTask, createRecurringTask, deleteMilestone, deleteTask, deleteWorkItemTarget, editSeriesFuture, enableTaskRecurrence, error, info, inspectPendingChanges, login, logout, owner, refreshCalendar, refreshSession, register, repairClockIssues, replaceMilestone, replacePlan, replaceTask, replaceWorkItemTarget, repositionTask, requestPasswordReset, resetPassword, session, state, stopSeriesFuture, stopSync, syncStatus, taskUndo, undoTask, wakeSync]);
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;
 }

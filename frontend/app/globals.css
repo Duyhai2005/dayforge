@@ -307,6 +307,11 @@ h1 {
 .task-form input:not([type="radio"]), .task-form select { width: 100%; min-height: 46px; padding: var(--space-2) var(--space-3); color: var(--text-primary); background: var(--input-background); border: 1px solid #52665b; border-radius: var(--radius-control); }
 .task-recurrence { display: grid; gap: var(--space-3); margin: 0; padding: var(--space-3); border: 1px solid #52665b; border-radius: var(--radius-card); }
 .task-recurrence legend { padding: 0 var(--space-2); color: var(--text-secondary); }
+.task-recurrence-scope { display: grid; gap: var(--space-2); margin: 0; padding: var(--space-3); border: 1px solid #52665b; border-radius: var(--radius-card); }
+.task-recurrence-scope legend { padding: 0 var(--space-2); color: var(--text-secondary); }
+.task-recurrence-scope label { display: flex; align-items: center; gap: var(--space-2); color: var(--text-primary); }
+.task-recurrence-scope input { accent-color: var(--control-background); }
+.task-series-stop-button { justify-self: start; color: #ffd5d5; border: 1px solid #9a5555; border-radius: var(--radius-control); background: #492b2b; padding: var(--space-2) var(--space-3); }
 .task-weekday-picks { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--space-2); }
 .task-weekday-picks label { position: relative; }
 .task-weekday-picks input { position: absolute; opacity: 0; width: 1px; height: 1px; }

@@ -2,7 +2,7 @@
 
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { firstOccurrenceDate, nextOrderKeyForBucket, type ColorId, type Period, type PlanRoot, type RecurrenceRule, type TaskData, type TaskTemplate, type WorkItemTarget } from "../../lib/sync/reducer";
+import { firstOccurrenceDate, nextOrderKeyForBucket, type ColorId, type Period, type PlanRoot, type RecurrenceRule, type RuleSegment, type TaskData, type TaskTemplate, type WorkItemTarget, type WorkRoot } from "../../lib/sync/reducer";
 import type { UUID } from "../../lib/sync/protocol";
 import { useAccount } from "../account/account-provider";
 import { CALENDAR_COLORS, PlanManager } from "./plan-manager";
@@ -25,6 +25,7 @@ export type TaskEditorTarget = {
   data: TaskData;
   expectedRootHash: string;
   target?: WorkItemTarget;
+  root: WorkRoot;
 };
 
 export type TaskEditorProps = {
@@ -47,6 +48,25 @@ function fieldsForTask(data: TaskData): TaskFields {
     recurrence: "none",
     weekdays: [isoWeekday(data.date)],
   };
+}
+
+function fieldsForSeriesSegment(segment: RuleSegment, cutoff: string): TaskFields {
+  return {
+    title: segment.template.title,
+    date: cutoff,
+    period: segment.template.period,
+    duration: segment.template.duration_minutes === null ? "" : String(segment.template.duration_minutes),
+    planId: segment.template.plan_id ?? "",
+    standaloneColor: segment.template.standalone_color_id,
+    recurrence: segment.rule.weekdays.length === 7 ? "daily" : "weekly",
+    weekdays: [...segment.rule.weekdays],
+  };
+}
+
+function editableSeriesSegment(editing: TaskEditorTarget | null): RuleSegment | null {
+  const target = editing?.target;
+  if (!editing || editing.root.kind !== "recurrence_family" || target?.kind !== "occurrence") return null;
+  return editing.root.family.segments.find((segment) => segment.segment_id === target.source_segment_id) ?? null;
 }
 
 function newTaskFields(date: string, period: Period | null | undefined): TaskFields {
@@ -93,14 +113,19 @@ function planEntries(state: ReturnType<typeof useAccount>["calendarProjection"])
 export function TaskEditor({ open, date, period = null, editing = null, onClose, onSaved }: TaskEditorProps): React.JSX.Element | null {
   const account = useAccount();
   const firstFields = editing ? fieldsForTask(editing.data) : newTaskFields(date, period);
+  const seriesSegment = editableSeriesSegment(editing);
+  const target = editing?.target ?? { kind: "single" as const };
   const [fields, setFields] = useState<TaskFields>(firstFields);
-  const [initial] = useState<TaskFields>(firstFields);
+  const [initial, setInitial] = useState<TaskFields>(firstFields);
+  const [editScope, setEditScope] = useState<"occurrence" | "future">("occurrence");
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmStopSeries, setConfirmStopSeries] = useState(false);
   const [planManagerOpen, setPlanManagerOpen] = useState(false);
   const [validationError, setValidationError] = useState<TaskValidationError | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const futureSeriesScope = target.kind === "occurrence" && seriesSegment !== null && editScope === "future";
   const dialog = useRef<HTMLElement>(null);
   const titleInput = useRef<HTMLInputElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -148,6 +173,22 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
     onClose();
   }, [busy, dirty, onClose, planManagerOpen]);
 
+  function selectEditScope(next: "occurrence" | "future"): void {
+    if (!editing || !seriesSegment || target.kind !== "occurrence") return;
+    if (dirty) {
+      setSaveError("Hãy lưu hoặc bỏ thay đổi hiện tại trước khi đổi phạm vi.");
+      return;
+    }
+    const nextFields = next === "future"
+      ? fieldsForSeriesSegment(seriesSegment, target.original_date)
+      : fieldsForTask(editing.data);
+    setFields(nextFields);
+    setInitial(nextFields);
+    setEditScope(next);
+    setValidationError(null);
+    setSaveError(null);
+  }
+
   useEffect(() => {
     if (!open) return;
     const trap = (event: KeyboardEvent) => {
@@ -156,6 +197,7 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
         event.preventDefault();
         event.stopPropagation();
         if (confirmDelete) setConfirmDelete(false);
+        else if (confirmStopSeries) setConfirmStopSeries(false);
         else if (confirmDiscard) setConfirmDiscard(false);
         else requestClose();
         return;
@@ -163,6 +205,8 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
       if (event.key !== "Tab" || !dialog.current) return;
       const activeDialog = confirmDelete
         ? dialog.current.querySelector<HTMLElement>(".task-delete-dialog")
+        : confirmStopSeries
+        ? dialog.current.querySelector<HTMLElement>(".task-stop-dialog")
         : confirmDiscard
         ? dialog.current.querySelector<HTMLElement>(".task-discard-dialog")
         : dialog.current;
@@ -183,11 +227,12 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
     };
     document.addEventListener("keydown", trap, true);
     return () => document.removeEventListener("keydown", trap, true);
-  }, [confirmDelete, confirmDiscard, open, planManagerOpen, requestClose]);
+  }, [confirmDelete, confirmDiscard, confirmStopSeries, open, planManagerOpen, requestClose]);
 
   if (!open || typeof document === "undefined") return null;
 
   async function saveTask(): Promise<void> {
+    if (editing && !dirty) { onClose(); return; }
     const title = fields.title.normalize("NFC").trim();
     const titleLength = Array.from(title).length;
     if (titleLength < 1 || titleLength > 120 || /[\u0000-\u001f\u007f]/.test(title)) {
@@ -202,12 +247,16 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
       setValidationError({ field: "period", message: "Hãy chọn buổi cho công việc." });
       return;
     }
-    if (fields.recurrence === "weekly" && fields.weekdays.length === 0) {
+    if ((fields.recurrence === "weekly" || futureSeriesScope && fields.recurrence !== "none") && fields.weekdays.length === 0) {
       setValidationError({ field: "recurrence", message: "Hãy chọn ít nhất một thứ trong tuần để lặp." });
       return;
     }
-    if (editing && fields.recurrence !== "none" && !fields.weekdays.includes(isoWeekday(fields.date))) {
+    if (editing && target.kind === "single" && fields.recurrence !== "none" && !fields.weekdays.includes(isoWeekday(fields.date))) {
       setValidationError({ field: "date", message: "Ngày của lần đầu phải nằm trong các thứ đã chọn." });
+      return;
+    }
+    if (futureSeriesScope && seriesSegment && fields.date < seriesSegment.from_date) {
+      setValidationError({ field: "date", message: "Mốc áp dụng phải nằm trong hoặc sau khoảng của quy tắc đang sửa." });
       return;
     }
     let duration: number | null = null;
@@ -239,42 +288,55 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
         ? WEEKDAYS.map((day) => day.value)
         : [...fields.weekdays].sort((left, right) => left - right);
       const firstDate = fields.recurrence === "none" ? fields.date : firstOccurrenceDate(fields.date, ruleWeekdays);
-      if (!firstDate) {
+      if (!firstDate && !futureSeriesScope) {
         setValidationError({ field: "date", message: "Không còn ngày phù hợp trong phạm vi năm được hỗ trợ." });
         return;
       }
-      const data: TaskData = {
-        title,
-        date: fields.date,
-        period: fields.period,
-        duration_minutes: duration,
-        plan_id: (fields.planId || null) as UUID | null,
-        standalone_color_id: fields.standaloneColor,
-        status: editing?.data.status ?? "pending",
-        order_key: editing && editing.data.date === fields.date && editing.data.period === fields.period
-          ? editing.data.order_key
-          : await nextOrderKeyForBucket(account.calendarProjection, fields.date, fields.period),
-      };
       const id = editing?.id ?? crypto.randomUUID() as UUID;
-      if (!editing && fields.recurrence !== "none") {
-        const firstOrderKey = await nextOrderKeyForBucket(account.calendarProjection, firstDate, data.period);
-        const template: TaskTemplate = {
-          title: data.title,
-          period: data.period,
-          duration_minutes: data.duration_minutes,
-          plan_id: data.plan_id,
-          standalone_color_id: data.standalone_color_id,
-          order_key: firstOrderKey,
-        };
+      if (futureSeriesScope && editing && target.kind === "occurrence" && seriesSegment && fields.period) {
         const rule: RecurrenceRule = { weekdays: ruleWeekdays };
-        await account.createRecurringTask(id, fields.date, rule, template);
-      } else if (editing && fields.recurrence !== "none") {
+        const template: TaskTemplate = {
+          title,
+          period: fields.period,
+          duration_minutes: duration,
+          plan_id: (fields.planId || null) as UUID | null,
+          standalone_color_id: fields.standaloneColor,
+          order_key: seriesSegment.template.order_key,
+        };
+        await account.editSeriesFuture(id, seriesSegment.segment_id, fields.date, rule, template, editing.expectedRootHash);
+      } else {
+        const data: TaskData = {
+          title,
+          date: fields.date,
+          period: fields.period,
+          duration_minutes: duration,
+          plan_id: (fields.planId || null) as UUID | null,
+          standalone_color_id: fields.standaloneColor,
+          status: editing?.data.status ?? "pending",
+          order_key: editing && editing.data.date === fields.date && editing.data.period === fields.period
+            ? editing.data.order_key
+            : await nextOrderKeyForBucket(account.calendarProjection, fields.date, fields.period),
+        };
+        if (!editing && fields.recurrence !== "none") {
+          const firstOrderKey = await nextOrderKeyForBucket(account.calendarProjection, firstDate!, data.period);
+          const template: TaskTemplate = {
+            title: data.title,
+            period: data.period,
+            duration_minutes: data.duration_minutes,
+            plan_id: data.plan_id,
+            standalone_color_id: data.standalone_color_id,
+            order_key: firstOrderKey,
+          };
+          const rule: RecurrenceRule = { weekdays: ruleWeekdays };
+          await account.createRecurringTask(id, fields.date, rule, template);
+        } else if (editing && target.kind === "single" && fields.recurrence !== "none") {
         const rule: RecurrenceRule = { weekdays: ruleWeekdays };
         await account.enableTaskRecurrence(id, data, rule, editing.expectedRootHash);
-      } else if (editing && (editing.data.date !== data.date || editing.data.period !== data.period)) {
-        await account.repositionTask(id, data, editing.expectedRootHash, null);
-      } else if (editing) await account.replaceTask(id, data, editing.expectedRootHash);
-      else await account.createTask(id, data);
+        } else if (editing && (editing.data.date !== data.date || editing.data.period !== data.period)) {
+          await account.repositionTask(id, editing.data, data, editing.expectedRootHash, null, target);
+        } else if (editing) await account.replaceWorkItemTarget(id, target, data, editing.expectedRootHash);
+        else await account.createTask(id, data);
+      }
       onSaved?.(id);
       onClose();
     } catch (cause) {
@@ -289,11 +351,26 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
     setBusy(true);
     setSaveError(null);
     try {
-      await account.deleteTask(editing.id, editing.data.title, editing.expectedRootHash);
+      await account.deleteWorkItemTarget(editing.id, target, editing.data.title, editing.expectedRootHash);
       setConfirmDelete(false);
       onClose();
     } catch (cause) {
       setSaveError(cause instanceof Error ? cause.message : "Không thể xóa công việc khỏi lịch.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function stopSeries(): Promise<void> {
+    if (!editing || target.kind !== "occurrence" || !seriesSegment) return;
+    setBusy(true);
+    setSaveError(null);
+    try {
+      await account.stopSeriesFuture(editing.id, seriesSegment.segment_id, target.original_date, editing.data.title, editing.expectedRootHash);
+      setConfirmStopSeries(false);
+      onClose();
+    } catch (cause) {
+      setSaveError(cause instanceof Error ? cause.message : "Không thể dừng chuỗi lặp.");
     } finally {
       setBusy(false);
     }
@@ -321,9 +398,17 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
               }} />
             </label>
             {validationError?.field === "title" && <p id="task-title-error" className="account-error" role="alert">{validationError.message}</p>}
+            {seriesSegment && target.kind === "occurrence" && <fieldset className="task-recurrence-scope">
+              <legend>Phạm vi chỉnh sửa</legend>
+              <label><input type="radio" name="recurrence-scope" checked={editScope === "occurrence"} onChange={() => selectEditScope("occurrence")} />Chỉ lần này</label>
+              <label><input type="radio" name="recurrence-scope" checked={editScope === "future"} onChange={() => selectEditScope("future")} />Quy tắc và mẫu từ ngày gốc</label>
+              {editScope === "future" && <p className="task-recurrence-hint">Các lần đã chỉnh riêng từ mốc này sẽ thành việc một lần, giữ nội dung, kế hoạch và màu riêng.</p>}
+              <button type="button" className="task-series-stop-button" disabled={busy || !account.calendarReady}
+                onClick={() => setConfirmStopSeries(true)}>Dừng chuỗi từ lần này trở đi</button>
+            </fieldset>}
             <div className="task-date-period">
               <div className="task-field">
-                <label className="account-field" htmlFor="task-date">Ngày
+                <label className="account-field" htmlFor="task-date">{futureSeriesScope ? "Áp dụng từ ngày gốc" : "Ngày"}
                   <input id="task-date" name="date" type="date" min="0001-01-01" max="9999-12-31" required aria-invalid={validationError?.field === "date" || undefined} aria-describedby={validationError?.field === "date" ? "task-date-error" : undefined} data-dayforge-dirty={dirty ? "true" : "false"} value={fields.date} onChange={(event) => {
                     setFields((current) => ({ ...current, date: event.target.value }));
                     setValidationError(null);
@@ -346,8 +431,8 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
                 {fieldError("period")}
               </div>
             </div>
-            {(!editing || editing.target?.kind === "single") && <fieldset className="task-recurrence">
-              <legend>Lặp lại</legend>
+            {(!editing || target.kind === "single" || futureSeriesScope) && <fieldset className="task-recurrence">
+              <legend>{futureSeriesScope ? "Quy tắc áp dụng từ mốc" : "Lặp lại"}</legend>
               <label className="account-field" htmlFor="task-recurrence">
                 Lịch lặp
                 <select id="task-recurrence" name="recurrence" value={fields.recurrence} data-dayforge-dirty={dirty ? "true" : "false"}
@@ -355,7 +440,7 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
                     setFields((current) => ({ ...current, recurrence: event.target.value as TaskFields["recurrence"] }));
                     setValidationError(null);
                   }}>
-                  <option value="none">Không lặp</option>
+                  {!futureSeriesScope && <option value="none">Không lặp</option>}
                   <option value="daily">Hằng ngày</option>
                   <option value="weekly">Chọn các thứ trong tuần</option>
                 </select>
@@ -412,7 +497,9 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
             </div>}
             {saveError && <p className="account-error" role="alert">{saveError}</p>}
             <div className="plan-form-actions">
-              {editing && (editing.target?.kind ?? "single") === "single" && <button type="button" className="task-delete-button" disabled={busy || account.state !== "unlocked" || !account.calendarReady} onClick={() => setConfirmDelete(true)}>Xóa công việc</button>}
+              {editing && <button type="button" className="task-delete-button" disabled={busy || account.state !== "unlocked" || !account.calendarReady} onClick={() => setConfirmDelete(true)}>
+                {target.kind === "occurrence" ? "Xóa lần lặp" : target.kind === "detached" ? "Xóa việc một lần" : "Xóa công việc"}
+              </button>}
               <button type="button" disabled={busy} onClick={() => {
                 if (dirty) setConfirmDiscard(true);
                 else onClose();
@@ -433,15 +520,29 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
               </div>
             </section>
           </div>}
+          {confirmStopSeries && editing && target.kind === "occurrence" && <div className="task-delete-backdrop">
+            <section className="task-delete-dialog task-stop-dialog" role="alertdialog" aria-modal="true" aria-labelledby="task-stop-title">
+              <h3 id="task-stop-title">Dừng chuỗi lặp từ ngày gốc này?</h3>
+              <p>Các lần có ngày gốc từ {target.original_date} trở đi sẽ bị gỡ khỏi lịch. Lịch sử trước mốc và những việc đã tách thành việc một lần vẫn được giữ. Bạn có thể hoàn tác ngay sau đó.</p>
+              <div className="plan-form-actions">
+                <button type="button" autoFocus disabled={busy} onClick={() => setConfirmStopSeries(false)}>Tiếp tục chuỗi</button>
+                <button type="button" className="task-delete-button" disabled={busy || account.state !== "unlocked" || !account.calendarReady} onClick={() => void stopSeries()}>
+                  {busy ? "Đang dừng…" : "Dừng từ ngày này"}
+                </button>
+              </div>
+            </section>
+          </div>}
           {confirmDelete && editing && <div className="task-delete-backdrop">
             <section className="task-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="task-delete-title">
-              <h3 id="task-delete-title">Xóa công việc khỏi lịch?</h3>
-              <p>“{editing.data.title}” sẽ biến mất khỏi lịch. Bạn có thể hoàn tác ngay sau đó.{dirty ? " Các chỉnh sửa chưa lưu sẽ bị bỏ." : ""}</p>
+              <h3 id="task-delete-title">{target.kind === "occurrence" ? "Xóa lần lặp khỏi lịch?" : target.kind === "detached" ? "Xóa việc một lần đã tách?" : "Xóa công việc khỏi lịch?"}</h3>
+              <p>{target.kind === "occurrence"
+                ? `Lần có ngày gốc ${target.original_date} sẽ bị ẩn; các lần khác vẫn giữ nguyên.`
+                : `“${editing.data.title}” sẽ biến mất khỏi lịch.`} Bạn có thể hoàn tác ngay sau đó.{dirty ? " Các chỉnh sửa chưa lưu sẽ bị bỏ." : ""}</p>
               {saveError && <p className="account-error" role="alert">{saveError}</p>}
               <div className="plan-form-actions">
                 <button type="button" autoFocus disabled={busy} onClick={() => setConfirmDelete(false)}>Giữ lại</button>
                 <button type="button" className="task-delete-button" disabled={busy || account.state !== "unlocked" || !account.calendarReady} onClick={() => void deleteTask()}>
-                  {busy ? "Đang xóa…" : "Xóa công việc"}
+                  {busy ? "Đang xóa…" : target.kind === "occurrence" ? "Xóa lần này" : target.kind === "detached" ? "Xóa việc một lần" : "Xóa công việc"}
                 </button>
               </div>
             </section>

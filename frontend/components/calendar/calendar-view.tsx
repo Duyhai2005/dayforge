@@ -114,7 +114,7 @@ export function CalendarView({ calendar }: CalendarViewProps): React.JSX.Element
       onAddMilestone={(date) => setMilestoneEditor({ date })}
       onEditMilestone={(editing) => setMilestoneEditor({ date: editing.data.date, editing })}
       onMoveTask={async (target, date, period, beforeTaskId) => {
-        await account.repositionTask(target.id, { ...target.data, date, period }, target.expectedRootHash, beforeTaskId);
+        await account.repositionTask(target.id, target.data, { ...target.data, date, period }, target.expectedRootHash, beforeTaskId, target.target ?? { kind: "single" });
       }} />}
     {view && calendar === "milestones" && <MilestoneCalendar anchor={view.anchor} scale={view.scale}
       onNavigate={navigate}
@@ -122,7 +122,7 @@ export function CalendarView({ calendar }: CalendarViewProps): React.JSX.Element
       onAddMilestone={(date) => setMilestoneEditor({ date })}
       onOpenWorkWeek={(date) => navigate({ calendar: "work", anchor: date, scale: "week" })} />}
     <PlanManager open={planManagerOpen} onClose={() => setPlanManagerOpen(false)} />
-    {taskEditor && <TaskEditor key={`${taskEditor.date}:${taskEditor.period ?? "any"}:${taskEditor.editing?.id ?? "new"}`} open date={taskEditor.date} period={taskEditor.period} editing={taskEditor.editing} onClose={() => setTaskEditor(null)} />}
+    {taskEditor && <TaskEditor key={`${taskEditor.date}:${taskEditor.period ?? "any"}:${taskEditor.editing?.id ?? "new"}:${taskEditor.editing?.target?.kind ?? "new"}:${taskEditor.editing?.target?.kind === "occurrence" ? taskEditor.editing.target.original_date : taskEditor.editing?.target?.kind === "detached" ? taskEditor.editing.target.task_id : ""}`} open date={taskEditor.date} period={taskEditor.period} editing={taskEditor.editing} onClose={() => setTaskEditor(null)} />}
     {milestoneEditor && <MilestoneEditor key={`${milestoneEditor.date}:${milestoneEditor.editing?.id ?? "new"}`} open date={milestoneEditor.date} editing={milestoneEditor.editing} onClose={() => setMilestoneEditor(null)} />}
   </>;
 }
