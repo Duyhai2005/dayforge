@@ -489,12 +489,17 @@ test("schema checkpoint resumes after the app closes between migration commit an
         return request;
       };
     }, databaseName);
+    const checkpointPage = await context.newPage();
+    await checkpointPage.goto(`${baseURL}/dayforge-build.json`);
     await profile.page.goto(`${baseURL}/work`);
     await expect.poll(() => profile.page.evaluate(() => Boolean(
       (window as typeof window & { __dayforgeSchemaCheckpointReached?: boolean }).__dayforgeSchemaCheckpointReached,
     )), { timeout: 60_000, intervals: [100, 250, 500, 1_000] }).toBe(true);
 
-    const checkpoint = await readBuildGate(profile.page);
+    // Read the durable checkpoint from a stable same-origin document. The app page
+    // can reload on service-worker controllerchange while the checkpoint is being
+    // inspected, which would destroy an in-flight page.evaluate call.
+    const checkpoint = await readBuildGate(checkpointPage);
     expect(checkpoint.version).toBe(2);
     expect(checkpoint.gate).toMatchObject({
       approved_build: "old-approved-build",
