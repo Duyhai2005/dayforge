@@ -2,7 +2,7 @@
 
 ## Tóm tắt
 
-Đo UI production trên Chromium với 1.200 dấu mốc và 168 mục lịch tuần. Các thay đổi grouping đem lại kết quả hỗn hợp nhưng cải thiện điều hướng tuần và lịch năm ở cả hai viewport; phép đo projection refresh giảm median nhẹ. Đặc tả không đặt ngưỡng latency, nên kết quả được ghi nhận để so sánh và không dùng làm tiêu chí đạt/trượt.
+Đo UI production trên Chromium với 1.200 dấu mốc và 168 mục lịch tuần. Median điều hướng tuần giảm ở cả hai viewport; một số thao tác mở ngày và projection refresh có kết quả trái chiều giữa viewport hoặc p95. Đặc tả không đặt ngưỡng latency, nên kết quả được ghi nhận để so sánh và không dùng làm tiêu chí đạt/trượt.
 
 ## Môi trường và phương pháp
 
