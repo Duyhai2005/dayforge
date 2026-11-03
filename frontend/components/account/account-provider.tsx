@@ -89,6 +89,10 @@ export function formatAccountError(value: unknown): string {
   return value instanceof Error ? value.message : "Không thể kết nối dịch vụ tài khoản.";
 }
 
+function isCsrfFailure(value: unknown): boolean {
+  return Boolean(value && typeof value === "object" && "code" in value && value.code === "csrf_failed");
+}
+
 async function request<T>(path: string, input: { method?: "GET" | "POST"; body?: unknown; csrf?: string } = {}): Promise<T> {
   const method = input.method ?? "GET";
   const headers = new Headers({ Accept: "application/json, application/problem+json" });
@@ -252,36 +256,42 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
     return current?.csrf_token ?? (await refreshSession()).csrf_token;
   }, [refreshSession]);
 
+  const post = useCallback(async <T,>(path: string, body: unknown, csrfToken: string): Promise<T> => {
+    try {
+      return await request<T>(path, { method: "POST", body, csrf: csrfToken });
+    } catch (error) {
+      if (!isCsrfFailure(error)) throw error;
+      const refreshed = await refreshSession();
+      return request<T>(path, { method: "POST", body, csrf: refreshed.csrf_token });
+    }
+  }, [refreshSession]);
+
   const register = useCallback(async (email: string) => {
     setError(null); setInfo(null);
-    const result = await request<{ status: string; resend_after_seconds: number }>(`${API_PREFIX}/register`, {
-      method: "POST", body: { email }, csrf: await csrf(),
-    });
+    const result = await post<{ status: string; resend_after_seconds: number }>(`${API_PREFIX}/register`, { email }, await csrf());
     setInfo(`Nếu địa chỉ email đủ điều kiện, liên kết xác minh sẽ được gửi. Bạn có thể yêu cầu gửi lại sau ${result.resend_after_seconds} giây.`);
-  }, [csrf]);
+  }, [csrf, post]);
 
   const requestPasswordReset = useCallback(async (email: string) => {
     setError(null); setInfo(null);
-    const result = await request<{ status: string; resend_after_seconds: number }>(`${API_PREFIX}/password/forgot`, {
-      method: "POST", body: { email }, csrf: await csrf(),
-    });
+    const result = await post<{ status: string; resend_after_seconds: number }>(`${API_PREFIX}/password/forgot`, { email }, await csrf());
     setInfo(`Nếu tài khoản tồn tại, hướng dẫn đặt lại mật khẩu sẽ được gửi. Có thể yêu cầu lại sau ${result.resend_after_seconds} giây.`);
-  }, [csrf]);
+  }, [csrf, post]);
 
   const confirmEmail = useCallback(async (token: string, password: string) => {
     setError(null); setInfo(null);
-    await request(`${API_PREFIX}/verification/confirm`, { method: "POST", body: { token, password }, csrf: await csrf() });
+    await post(`${API_PREFIX}/verification/confirm`, { token, password }, await csrf());
     setInfo("Email đã được xác minh. Hãy đăng nhập để mở kho dữ liệu local.");
-  }, [csrf]);
+  }, [csrf, post]);
 
   const resetPassword = useCallback(async (token: string, password: string) => {
     setError(null); setInfo(null);
-    await request(`${API_PREFIX}/password/reset`, { method: "POST", body: { token, password }, csrf: await csrf() });
+    await post(`${API_PREFIX}/password/reset`, { token, password }, await csrf());
     const current = await refreshSession();
     setOwner(current.owner ? { id: current.owner.id, email: current.owner.email } : null);
     setState(current.authenticated ? "locked" : "anonymous");
     setInfo("Mật khẩu đã được cập nhật. Đăng nhập lại để mở kho dữ liệu local.");
-  }, [csrf, refreshSession]);
+  }, [csrf, post, refreshSession]);
 
   const login = useCallback(async (email: string, password: string, rememberMe: boolean) => {
     setError(null); setInfo(null);
@@ -291,38 +301,41 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
     for (const metadata of await listOwnerMetadata(db)) {
       const auth = await readOwnerAuthState(db, metadata.owner_id);
       if (!auth?.logout_ticket) continue;
-      await request(`${API_PREFIX}/logout`, { method: "POST", body: { logout_ticket: auth.logout_ticket }, csrf: csrfToken });
+      await post(`${API_PREFIX}/logout`, { logout_ticket: auth.logout_ticket }, csrfToken);
       await clearLogoutTicket(db, metadata.owner_id, auth.logout_ticket);
     }
-    const next = await request<SessionView>(`${API_PREFIX}/login`, {
-      method: "POST", body: { email, password, remember_me: rememberMe }, csrf: csrfToken,
-    });
+    const next = await post<SessionView>(`${API_PREFIX}/login`, { email, password, remember_me: rememberMe }, csrfToken);
     if (!next.authenticated || !next.owner) throw new Error("Máy chủ không trả về phiên đã xác minh.");
     setSessionValue(next);
+    const existing = (await listOwnerMetadata(db)).find((entry) => entry.owner_id === next.owner!.id);
     const localKey = await request<{ owner_id: UUID; key_id: UUID; algorithm: "A256GCM"; key_base64url: string }>(`${API_PREFIX}/local-key`);
     if (localKey.owner_id !== next.owner.id || localKey.algorithm !== "A256GCM") throw new Error("Khóa local không thuộc owner vừa đăng nhập.");
-    if (!databaseRef.current) throw new Error("Kho local đã đóng trong lúc đăng nhập.");
-    const existing = (await listOwnerMetadata(databaseRef.current)).find((entry) => entry.owner_id === next.owner!.id);
+    if (databaseRef.current !== db) throw new Error("Kho local đã đóng trong lúc đăng nhập.");
+    let expectedLockEpoch: number;
     if (!existing) {
-      await initializeOwnerMetadata(databaseRef.current, {
+      const initialized = await initializeOwnerMetadata(db, {
         owner_id: next.owner.id,
         device_id: crypto.randomUUID(),
         key_id: localKey.key_id,
         build_id: build.buildId,
       });
+      expectedLockEpoch = initialized.lock_epoch;
     } else if (existing.key_id !== localKey.key_id) {
       throw new Error("Kho local đang gắn với một khóa khác. Dữ liệu được giữ nguyên để kiểm tra an toàn.");
+    } else {
+      expectedLockEpoch = existing.lock_epoch;
     }
-    await unlockOwner(databaseRef.current, {
+    await unlockOwner(db, {
       owner_id: next.owner.id,
       key_id: localKey.key_id,
       rawKey: importKeyBytes(localKey.key_base64url),
       buildId: build.buildId,
+      expectedLockEpoch,
     });
     setOwner({ id: next.owner.id, email: next.owner.email });
     setState("unlocked");
     setInfo("Đã mở kho local. Đồng bộ sẽ chạy khi kết nối được máy chủ.");
-  }, [build.buildId, csrf, setSessionValue]);
+  }, [build.buildId, csrf, post, setSessionValue]);
 
   const logout = useCallback(async () => {
     const db = databaseRef.current;
@@ -334,7 +347,7 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
     setState("locked");
     if (current?.logout_ticket) {
       try {
-        await request(`${API_PREFIX}/logout`, { method: "POST", body: { logout_ticket: current.logout_ticket }, csrf: current.csrf_token });
+        await post(`${API_PREFIX}/logout`, { logout_ticket: current.logout_ticket }, current.csrf_token);
         if (db) await clearLogoutTicket(db, ownerId, current.logout_ticket);
         const anonymous = await refreshSession();
         setSessionValue(anonymous);
@@ -346,7 +359,7 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
       setSessionValue(null);
       setInfo("Kho local đã khóa trên thiết bị này.");
     }
-  }, [owner, refreshSession, setSessionValue]);
+  }, [owner, post, refreshSession, setSessionValue]);
 
   const repairClockIssues = useCallback(async () => {
     const coordinator = coordinatorRef.current;

@@ -77,7 +77,7 @@ export function AccountPanel(): React.JSX.Element {
             else void run(() => account.requestPasswordReset(email));
           }}>
             <label htmlFor="account-email">Email</label>
-            <input id="account-email" name="email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
+            <input id="account-email" name="email" type="text" inputMode="email" autoComplete="email" maxLength={254} required value={email} onChange={(event) => setEmail(event.target.value)} />
             {form === "login" && <>
               <label htmlFor="account-password">Mật khẩu</label>
               <input id="account-password" name="password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} />

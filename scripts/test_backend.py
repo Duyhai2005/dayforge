@@ -44,6 +44,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     mysql = bool(arguments and arguments[0] == "--mysql")
     if mysql:
         arguments.pop(0)
+    sync_browser = "--sync-browser" in arguments
+    if sync_browser:
+        arguments.remove("--sync-browser")
+        if not mysql:
+            raise RunnerError("The sync browser suite requires isolated MySQL")
     if arguments[:1] == ["--"]:
         arguments.pop(0)
     pytest = [
@@ -85,9 +90,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ],
                 image_probe_environ,
             ).splitlines()
-            if len(images) != 1 or not re.fullmatch(
-                r"mysql:[^\s@]+@sha256:[0-9a-f]{64}", images[0]
-            ):
+            if len(images) != 1 or not re.fullmatch(r"mysql:[^\s@]+@sha256:[0-9a-f]{64}", images[0]):
                 raise RunnerError("Expected exactly one digest-pinned MySQL image")
             # Docker may reassign an empty published port after stop/start.
             # Select an available OS port once and bind it explicitly so the
@@ -95,6 +98,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
                 probe.bind(("127.0.0.1", 0))
                 test_port = str(probe.getsockname()[1])
+            sync_browser_port = None
+            if sync_browser:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                    probe.bind(("127.0.0.1", 0))
+                    sync_browser_port = str(probe.getsockname()[1])
             environ.update(
                 DAYFORGE_TEST_MYSQL_IMAGE=images[0],
                 DAYFORGE_TEST_MYSQL_PASSWORD=secrets.token_hex(32),
@@ -114,11 +122,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             port = _docker([*compose, "port", "mysql", "3306"], environ)
             match = re.fullmatch(r"127\.0\.0\.1:([0-9]+)", port)
             container = _docker([*compose, "ps", "-q", "mysql"], environ)
-            if (
-                not match
-                or match[1] != test_port
-                or not re.fullmatch(r"[0-9a-f]{12,64}", container)
-            ):
+            if not match or match[1] != test_port or not re.fullmatch(r"[0-9a-f]{12,64}", container):
                 raise RunnerError("Invalid isolated MySQL endpoint")
             environ.update(
                 APP_ENV="test",
@@ -136,55 +140,42 @@ def main(argv: Sequence[str] | None = None) -> int:
             test_environ = {
                 key: value
                 for key, value in environ.items()
-                if key
-                not in ("DAYFORGE_TEST_MYSQL_ROOT_PASSWORD", "MYSQL_ROOT_PASSWORD")
+                if key not in ("DAYFORGE_TEST_MYSQL_ROOT_PASSWORD", "MYSQL_ROOT_PASSWORD")
             }
             test_environ.update(
                 OWNER_EMAIL="owner@example.test",
-                LOCAL_KEY_KEK_B64=base64.urlsafe_b64encode(secrets.token_bytes(32))
-                .rstrip(b"=")
-                .decode("ascii"),
+                LOCAL_KEY_KEK_B64=base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode("ascii"),
                 LOCAL_KEY_KEK_VERSION="1",
-                LOGOUT_TICKET_KEY_B64=base64.urlsafe_b64encode(secrets.token_bytes(32))
+                LOGOUT_TICKET_KEY_B64=base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode("ascii"),
+                AUTH_RATE_LIMIT_KEY_B64=base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode("ascii"),
+                AUTH_EMAIL_OUTBOX_KEY_B64=base64.urlsafe_b64encode(secrets.token_bytes(32))
                 .rstrip(b"=")
                 .decode("ascii"),
-                AUTH_RATE_LIMIT_KEY_B64=base64.urlsafe_b64encode(
-                    secrets.token_bytes(32)
-                )
-                .rstrip(b"=")
-                .decode("ascii"),
-                AUTH_EMAIL_OUTBOX_KEY_B64=base64.urlsafe_b64encode(
-                    secrets.token_bytes(32)
-                )
-                .rstrip(b"=")
-                .decode("ascii"),
-                SYNC_PAGE_TOKEN_KEY_B64=base64.urlsafe_b64encode(
-                    secrets.token_bytes(32)
-                )
-                .rstrip(b"=")
-                .decode("ascii"),
+                SYNC_PAGE_TOKEN_KEY_B64=base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode("ascii"),
                 EMAIL_SMTP_HOST="127.0.0.1",
                 EMAIL_SMTP_PORT="1025",
                 EMAIL_FROM="dayforge@example.test",
             )
-            exit_code = subprocess.run(pytest, cwd=BACKEND, env=test_environ).returncode
+            if sync_browser:
+                assert sync_browser_port is not None
+                test_environ["DAYFORGE_SYNC_BROWSER_PORT"] = sync_browser_port
+                command = [sys.executable, str(ROOT / "scripts" / "test_sync_browser.py")]
+                cwd = ROOT
+            else:
+                command = pytest
+                cwd = BACKEND
+            exit_code = subprocess.run(command, cwd=cwd, env=test_environ).returncode
         except RunnerError, OSError:
             print(
                 "Isolated MySQL test runner failed; Docker details suppressed to protect credentials.",
                 file=sys.stderr,
             )
         finally:
-            if compose is not None and re.fullmatch(
-                r"dayforge-test-[0-9a-f]{32}", project
-            ):
+            if compose is not None and re.fullmatch(r"dayforge-test-[0-9a-f]{32}", project):
                 try:
-                    _docker(
-                        [*compose, "down", "--volumes", "--remove-orphans"], environ
-                    )
+                    _docker([*compose, "down", "--volumes", "--remove-orphans"], environ)
                 except RunnerError:
-                    print(
-                        "Isolated MySQL cleanup failed for " + project, file=sys.stderr
-                    )
+                    print("Isolated MySQL cleanup failed for " + project, file=sys.stderr)
                     exit_code = 1
     return exit_code
 

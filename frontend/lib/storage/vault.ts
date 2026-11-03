@@ -571,6 +571,7 @@ export async function unlockOwner(database: IDBDatabase, input: {
   key_id: UUID;
   rawKey: Uint8Array;
   buildId: string;
+  expectedLockEpoch?: number;
 }): Promise<{ lockEpoch: number; key: CryptoKey }> {
   assertUuid(input.owner_id, "owner_id");
   assertUuid(input.key_id, "key_id");
@@ -610,6 +611,11 @@ export async function unlockOwner(database: IDBDatabase, input: {
       }
       if (!metadata || metadata.key_id !== input.key_id) {
         failure = new Error("Local key id does not match the owner vault metadata");
+        transaction.abort();
+        return;
+      }
+      if (input.expectedLockEpoch !== undefined && metadata.lock_epoch !== input.expectedLockEpoch) {
+        failure = new Error("Owner vault was locked while local authentication was in progress");
         transaction.abort();
         return;
       }
