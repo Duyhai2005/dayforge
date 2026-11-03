@@ -81,6 +81,25 @@ h1 {
 .calendar-heading h1 { margin-bottom: var(--space-3); }
 .calendar-kicker { color: var(--text-muted); font-size: var(--font-kicker); letter-spacing: 0.12em; margin: 0 0 var(--space-2); }
 .calendar-period { color: var(--text-secondary); margin: 0; animation: calendar-context 260ms ease-out; }
+.work-week { margin-top: var(--space-8); }
+.work-week-days, .work-week-buckets { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--space-2); }
+.work-week-day-heading { min-width: 0; padding: var(--space-3); color: var(--text-secondary); background: var(--panel); border: 1px solid #3c5048; border-radius: var(--radius-card); }
+.work-week-day-heading[data-today="true"] { border-color: var(--control-background); box-shadow: inset 0 0 0 1px var(--control-background); }
+.work-week-day-heading h2 { margin: 0; color: var(--text-primary); font-size: 15px; font-weight: 600; text-transform: capitalize; }
+.work-week-day-heading p { margin: var(--space-1) 0 0; font-size: var(--font-meta); }
+.work-week-period { margin-top: var(--space-6); }
+.work-week-period-title { margin: 0 0 var(--space-2); color: var(--text-secondary); font-size: 16px; font-weight: 600; }
+.work-week-bucket { display: flex; min-width: 0; flex-direction: column; align-items: stretch; gap: var(--space-2); padding: var(--space-2); background: #192428; border: 1px solid #33463f; border-radius: var(--radius-card); }
+.work-week-add { min-height: 36px; color: var(--text-secondary); background: transparent; border: 1px dashed #52665b; border-radius: var(--radius-control); cursor: pointer; }
+.work-week-add:hover:not(:disabled) { color: var(--text-primary); background: #24362f; }
+.work-week-add:disabled { color: var(--text-muted); cursor: not-allowed; }
+.work-task-card { display: grid; min-width: 0; gap: var(--space-1); padding: var(--space-2); border: 0; border-radius: var(--radius-control); text-align: left; cursor: pointer; }
+.work-task-card:hover { filter: brightness(1.08); }
+.work-task-title { overflow-wrap: anywhere; font-weight: 600; }
+.work-task-meta { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); font-size: var(--font-meta); }
+.work-task-state { font-weight: 600; }
+.work-week-message { margin: var(--space-4) 0 0; color: var(--text-secondary); }
+.work-week-message.account-error { color: #ffd5d5; }
 .calendar-widget { position: fixed; z-index: 10; left: 50%; bottom: var(--space-4); width: min(480px, calc(100vw - 32px)); translate: -50% 0; }
 .widget-bar, .widget-panel { background: var(--panel); border: 1px solid #4a5d53; box-shadow: 0 12px 32px #0005; border-radius: var(--radius-panel); }
 .widget-bar { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3); }

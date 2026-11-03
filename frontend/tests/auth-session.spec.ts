@@ -426,7 +426,7 @@ test("ownerCanCreateAndEditAPlanThroughTheCalendarWidget", async ({ page }) => {
   await dialog.getByRole("radio", { name: "Xanh lá" }).check();
   await dialog.getByRole("button", { name: "Lưu kế hoạch", exact: true }).click();
   await expect(dialog).toBeHidden();
-  await expect(page.getByRole("status")).toContainText("Đã lưu kế hoạch trên thiết bị");
+  await expect(page.locator(".widget-summary [role='status']")).toContainText("Đã lưu kế hoạch trên thiết bị");
 
   await page.getByRole("button", { name: "Mở hoặc đóng điều hướng lịch" }).click();
   await page.getByRole("button", { name: "Quản lý kế hoạch", exact: true }).click();
@@ -492,14 +492,40 @@ test("ownerCanCreateTaskAndNestedPlanWithoutLosingTheTaskDraft", async ({ page }
   await expect(taskDialog.getByLabel("Kế hoạch")).toHaveValue(/.+/);
   await taskDialog.getByRole("button", { name: "Lưu công việc", exact: true }).click();
   await expect(taskDialog).toBeHidden();
-  await expect(page.getByRole("status")).toContainText("Đã lưu công việc trên thiết bị");
+  await expect(page.locator(".widget-summary [role='status']")).toContainText("Đã lưu công việc trên thiết bị");
   await expect(page.getByRole("button", { name: "Mở hoặc đóng điều hướng lịch" })).toBeFocused();
+  const savedCard = page.locator(".work-task-card").filter({ hasText: "Nộp báo cáo cuối kỳ" });
+  await expect(savedCard).toBeVisible();
+  await expect(savedCard).toContainText("45 phút");
 
   const outbox = await readEncryptedOutbox(page);
   expect(outbox).toHaveLength(2);
   await page.reload();
   await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
   expect(await readEncryptedOutbox(page)).toHaveLength(2);
+  await expect(page.locator(".work-task-card").filter({ hasText: "Nộp báo cáo cuối kỳ" })).toBeVisible();
+
+  const afternoonBucket = page.locator('.work-week-bucket[data-work-date="2026-11-03"][data-period="afternoon"]');
+  for (const title of ["Gửi email cho nhóm", "Đọc tài liệu", "Chuẩn bị cuộc họp"]) {
+    await afternoonBucket.locator(".work-week-add").click();
+    const quickTask = page.getByRole("dialog", { name: "Thêm công việc" });
+    await quickTask.getByLabel("Tên công việc").fill(title);
+    await quickTask.getByRole("button", { name: "Lưu công việc", exact: true }).click();
+    await expect(quickTask).toBeHidden();
+  }
+  const denseCards = afternoonBucket.locator(".work-task-card");
+  await expect(denseCards).toHaveCount(4);
+  await expect(denseCards.nth(0)).toContainText("Nộp báo cáo cuối kỳ");
+  await expect(denseCards.nth(3)).toContainText("Chuẩn bị cuộc họp");
+  expect(await afternoonBucket.evaluate(element => element.scrollHeight === element.clientHeight)).toBe(true);
+
+  await denseCards.nth(0).click();
+  const editDialog = page.getByRole("dialog", { name: "Sửa công việc" });
+  await expect(editDialog.getByLabel("Tên công việc")).toHaveValue("Nộp báo cáo cuối kỳ");
+  await editDialog.getByLabel("Tên công việc").fill("Nộp báo cáo bản cuối");
+  await editDialog.getByRole("button", { name: "Lưu công việc", exact: true }).click();
+  await expect(editDialog).toBeHidden();
+  await expect(afternoonBucket.locator(".work-task-card").first()).toContainText("Nộp báo cáo bản cuối");
 });
 
 test("loginRecoversFromExpiredCsrfByRefreshingAndRetryingOnce", async ({ page }) => {

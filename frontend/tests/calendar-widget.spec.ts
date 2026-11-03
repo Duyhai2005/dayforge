@@ -99,7 +99,7 @@ test("viewControlsEnforceT03DomainBounds", async ({ page }) => {
 test("calendarMutationsRequireAnUnlockedLocalVault", async ({ page }) => {
   await page.goto("/work?date=2026-01-31");
   await expect(page.getByRole("button", { name: "Thêm nhanh", exact: true })).toBeDisabled();
-  await expect(page.getByRole("status")).toHaveText("Chưa kết nối dữ liệu");
+  await expect(page.locator(".widget-summary [role='status']")).toHaveText("Chưa kết nối dữ liệu");
   await page.getByRole("button", { name: toggleName }).click();
   for (const name of ["Thêm công việc", "Thêm dấu mốc", "Quản lý kế hoạch"]) {
     const action = page.getByRole("button", { name, exact: true });
@@ -107,6 +107,23 @@ test("calendarMutationsRequireAnUnlockedLocalVault", async ({ page }) => {
     await expect(action).toHaveAccessibleDescription("Mở khóa kho local để thêm công việc hoặc quản lý kế hoạch. Biểu mẫu dấu mốc sẽ được bổ sung tiếp theo.");
   }
   await expect(page.getByText("Mở khóa kho local để thêm công việc hoặc quản lý kế hoạch. Biểu mẫu dấu mốc sẽ được bổ sung tiếp theo.")).toBeVisible();
+  await expect(page.locator(".work-week-add")).toHaveCount(21);
+  await expect(page.locator(".work-week-add:not(:disabled)")).toHaveCount(0);
+});
+
+test("workWeekShowsSevenDaysAndThreeAlignedPeriodsAcrossNewYear", async ({ page }) => {
+  await page.goto("/work?date=2026-01-01");
+  const headers = page.locator(".work-week-day-heading");
+  await expect(headers).toHaveCount(7);
+  await expect(headers.first()).toContainText("29 tháng 12, 2025");
+  await expect(headers.last()).toContainText("4 tháng 1, 2026");
+  const periods = page.locator(".work-week-period");
+  await expect(periods).toHaveCount(3);
+  await expect(page.locator(".work-week-buckets")).toHaveCount(3);
+  for (const row of await page.locator(".work-week-buckets").all()) {
+    await expect(row.locator(".work-week-bucket")).toHaveCount(7);
+  }
+  await expect(page.locator(".work-week-add")).toHaveCount(21);
 });
 
 test("widgetHonorsReducedMotion", async ({ page }) => {
