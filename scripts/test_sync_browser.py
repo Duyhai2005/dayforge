@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
-import json
 import os
 import shutil
 import socket
@@ -21,7 +20,6 @@ from uuid import UUID, uuid4
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.x509 import (
     DNSName,
     IPAddress,
@@ -83,7 +81,7 @@ def _check_migrations(environ: dict[str, str]) -> None:
 
 async def _verification_payloads(database, settings) -> list[dict[str, str]]:
     from app.models.auth import EmailDeliveryJob
-    from app.services.auth_crypto import decode_key
+    from app.services.email_delivery import decrypt_delivery_payload
 
     async with database.sessions() as session:
         jobs = (
@@ -91,9 +89,11 @@ async def _verification_payloads(database, settings) -> list[dict[str, str]]:
                 select(EmailDeliveryJob).order_by(EmailDeliveryJob.created_at)
             )
         ).all()
-        key = decode_key(settings.auth_email_outbox_key_b64.get_secret_value())
+        key = settings.secret_key("auth_email_outbox_key_b64")
         return [
-            json.loads(AESGCM(key).decrypt(job.iv, job.ciphertext, job.id.bytes))
+            decrypt_delivery_payload(
+                job.id, bytes(job.payload_ciphertext), key, job.outbox_key_version
+            )
             for job in jobs
         ]
 

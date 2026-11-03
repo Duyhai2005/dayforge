@@ -146,6 +146,10 @@ jobs:
       - name: Build Next.js production bundle
         run: DAYFORGE_PLAYWRIGHT_MOCK_API=1 pnpm build:web
 
+      - name: Verify production API routes remain interceptable
+        run: |
+          node -e 'const { readFileSync } = require("node:fs"); const rewrites = JSON.parse(readFileSync("frontend/.next/routes-manifest.json", "utf8")).rewrites; const rules = [...rewrites.beforeFiles, ...rewrites.afterFiles, ...rewrites.fallback]; if (rules.length) { console.error(JSON.stringify(rules)); process.exit(1); }'
+
       - name: Run production browser tests
         run: DAYFORGE_PLAYWRIGHT_MOCK_API=1 pnpm test:web:prod
 
@@ -154,5 +158,5 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playwright-results
-          path: frontend/.next/playwright-results/
+          path: frontend/.test-artifacts/
           retention-days: 7
