@@ -468,7 +468,8 @@ test.describe("dense calendar behavior", () => {
       }
     }
 
-    const commitSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: process.cwd(), encoding: "utf8" }).trim();
+    const commitSha = process.env.DAYFORGE_DENSITY_BENCHMARK_SHA ??
+      execFileSync("git", ["rev-parse", "HEAD"], { cwd: process.cwd(), encoding: "utf8" }).trim();
     const report = {
       commit_sha: commitSha,
       recorded_at_utc: new Date().toISOString(),
@@ -484,7 +485,11 @@ test.describe("dense calendar behavior", () => {
     const phase = process.env.DAYFORGE_DENSITY_BENCHMARK_PHASE === "baseline" ? "baseline" : "optimized";
     const artifactPath = test.info().outputPath(`calendar-density-${phase}.json`);
     await mkdir(path.dirname(artifactPath), { recursive: true });
-    await writeFile(artifactPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+    const artifact = `${JSON.stringify(report, null, 2)}\n`;
+    await writeFile(artifactPath, artifact, "utf8");
+    const stableArtifactDirectory = path.resolve(process.cwd(), ".test-artifacts", "t27");
+    await mkdir(stableArtifactDirectory, { recursive: true });
+    await writeFile(path.join(stableArtifactDirectory, `calendar-density-${phase}.json`), artifact, "utf8");
   });
 });
 
