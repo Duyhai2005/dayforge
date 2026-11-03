@@ -98,7 +98,7 @@ Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hi
 
 ### Nhóm 5 — Hoàn thiện việc lặp · T21–T23
 
-- [ ] **T21 — Làm quy tắc lặp và ngoại lệ.** Lặp hằng ngày/theo thứ đến khi dừng, khai triển theo khoảng xem; lần đã chuyển tuần vẫn hiện đúng và không trùng bản gốc.
+- [x] **T21 — Làm quy tắc lặp và ngoại lệ.** Tạo lặp hằng ngày/theo thứ hoặc bật lặp cho task đang có; khai triển theo tuần đang xem, giữ task đầu tiên (kể cả trạng thái hoàn thành), hiển thị lần đã dời/việc đã tách mà không trùng bản gốc. PR #21 đã qua CI và Offline web shell; xem [báo cáo kiểm chứng](t21/implementation-status.md).
 - [ ] **T22 — Làm thao tác với từng lần và cả chuỗi.** Nối các thao tác từng lần; sửa quy tắc từ mốc tách ngoại lệ tương lai thành việc một lần cùng kế hoạch/màu; dừng gỡ thành viên tương lai kể cả đã dời, giữ lịch sử trước mốc và việc đã tách.
 - [ ] **T23 — Kiểm chứng lặp qua lưu trữ và đồng bộ.** Thử chỉnh/dời/tách/dừng ở hai thiết bị với retry/LWW; kiểm tra việc đã tách, màu/kế hoạch, thành viên đã dời, lịch sử và tính nguyên tử đúng chính sách T22.
 

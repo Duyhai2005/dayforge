@@ -305,6 +305,15 @@ h1 {
 .task-editor .plan-manager-header h2 { font-size: 24px; }
 .task-form { display: grid; gap: var(--space-4); }
 .task-form input:not([type="radio"]), .task-form select { width: 100%; min-height: 46px; padding: var(--space-2) var(--space-3); color: var(--text-primary); background: var(--input-background); border: 1px solid #52665b; border-radius: var(--radius-control); }
+.task-recurrence { display: grid; gap: var(--space-3); margin: 0; padding: var(--space-3); border: 1px solid #52665b; border-radius: var(--radius-card); }
+.task-recurrence legend { padding: 0 var(--space-2); color: var(--text-secondary); }
+.task-weekday-picks { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--space-2); }
+.task-weekday-picks label { position: relative; }
+.task-weekday-picks input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.task-weekday-picks span { display: grid; min-height: 42px; place-items: center; border: 1px solid #52665b; border-radius: var(--radius-control); color: var(--text-secondary); cursor: pointer; }
+.task-weekday-picks input:checked + span { color: var(--control-text); background: var(--control-background); border-color: transparent; }
+.task-weekday-picks input:focus-visible + span { outline: 3px solid #d6e9d6; outline-offset: 2px; }
+.task-recurrence-hint { margin: 0; color: var(--text-secondary); font-size: 14px; }
 .milestone-form textarea { width: 100%; min-height: 120px; resize: vertical; padding: var(--space-2) var(--space-3); color: var(--text-primary); background: var(--input-background); border: 1px solid #52665b; border-radius: var(--radius-control); }
 .task-date-period { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
 .task-plan-color { margin: 0; padding: var(--space-3); color: var(--text-secondary); background: var(--input-background); border-radius: var(--radius-card); }

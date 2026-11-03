@@ -2,7 +2,7 @@
 
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { nextOrderKeyForBucket, type ColorId, type Period, type PlanRoot, type TaskData } from "../../lib/sync/reducer";
+import { firstOccurrenceDate, nextOrderKeyForBucket, type ColorId, type Period, type PlanRoot, type RecurrenceRule, type TaskData, type TaskTemplate, type WorkItemTarget } from "../../lib/sync/reducer";
 import type { UUID } from "../../lib/sync/protocol";
 import { useAccount } from "../account/account-provider";
 import { CALENDAR_COLORS, PlanManager } from "./plan-manager";
@@ -14,14 +14,17 @@ type TaskFields = {
   duration: string;
   planId: string;
   standaloneColor: ColorId;
+  recurrence: "none" | "daily" | "weekly";
+  weekdays: number[];
 };
-type TaskValidationField = "title" | "date" | "period" | "duration" | "plan";
+type TaskValidationField = "title" | "date" | "period" | "duration" | "plan" | "recurrence";
 type TaskValidationError = { field: TaskValidationField; message: string };
 
 export type TaskEditorTarget = {
   id: UUID;
   data: TaskData;
   expectedRootHash: string;
+  target?: WorkItemTarget;
 };
 
 export type TaskEditorProps = {
@@ -41,17 +44,36 @@ function fieldsForTask(data: TaskData): TaskFields {
     duration: data.duration_minutes === null ? "" : String(data.duration_minutes),
     planId: data.plan_id ?? "",
     standaloneColor: data.standalone_color_id,
+    recurrence: "none",
+    weekdays: [isoWeekday(data.date)],
   };
 }
 
 function newTaskFields(date: string, period: Period | null | undefined): TaskFields {
-  return { title: "", date, period: period ?? "", duration: "", planId: "", standaloneColor: "neutral" };
+  return { title: "", date, period: period ?? "", duration: "", planId: "", standaloneColor: "neutral", recurrence: "none", weekdays: [isoWeekday(date)] };
 }
 
 function sameFields(left: TaskFields, right: TaskFields): boolean {
   return left.title === right.title && left.date === right.date && left.period === right.period &&
-    left.duration === right.duration && left.planId === right.planId && left.standaloneColor === right.standaloneColor;
+    left.duration === right.duration && left.planId === right.planId && left.standaloneColor === right.standaloneColor &&
+    left.recurrence === right.recurrence && left.weekdays.length === right.weekdays.length &&
+    left.weekdays.every((day, index) => day === right.weekdays[index]);
 }
+
+function isoWeekday(value: string): number {
+  const day = new Date(`${value}T00:00:00.000Z`).getUTCDay();
+  return day === 0 ? 7 : day;
+}
+
+const WEEKDAYS = [
+  { value: 1, label: "Thứ hai", short: "T2" },
+  { value: 2, label: "Thứ ba", short: "T3" },
+  { value: 3, label: "Thứ tư", short: "T4" },
+  { value: 4, label: "Thứ năm", short: "T5" },
+  { value: 5, label: "Thứ sáu", short: "T6" },
+  { value: 6, label: "Thứ bảy", short: "T7" },
+  { value: 7, label: "Chủ nhật", short: "CN" },
+] as const;
 
 function dateIsValid(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value < "0001-01-01" || value > "9999-12-31") return false;
@@ -180,6 +202,14 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
       setValidationError({ field: "period", message: "Hãy chọn buổi cho công việc." });
       return;
     }
+    if (fields.recurrence === "weekly" && fields.weekdays.length === 0) {
+      setValidationError({ field: "recurrence", message: "Hãy chọn ít nhất một thứ trong tuần để lặp." });
+      return;
+    }
+    if (editing && fields.recurrence !== "none" && !fields.weekdays.includes(isoWeekday(fields.date))) {
+      setValidationError({ field: "date", message: "Ngày của lần đầu phải nằm trong các thứ đã chọn." });
+      return;
+    }
     let duration: number | null = null;
     if (fields.duration !== "") {
       if (!/^\d+$/.test(fields.duration)) {
@@ -205,6 +235,14 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
     setSaveError(null);
     setValidationError(null);
     try {
+      const ruleWeekdays = fields.recurrence === "daily"
+        ? WEEKDAYS.map((day) => day.value)
+        : [...fields.weekdays].sort((left, right) => left - right);
+      const firstDate = fields.recurrence === "none" ? fields.date : firstOccurrenceDate(fields.date, ruleWeekdays);
+      if (!firstDate) {
+        setValidationError({ field: "date", message: "Không còn ngày phù hợp trong phạm vi năm được hỗ trợ." });
+        return;
+      }
       const data: TaskData = {
         title,
         date: fields.date,
@@ -218,7 +256,22 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
           : await nextOrderKeyForBucket(account.calendarProjection, fields.date, fields.period),
       };
       const id = editing?.id ?? crypto.randomUUID() as UUID;
-      if (editing && (editing.data.date !== data.date || editing.data.period !== data.period)) {
+      if (!editing && fields.recurrence !== "none") {
+        const firstOrderKey = await nextOrderKeyForBucket(account.calendarProjection, firstDate, data.period);
+        const template: TaskTemplate = {
+          title: data.title,
+          period: data.period,
+          duration_minutes: data.duration_minutes,
+          plan_id: data.plan_id,
+          standalone_color_id: data.standalone_color_id,
+          order_key: firstOrderKey,
+        };
+        const rule: RecurrenceRule = { weekdays: ruleWeekdays };
+        await account.createRecurringTask(id, fields.date, rule, template);
+      } else if (editing && fields.recurrence !== "none") {
+        const rule: RecurrenceRule = { weekdays: ruleWeekdays };
+        await account.enableTaskRecurrence(id, data, rule, editing.expectedRootHash);
+      } else if (editing && (editing.data.date !== data.date || editing.data.period !== data.period)) {
         await account.repositionTask(id, data, editing.expectedRootHash, null);
       } else if (editing) await account.replaceTask(id, data, editing.expectedRootHash);
       else await account.createTask(id, data);
@@ -293,6 +346,41 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
                 {fieldError("period")}
               </div>
             </div>
+            {(!editing || editing.target?.kind === "single") && <fieldset className="task-recurrence">
+              <legend>Lặp lại</legend>
+              <label className="account-field" htmlFor="task-recurrence">
+                Lịch lặp
+                <select id="task-recurrence" name="recurrence" value={fields.recurrence} data-dayforge-dirty={dirty ? "true" : "false"}
+                  onChange={(event) => {
+                    setFields((current) => ({ ...current, recurrence: event.target.value as TaskFields["recurrence"] }));
+                    setValidationError(null);
+                  }}>
+                  <option value="none">Không lặp</option>
+                  <option value="daily">Hằng ngày</option>
+                  <option value="weekly">Chọn các thứ trong tuần</option>
+                </select>
+              </label>
+              {fields.recurrence === "weekly" && <div className="task-weekday-picks" role="group" aria-label="Các thứ lặp lại">
+                {WEEKDAYS.map((day) => <label key={day.value}>
+                  <input type="checkbox" name="recurrence-weekday" value={day.value} checked={fields.weekdays.includes(day.value)}
+                    onChange={(event) => setFields((current) => ({
+                      ...current,
+                      weekdays: event.target.checked
+                        ? [...current.weekdays, day.value].sort((left, right) => left - right)
+                        : current.weekdays.filter((value) => value !== day.value),
+                    }))} />
+                  <span aria-label={day.label}>{day.short}</span>
+                </label>)}
+              </div>}
+              {fields.recurrence !== "none" && <p className="task-recurrence-hint">Lặp từ ngày đã chọn đến khi bạn dừng.</p>}
+              {fieldError("recurrence")}
+              {fields.recurrence !== "none" && !editing && fields.date && !ruleWeekdayMatches(fields.date, fields.recurrence, fields.weekdays) && firstOccurrenceDate(
+                fields.date,
+                fields.recurrence === "daily" ? WEEKDAYS.map((day) => day.value) : fields.weekdays,
+              ) && <p className="task-recurrence-hint">Lần đầu sẽ là ngày {new Intl.DateTimeFormat("vi-VN", { dateStyle: "long", timeZone: "UTC" }).format(
+                new Date(`${firstOccurrenceDate(fields.date, fields.recurrence === "daily" ? WEEKDAYS.map((day) => day.value) : fields.weekdays)}T00:00:00.000Z`),
+              )}.</p>}
+            </fieldset>}
             <label className="account-field" htmlFor="task-duration">Thời lượng ước tính (phút, không bắt buộc)
               <input id="task-duration" name="duration" inputMode="numeric" autoComplete="off" aria-invalid={validationError?.field === "duration" || undefined} aria-describedby={validationError?.field === "duration" ? "task-duration-error" : undefined} data-dayforge-dirty={dirty ? "true" : "false"} value={fields.duration} onChange={(event) => {
                 setFields((current) => ({ ...current, duration: event.target.value }));
@@ -324,7 +412,7 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
             </div>}
             {saveError && <p className="account-error" role="alert">{saveError}</p>}
             <div className="plan-form-actions">
-              {editing && <button type="button" className="task-delete-button" disabled={busy || account.state !== "unlocked" || !account.calendarReady} onClick={() => setConfirmDelete(true)}>Xóa công việc</button>}
+              {editing && (editing.target?.kind ?? "single") === "single" && <button type="button" className="task-delete-button" disabled={busy || account.state !== "unlocked" || !account.calendarReady} onClick={() => setConfirmDelete(true)}>Xóa công việc</button>}
               <button type="button" disabled={busy} onClick={() => {
                 if (dirty) setConfirmDiscard(true);
                 else onClose();
@@ -366,4 +454,8 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
       setFields((current) => ({ ...current, planId: id }));
     }} />
   </>;
+}
+
+function ruleWeekdayMatches(date: string, recurrence: TaskFields["recurrence"], weekdays: readonly number[]): boolean {
+  return recurrence === "daily" || weekdays.includes(isoWeekday(date));
 }

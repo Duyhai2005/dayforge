@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { nextOrderKeyForBucket, replayOperations } from "../lib/sync/reducer";
+import { nextOrderKeyForBucket, replayOperations, workItemsForDates } from "../lib/sync/reducer";
 import { assertSyncPage, compareDecimal, type Operation, type UUID } from "../lib/sync/protocol";
 
 function permutations<T>(values: readonly T[]): T[][] {
@@ -51,6 +51,22 @@ test("TypeScript reducer matches the shared recurrence and detached-task fixture
   }
   const fixtureOrder = await replayOperations(fixture.operations, fixture.owner_id);
   expect(fixtureOrder.outcomes.map((outcome) => outcome.effect)).toEqual(fixture.expected_effects);
+});
+
+test("work-week expansion keeps moved occurrences and detached tasks in the requested dates exactly once", async () => {
+  const fixturePath = path.resolve(process.cwd(), "../docs/tasks/t12/fixtures/reducer-v1-recurrence.json");
+  const fixture = JSON.parse(await readFile(fixturePath, "utf8")) as { owner_id: UUID; operations: Operation[] };
+  const { state } = await replayOperations(fixture.operations, fixture.owner_id);
+  const cards = await workItemsForDates(state, [
+    "2026-11-09", "2026-11-10", "2026-11-11", "2026-11-12", "2026-11-13", "2026-11-14", "2026-11-15",
+  ]);
+
+  expect(cards.map(({ data, target }) => ({ date: data.date, period: data.period, title: data.title, kind: target.kind }))).toEqual([
+    { date: "2026-11-10", period: "afternoon", title: "Split Session", kind: "occurrence" },
+    { date: "2026-11-12", period: "afternoon", title: "Split Session", kind: "occurrence" },
+    { date: "2026-11-12", period: "evening", title: "Rescheduled detached", kind: "detached" },
+  ]);
+  expect(new Set(cards.map((card) => `${card.root_id}:${card.id}`)).size).toBe(cards.length);
 });
 
 test("TypeScript reducer matches the shared undo fixture", async () => {

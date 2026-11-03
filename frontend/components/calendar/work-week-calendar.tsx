@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { todayInUtc7 } from "../../lib/calendar/view-state";
 import { workWeekDates } from "../../lib/calendar/work-week";
-import { semanticRootHash, type ColorId, type MilestoneData, type MilestoneRoot, type Period, type ProjectionState, type SingleWorkRoot, type TaskData } from "../../lib/sync/reducer";
+import { semanticRootHash, workItemsForDates, type ColorId, type MilestoneData, type MilestoneRoot, type Period, type ProjectionState, type WorkItemCard } from "../../lib/sync/reducer";
 import type { UUID } from "../../lib/sync/protocol";
 import { useAccount } from "../account/account-provider";
 import { CALENDAR_COLORS } from "./plan-manager";
@@ -16,7 +16,7 @@ const PERIODS: ReadonlyArray<{ id: Period; name: string }> = [
   { id: "evening", name: "Tối" },
 ];
 
-type WorkCard = { id: UUID; data: TaskData; root: SingleWorkRoot };
+type WorkCard = WorkItemCard;
 type WorkMilestone = { id: UUID; data: MilestoneData; root: MilestoneRoot };
 type WeekDay = { date: string | null; weekday: string; dateLabel: string };
 
@@ -28,24 +28,6 @@ function weekDayFor(date: string | null, index: number): WeekDay {
     weekday: new Intl.DateTimeFormat("vi-VN", { weekday: "long", timeZone: "UTC" }).format(value),
     dateLabel: new Intl.DateTimeFormat("vi-VN", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(value),
   };
-}
-
-function workCardsForWeek(projection: ProjectionState | null, dates: ReadonlyArray<string | null>): WorkCard[] {
-  if (!projection) return [];
-  const visibleDates = new Set(dates.filter((date): date is string => date !== null));
-  const cards: WorkCard[] = [];
-  for (const [key, value] of Object.entries(projection.roots)) {
-    if (!key.startsWith("work_item:") || value.deleted || !("kind" in value) || value.kind !== "single") continue;
-    if (!visibleDates.has(value.single.date)) continue;
-    cards.push({ id: key.slice("work_item:".length) as UUID, data: value.single, root: value });
-  }
-  cards.sort((left, right) => {
-    const leftRank = BigInt(left.data.order_key);
-    const rightRank = BigInt(right.data.order_key);
-    if (leftRank !== rightRank) return leftRank < rightRank ? -1 : 1;
-    return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
-  });
-  return cards;
 }
 
 function milestonesForWeek(projection: ProjectionState | null, dates: ReadonlyArray<string | null>): WorkMilestone[] {
@@ -85,6 +67,7 @@ function millisecondsUntilNextUtc7Midnight(now: Date): number {
 export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone, onEditMilestone, onMoveTask }: WorkWeekCalendarProps): React.JSX.Element {
   const account = useAccount();
   const [draggedTaskId, setDraggedTaskId] = useState<UUID | null>(null);
+  const [cards, setCards] = useState<WorkCard[]>([]);
   const [dropPreview, setDropPreview] = useState<DropPreview | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [today, setToday] = useState(() => todayInUtc7(new Date()));
@@ -104,7 +87,15 @@ export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone
   const dates = useMemo(() => workWeekDates(anchor), [anchor]);
   const days = useMemo(() => dates.map(weekDayFor), [dates]);
   const projection = account.state === "unlocked" && account.calendarReady ? account.calendarProjection : null;
-  const cards = useMemo(() => workCardsForWeek(projection, dates), [projection, dates]);
+  useEffect(() => {
+    let current = true;
+    void workItemsForDates(projection, dates).then((items) => {
+      if (current) setCards(items);
+    }).catch((cause: unknown) => {
+      if (current) setMoveError(cause instanceof Error ? cause.message : "Không thể khai triển công việc trong tuần này.");
+    });
+    return () => { current = false; };
+  }, [projection, dates]);
   const milestones = useMemo(() => milestonesForWeek(projection, dates), [projection, dates]);
   const cardsByBucket = useMemo(() => {
     const grouped = new Map<string, WorkCard[]>();
@@ -122,8 +113,9 @@ export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone
   const ready = account.state === "unlocked" && account.calendarReady;
 
   async function editTask(card: WorkCard): Promise<void> {
-    const expectedRootHash = await semanticRootHash({ kind: "work_item", id: card.id }, card.root);
-    onEditTask({ id: card.id, data: card.data, expectedRootHash });
+    if (card.root.kind !== "single") return;
+    const expectedRootHash = await semanticRootHash({ kind: "work_item", id: card.root_id }, card.root);
+    onEditTask({ id: card.root_id, data: card.data, expectedRootHash, target: card.target });
   }
 
   async function editMilestone(milestone: WorkMilestone): Promise<void> {
@@ -132,11 +124,12 @@ export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone
   }
 
   async function toggleTaskStatus(card: WorkCard): Promise<void> {
+    if (card.root.kind !== "single") return;
     try {
       setMoveError(null);
-      const expectedRootHash = await semanticRootHash({ kind: "work_item", id: card.id }, card.root);
+      const expectedRootHash = await semanticRootHash({ kind: "work_item", id: card.root_id }, card.root);
       const status = card.data.status === "completed" ? "pending" : "completed";
-      await account.changeTaskStatus(card.id, { ...card.data, status }, expectedRootHash);
+      await account.changeTaskStatus(card.root_id, { ...card.data, status }, expectedRootHash);
     } catch (cause) {
       setMoveError(cause instanceof Error ? cause.message : "Không thể đổi trạng thái công việc.");
     }
@@ -155,8 +148,9 @@ export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone
       const sameBucket = card.data.date === date && card.data.period === period;
       const currentIds = destinationCards.map((entry) => entry.id);
       if (sameBucket && currentIds.length === nextIds.length && currentIds.every((entry, index) => entry === nextIds[index])) return;
-      const expectedRootHash = await semanticRootHash({ kind: "work_item", id: card.id }, card.root);
-      await onMoveTask({ id: card.id, data: card.data, expectedRootHash }, date, period, beforeTaskId);
+      if (card.root.kind !== "single") throw new Error("Có thể kéo việc một lần. Hãy mở biểu mẫu để đổi lần lặp.");
+      const expectedRootHash = await semanticRootHash({ kind: "work_item", id: card.root_id }, card.root);
+      await onMoveTask({ id: card.root_id, data: card.data, expectedRootHash, target: card.target }, date, period, beforeTaskId);
     } catch (cause) {
       setMoveError(cause instanceof Error ? cause.message : "Không thể đổi lịch công việc.");
     }
@@ -315,17 +309,19 @@ export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone
               return <Fragment key={card.id}>
                 {showInsertionBefore && <div className="work-task-drop-marker" aria-label={`Thả trước ${card.data.title}`}><span />Thả trước {card.data.title}</div>}
                 <div className="work-task-entry" data-work-item-id={card.id} data-dragging={draggedTaskId === card.id ? "true" : undefined}>
-                  <button type="button" draggable={ready} className="work-task-card" style={{ backgroundColor: color.background, color: color.foreground }} aria-label={`${accessibleLabel}, mở biểu mẫu để đổi ngày hoặc buổi`} aria-describedby="work-week-move-help"
+                  <button type="button" disabled={card.root.kind !== "single"} draggable={ready && card.root.kind === "single"} className="work-task-card" style={{ backgroundColor: color.background, color: color.foreground }} aria-label={`${accessibleLabel}${card.target.kind === "occurrence" ? ", lần lặp" : card.target.kind === "detached" ? ", việc một lần đã tách" : ""}${card.root.kind === "single" ? ", mở biểu mẫu để sửa" : ""}`} aria-describedby="work-week-move-help"
                     onClick={() => void editTask(card)} onDragStart={(event) => handleDragStart(event, card)} onDragEnd={handleDragEnd}>
                     <span className="work-task-grip" aria-hidden="true">⠿</span>
                     <span className="work-task-title">{card.data.title}</span>
                     <span className="work-task-meta">
                       {card.data.duration_minutes === null ? "Chưa ước lượng" : `${card.data.duration_minutes} phút`}
+                      {card.target.kind === "occurrence" && <span> · ↻ Lặp lại</span>}
+                      {card.target.kind === "detached" && <span> · Một lần</span>}
                       {stateLabel && <span className="work-task-state">{card.data.status === "completed" ? "✓" : "◷"} {stateLabel}</span>}
                     </span>
                   </button>
                   <div className="work-task-order-actions" aria-label={"Thao tác " + card.data.title}>
-                    <button type="button" className="work-task-status-toggle" disabled={!ready}
+                    <button type="button" className="work-task-status-toggle" disabled={!ready || card.root.kind !== "single"}
                       aria-label={"Đánh dấu " + card.data.title + " " + (card.data.status === "completed" ? "chưa hoàn thành" : "hoàn thành")}
                       aria-pressed={card.data.status === "completed"} title={card.data.status === "completed" ? "Bỏ hoàn thành" : "Đánh dấu hoàn thành"}
                       onClick={() => void toggleTaskStatus(card)}>{card.data.status === "completed" ? "↶" : "✓"}</button>
