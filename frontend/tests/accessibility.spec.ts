@@ -193,6 +193,11 @@ test("calendarFocusAndTextMeetContrastTargets", async ({ page }) => {
   await unlockLocalOwner(page);
   await page.goto("/work?date=2026-11-03");
   const toggle = page.getByRole("button", { name: "Mở hoặc đóng điều hướng lịch" });
+  // Prime the client event boundary before testing keyboard focus after production hydration.
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await page.getByRole("button", { name: "Thêm nhanh", exact: true }).focus();
   await page.keyboard.press("Tab");
   await page.keyboard.press("Tab");
