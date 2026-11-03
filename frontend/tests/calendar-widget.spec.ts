@@ -96,17 +96,17 @@ test("viewControlsEnforceT03DomainBounds", async ({ page }) => {
   }
 });
 
-test("quickAddActionsAreDisabledWithExplanation", async ({ page }) => {
+test("calendarMutationsRequireAnUnlockedLocalVault", async ({ page }) => {
   await page.goto("/work?date=2026-01-31");
   await expect(page.getByRole("button", { name: "Thêm nhanh", exact: true })).toBeDisabled();
   await expect(page.getByRole("status")).toHaveText("Chưa kết nối dữ liệu");
   await page.getByRole("button", { name: toggleName }).click();
-  for (const name of ["Thêm công việc", "Thêm dấu mốc", "Thêm kế hoạch"]) {
+  for (const name of ["Thêm công việc", "Thêm dấu mốc", "Quản lý kế hoạch"]) {
     const action = page.getByRole("button", { name, exact: true });
     await expect(action).toBeDisabled();
-    await expect(action).toHaveAccessibleDescription("Chưa thể lưu dữ liệu. Tính năng lưu sẽ có trong bước tiếp theo.");
+    await expect(action).toHaveAccessibleDescription("Mở khóa kho local để quản lý kế hoạch. Biểu mẫu công việc và dấu mốc sẽ được bổ sung tiếp theo.");
   }
-  await expect(page.getByText("Chưa thể lưu dữ liệu. Tính năng lưu sẽ có trong bước tiếp theo.")).toBeVisible();
+  await expect(page.getByText("Mở khóa kho local để quản lý kế hoạch. Biểu mẫu công việc và dấu mốc sẽ được bổ sung tiếp theo.")).toBeVisible();
 });
 
 test("widgetHonorsReducedMotion", async ({ page }) => {

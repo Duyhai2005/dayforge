@@ -9,12 +9,16 @@ import {
   listOwnerMetadata,
   lockOwner,
   openVaultDatabase,
+  readBuildGate,
   readOwnerAuthState,
   readOwnerSnapshot,
   unlockOwner,
 } from "../../lib/storage/vault";
 import { startSyncCoordinator, type CoordinatorStatus, type SyncCoordinatorHandle } from "../../lib/sync/coordinator";
 import type { UUID } from "../../lib/sync/protocol";
+import { commitLocalMutation, type LocalMutationResult } from "../../lib/sync/mutation";
+import { rebuildOwnerProjection } from "../../lib/sync/projection";
+import type { PlanData, ProjectionState } from "../../lib/sync/reducer";
 import { useBuildGate } from "../offline/offline-bootstrap";
 
 interface OwnerView {
@@ -52,6 +56,9 @@ interface AccountContextValue {
   syncStatus: CoordinatorStatus;
   error: string | null;
   info: string | null;
+  calendarProjection: ProjectionState | null;
+  calendarReady: boolean;
+  calendarError: string | null;
   login(email: string, password: string, rememberMe: boolean): Promise<void>;
   register(email: string): Promise<void>;
   requestPasswordReset(email: string): Promise<void>;
@@ -65,6 +72,9 @@ interface AccountContextValue {
   coordinatorStatus(): CoordinatorStatus;
   refreshSession(): Promise<SessionView>;
   clearNotice(): void;
+  refreshCalendar(): Promise<void>;
+  createPlan(id: UUID, data: PlanData): Promise<LocalMutationResult>;
+  replacePlan(id: UUID, data: PlanData): Promise<LocalMutationResult>;
 }
 
 const AccountContext = createContext<AccountContextValue | null>(null);
@@ -141,9 +151,13 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
   const [syncStatus, setSyncStatus] = useState<CoordinatorStatus>({ state: "stopped" });
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [calendarProjection, setCalendarProjection] = useState<ProjectionState | null>(null);
+  const [calendarReady, setCalendarReady] = useState(false);
+  const [calendarError, setCalendarError] = useState<string | null>(null);
   const sessionRef = useRef<SessionView | null>(null);
   const databaseRef = useRef<IDBDatabase | null>(null);
   const coordinatorRef = useRef<SyncCoordinatorHandle | null>(null);
+  const calendarRefreshIdRef = useRef(0);
 
   const setSessionValue = useCallback((next: SessionView | null) => {
     sessionRef.current = next;
@@ -155,6 +169,45 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
     setSessionValue(next);
     return next;
   }, [setSessionValue]);
+
+  const refreshCalendar = useCallback(async (): Promise<void> => {
+    const ownerId = owner?.id;
+    const db = databaseRef.current;
+    const refreshId = ++calendarRefreshIdRef.current;
+    if (state !== "unlocked" || !ownerId || !db) {
+      setCalendarProjection(null);
+      setCalendarReady(state !== "loading");
+      setCalendarError(null);
+      return;
+    }
+    setCalendarReady(false);
+    try {
+      const snapshot = await readOwnerSnapshot(db, ownerId, build.buildId);
+      const { replay } = await rebuildOwnerProjection({ snapshot });
+      if (refreshId !== calendarRefreshIdRef.current || owner?.id !== ownerId || state !== "unlocked") return;
+      setCalendarProjection(replay.state);
+      setCalendarReady(true);
+      setCalendarError(null);
+    } catch (cause) {
+      if (refreshId !== calendarRefreshIdRef.current || owner?.id !== ownerId) return;
+      setCalendarProjection(null);
+      setCalendarReady(false);
+      setCalendarError(cause instanceof Error ? cause.message : "Không thể đọc lịch trên thiết bị này.");
+    }
+  }, [build.buildId, owner, state]);
+
+  useEffect(() => {
+    void refreshCalendar();
+  }, [refreshCalendar]);
+
+  useEffect(() => {
+    const onOwnerStateChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ ownerId?: UUID }>).detail;
+      if (detail?.ownerId === owner?.id) void refreshCalendar();
+    };
+    window.addEventListener("dayforge:owner-state-changed", onOwnerStateChanged);
+    return () => window.removeEventListener("dayforge:owner-state-changed", onOwnerStateChanged);
+  }, [owner?.id, refreshCalendar]);
 
   useEffect(() => {
     if (!build.ready || !build.gate) return;
@@ -376,6 +429,54 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
     return inspectOwnerChanges(db, ownerId, build.buildId);
   }, [build.buildId, owner]);
 
+  const writePlan = useCallback(async (
+    id: UUID,
+    action: "plan.create" | "plan.replace",
+    data: PlanData,
+  ): Promise<LocalMutationResult> => {
+    const db = databaseRef.current;
+    const ownerId = owner?.id;
+    if (!db || !ownerId || state !== "unlocked") throw new Error("Hãy mở khóa kho local trước khi lưu kế hoạch.");
+    const operationId = crypto.randomUUID() as UUID;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const gate = await readBuildGate(db);
+      if (!gate) throw new Error("Trạng thái cập nhật offline chưa sẵn sàng.");
+      const snapshot = await readOwnerSnapshot(db, ownerId, build.buildId);
+      const result = await commitLocalMutation({
+        database: db,
+        snapshot,
+        gate,
+        expectedBuild: build.buildId,
+        requireApplied: true,
+        draft: {
+          operationId,
+          commands: [{
+            root: { kind: "plan", id },
+            action,
+            payload: { data },
+            precondition: null,
+          }],
+        },
+      });
+      if (!result.result.committed) {
+        if (result.result.reason === "stale_snapshot") continue;
+        throw new Error("Không thể lưu kế hoạch khi kho local hoặc bản cập nhật đang đổi.");
+      }
+      if (owner?.id !== ownerId || databaseRef.current !== db) throw new Error("Kho local đã khóa trong lúc lưu kế hoạch.");
+      setCalendarProjection(result.projection);
+      setCalendarReady(true);
+      setCalendarError(null);
+      coordinatorRef.current?.wake();
+      setError(null);
+      setInfo("Đã lưu kế hoạch trên thiết bị. Trạng thái đồng bộ được hiển thị riêng.");
+      return result;
+    }
+    throw new Error("Dữ liệu lịch liên tục thay đổi ở tab khác. Hãy thử lưu lại.");
+  }, [build.buildId, owner?.id, state]);
+
+  const createPlan = useCallback((id: UUID, data: PlanData) => writePlan(id, "plan.create", data), [writePlan]);
+  const replacePlan = useCallback((id: UUID, data: PlanData) => writePlan(id, "plan.replace", data), [writePlan]);
+
   const clearNotice = useCallback(() => { setError(null); setInfo(null); }, []);
   const wakeSync = useCallback(() => {
     if (!coordinatorRef.current) return false;
@@ -394,8 +495,9 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
   );
   const value = useMemo<AccountContextValue>(() => ({
     state, session, owner, syncStatus, error, info, login, register, requestPasswordReset,
+    calendarProjection, calendarReady, calendarError, refreshCalendar, createPlan, replacePlan,
     confirmEmail, resetPassword, logout, repairClockIssues, inspectPendingChanges, wakeSync, stopSync, coordinatorStatus, refreshSession, clearNotice,
-  }), [clearNotice, confirmEmail, coordinatorStatus, error, info, inspectPendingChanges, login, logout, owner, refreshSession, register, repairClockIssues, requestPasswordReset, resetPassword, session, state, stopSync, syncStatus, wakeSync]);
+  }), [calendarError, calendarProjection, calendarReady, clearNotice, confirmEmail, coordinatorStatus, createPlan, error, info, inspectPendingChanges, login, logout, owner, refreshCalendar, refreshSession, register, repairClockIssues, replacePlan, requestPasswordReset, resetPassword, session, state, stopSync, syncStatus, wakeSync]);
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;
 }

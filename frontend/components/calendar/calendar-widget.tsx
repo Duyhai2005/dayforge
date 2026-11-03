@@ -11,6 +11,7 @@ export type CalendarWidgetProps = {
   view: ViewState;
   onNavigate(next: ViewState): void;
   onSwitch(nextCalendar: CalendarKind): void;
+  onOpenPlans(): void;
 };
 
 export function currentPeriod(view: ViewState): string {
@@ -25,7 +26,7 @@ export function currentPeriod(view: ViewState): string {
   return `${format(start)} – ${format(end)}`;
 }
 
-export function CalendarWidget({ calendar, view, onNavigate, onSwitch }: CalendarWidgetProps): React.JSX.Element {
+export function CalendarWidget({ calendar, view, onNavigate, onSwitch, onOpenPlans }: CalendarWidgetProps): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [logoutChanges, setLogoutChanges] = useState<{ pendingOperations: number; drafts: number } | null>(null);
   const [logoutError, setLogoutError] = useState("");
@@ -116,7 +117,12 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch }: Calenda
     <div className="calendar-widget" ref={root}>
       <section id={panelId} className="widget-panel" data-open={open} aria-label="Điều khiển lịch" aria-hidden={!open} inert={!open}>
         <div className="widget-add-actions">
-          {["Thêm công việc", "Thêm dấu mốc", "Thêm kế hoạch"].map(label => <button key={label} type="button" disabled aria-describedby={explanationId}>{label}</button>)}
+          <button type="button" disabled aria-describedby={explanationId}>Thêm công việc</button>
+          <button type="button" disabled aria-describedby={explanationId}>Thêm dấu mốc</button>
+          <button type="button" disabled={account.state !== "unlocked"} aria-describedby={explanationId} onClick={() => {
+            setOpen(false);
+            onOpenPlans();
+          }}>Quản lý kế hoạch</button>
         </div>
         <nav aria-label="Chuyển lịch" className="widget-calendars">
           {(["work", "milestones"] as const).map(kind => <Link key={kind} href={`/${kind}`} aria-current={calendar === kind ? "page" : undefined} scroll={false} onClick={event => {
@@ -151,7 +157,9 @@ export function CalendarWidget({ calendar, view, onNavigate, onSwitch }: Calenda
         </div> : null}
         <button ref={toggle} className="widget-toggle" type="button" aria-label="Mở hoặc đóng điều hướng lịch" aria-expanded={open} aria-controls={panelId} onClick={() => { if (open) close(); else setOpen(true); }}><span aria-hidden="true">{open ? "⌄" : "⌃"}</span></button>
       </div>
-      <p id={explanationId} className="widget-save-explanation">Chưa thể lưu dữ liệu. Tính năng lưu sẽ có trong bước tiếp theo.</p>
+      <p id={explanationId} className="widget-save-explanation">{account.state === "unlocked"
+        ? "Kế hoạch được lưu trên thiết bị. Biểu mẫu công việc và dấu mốc sẽ được bổ sung tiếp theo."
+        : "Mở khóa kho local để quản lý kế hoạch. Biểu mẫu công việc và dấu mốc sẽ được bổ sung tiếp theo."}</p>
       {logoutError && <p className="account-error" role="alert">{logoutError}</p>}
       {logoutDialog}
     </div>

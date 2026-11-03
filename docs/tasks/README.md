@@ -10,7 +10,7 @@
 
 **Spec:** [Thiết kế T01 đã duyệt](t01/design.md), [tổng quan hồ sơ](../project-definition/README.md), [yêu cầu chức năng](../project-definition/02-functional-requirements.md), [UX](../project-definition/03-ux-and-interactions.md), [kiến trúc](../project-definition/04-technical-architecture.md), [dữ liệu và đồng bộ](../project-definition/05-data-and-sync.md), [nghiệm thu](../project-definition/06-delivery-and-acceptance.md).
 
-Ngày cập nhật: **03/11/2026** · Trạng thái: **T01–T03 hoàn thành thiết kế/hợp đồng; T04–T09 hoàn thành nền theo các báo cáo kiểm chứng liên kết bên dưới. T10–T13 đã có lõi sync server/client, reducer và offline shell; còn kiểm chứng lại sau khi tích hợp với nền `develop`, nghiệm thu UX lịch và môi trường đích. T14–T36 còn lại; email tới inbox production thuộc T30/T32.**
+Ngày cập nhật: **03/11/2026** · Trạng thái: **T01–T03 hoàn thành thiết kế/hợp đồng; T04–T09 hoàn thành nền theo các báo cáo kiểm chứng liên kết bên dưới. T10–T13 đã có lõi sync server/client, reducer và offline shell; còn kiểm chứng lại sau khi tích hợp với nền `develop`, nghiệm thu UX lịch và môi trường đích. T14 đã có form tạo/sửa kế hoạch và kiểm chứng local; GitHub CI/PR merge còn chờ. T15–T36 còn lại; email tới inbox production thuộc T30/T32.**
 
 ## 1. Cách dùng kế hoạch
 
@@ -86,7 +86,7 @@ Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hi
 
 ### Nhóm 4 — Hoàn thiện hai lịch và công việc · T14–T20
 
-- [ ] **T14 — Làm kế hoạch và màu.** Tạo/sửa tên, chọn màu nhanh, cập nhật màu dùng chung; hỗ trợ việc/dấu mốc độc lập theo thiết kế đã chốt.
+- [ ] **T14 — Làm kế hoạch và màu.** Tạo/sửa tên, chọn màu nhanh, cập nhật màu dùng chung; hỗ trợ việc/dấu mốc độc lập theo thiết kế đã chốt. Có [báo cáo kiểm chứng local](t14/review-and-verification.md); GitHub CI/PR merge còn chờ.
 - [ ] **T15 — Làm thêm/sửa công việc nhanh.** Biểu mẫu nổi điền sẵn ngày/buổi, nhập thời lượng và kế hoạch; tạo kế hoạch trong luồng vẫn giữ bản nháp.
 - [ ] **T16 — Làm lịch công việc tuần với dữ liệu thật.** Hiện đủ công việc theo ngày và ba buổi, điều hướng tuần/hôm nay; xử lý ngày trống, ngày đông và tuần bắc qua tháng/năm.
 - [ ] **T17 — Làm thêm/sửa/xóa dấu mốc.** Tạo riêng với ngày, buổi tùy chọn, ghi chú liên quan, kế hoạch/màu và lựa chọn hiện trên lịch công việc; không chuyển từ task, cả hai lịch đọc cùng bản ghi; lưu offline và đồng bộ đầy đủ các trường.
