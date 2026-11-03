@@ -10,6 +10,7 @@ import { PlanManager } from "./plan-manager";
 import { TaskEditor, type TaskEditorTarget } from "./task-editor";
 import { WorkWeekCalendar } from "./work-week-calendar";
 import { MilestoneEditor, type MilestoneEditorTarget } from "./milestone-editor";
+import { MilestoneCalendar } from "./milestone-calendar";
 import type { Period } from "../../lib/sync/reducer";
 
 export type CalendarViewProps = { calendar: CalendarKind };
@@ -110,6 +111,11 @@ export function CalendarView({ calendar }: CalendarViewProps): React.JSX.Element
       onEditTask={(editing) => setTaskEditor({ date: editing.data.date, period: editing.data.period, editing })}
       onAddMilestone={(date) => setMilestoneEditor({ date })}
       onEditMilestone={(editing) => setMilestoneEditor({ date: editing.data.date, editing })} />}
+    {view && calendar === "milestones" && <MilestoneCalendar anchor={view.anchor} scale={view.scale}
+      onNavigate={navigate}
+      onEditMilestone={(editing) => setMilestoneEditor({ date: editing.data.date, editing })}
+      onAddMilestone={(date) => setMilestoneEditor({ date })}
+      onOpenWorkWeek={(date) => navigate({ calendar: "work", anchor: date, scale: "week" })} />}
     <PlanManager open={planManagerOpen} onClose={() => setPlanManagerOpen(false)} />
     {taskEditor && <TaskEditor key={`${taskEditor.date}:${taskEditor.period ?? "any"}:${taskEditor.editing?.id ?? "new"}`} open date={taskEditor.date} period={taskEditor.period} editing={taskEditor.editing} onClose={() => setTaskEditor(null)} />}
     {milestoneEditor && <MilestoneEditor key={`${milestoneEditor.date}:${milestoneEditor.editing?.id ?? "new"}`} open date={milestoneEditor.date} editing={milestoneEditor.editing} onClose={() => setMilestoneEditor(null)} />}

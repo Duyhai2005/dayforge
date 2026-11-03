@@ -104,6 +104,75 @@ h1 {
 .work-task-state { font-weight: 600; }
 .work-week-message { margin: var(--space-4) 0 0; color: var(--text-secondary); }
 .work-week-message.account-error { color: #ffd5d5; }
+.milestone-calendar { margin-top: var(--space-8); }
+.milestone-calendar-message { margin: var(--space-4) 0 0; color: var(--text-secondary); }
+.milestone-calendar-message.account-error { color: #ffd5d5; }
+.milestone-week-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--space-2); }
+.milestone-week-day { min-width: 0; min-height: 320px; padding: var(--space-3); background: #192428; border: 1px solid #33463f; border-radius: var(--radius-card); }
+.milestone-week-day[data-today="true"] { border-color: var(--control-background); box-shadow: inset 0 0 0 1px var(--control-background); }
+.milestone-day-heading { min-height: 54px; padding-bottom: var(--space-2); border-bottom: 1px solid #33463f; }
+.milestone-day-heading button { display: grid; width: 100%; gap: 2px; padding: 0; color: var(--text-secondary); background: transparent; border: 0; text-align: left; text-transform: capitalize; cursor: pointer; }
+.milestone-day-heading button strong { color: var(--text-primary); font-size: 17px; font-weight: 600; }
+.milestone-week-events { display: grid; gap: var(--space-3); padding-top: var(--space-3); }
+.milestone-week-period { display: grid; gap: var(--space-2); }
+.milestone-week-period h3 { margin: 0; color: var(--text-muted); font-size: var(--font-meta); font-weight: 500; }
+.milestone-calendar-event { display: grid; min-width: 0; gap: 2px; padding: var(--space-2); border: 0; border-left: 3px solid currentColor; border-radius: var(--radius-control); text-align: left; cursor: pointer; }
+.milestone-calendar-event:hover { filter: brightness(1.12); }
+.milestone-event-period { font-size: 10px; line-height: 1.3; opacity: .9; }
+.milestone-event-title { overflow-wrap: anywhere; font-weight: 600; }
+.milestone-event-note { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.milestone-calendar-event[aria-label*="Có ghi chú"] .milestone-event-title::after { content: " · ▤"; white-space: nowrap; }
+.milestone-calendar-event.is-compact { grid-template-columns: minmax(0, 1fr) auto; gap: 1px var(--space-1); padding: 5px 7px; font-size: 11px; }
+.milestone-calendar-event.is-compact .milestone-event-period { grid-column: 1 / -1; font-size: 9px; }
+.milestone-calendar-event.is-compact .milestone-event-title { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.milestone-calendar-event.is-compact .milestone-event-note { position: static; width: auto; height: auto; overflow: visible; clip-path: none; align-self: start; }
+.milestone-empty-day { margin: var(--space-3) 0; color: var(--text-muted); font-size: var(--font-meta); }
+.milestone-month-grid { overflow: hidden; border: 1px solid #33463f; border-radius: var(--radius-card); background: #172126; }
+.milestone-weekday-row, .milestone-month-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.milestone-weekday-row { background: var(--panel); }
+.milestone-weekday-row span { padding: var(--space-2); color: var(--text-secondary); font-size: var(--font-meta); text-align: center; }
+.milestone-month-day { position: relative; display: flex; min-width: 0; min-height: 118px; flex-direction: column; gap: var(--space-1); padding: var(--space-2); border-top: 1px solid #33463f; border-right: 1px solid #33463f; }
+.milestone-month-day:nth-child(7n) { border-right: 0; }
+.milestone-month-day[data-in-month="false"] { background: #141d21; }
+.milestone-month-day[data-in-month="false"] .milestone-month-date { color: var(--text-muted); opacity: .7; }
+.milestone-month-day[data-today="true"] { box-shadow: inset 0 0 0 2px var(--control-background); }
+.milestone-month-date { align-self: flex-start; min-width: 30px; min-height: 30px; padding: 3px 7px; color: var(--text-primary); background: transparent; border: 0; border-radius: 50%; text-align: center; cursor: pointer; }
+.milestone-month-date:hover { background: #33473d; }
+.milestone-month-events { display: grid; min-width: 0; gap: 4px; }
+.milestone-more { justify-self: start; min-height: 26px; padding: 2px 5px; color: var(--text-secondary); background: transparent; border: 0; font-size: 10px; cursor: pointer; }
+.milestone-more:hover { color: var(--text-primary); text-decoration: underline; }
+.milestone-year-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
+.milestone-year-month { min-width: 0; padding: var(--space-4); background: var(--panel); border: 1px solid #33463f; border-radius: var(--radius-card); }
+.milestone-year-month > header { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-2); }
+.milestone-year-month > header button { padding: 0; color: var(--text-primary); background: transparent; border: 0; font-size: 16px; font-weight: 600; text-transform: capitalize; cursor: pointer; }
+.milestone-year-month > header span { color: var(--text-muted); font-size: 10px; white-space: nowrap; }
+.milestone-mini-weekdays, .milestone-mini-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); text-align: center; }
+.milestone-mini-weekdays span { color: var(--text-muted); font-size: 9px; }
+.milestone-mini-days button, .milestone-mini-days > span { position: relative; display: grid; min-width: 0; min-height: 26px; place-items: center; padding: 1px; color: var(--text-secondary); background: transparent; border: 0; font-size: 10px; cursor: pointer; }
+.milestone-mini-days button:hover { color: var(--control-text); background: var(--control-background); border-radius: 50%; }
+.milestone-mini-days button[data-has-milestone="true"] { color: var(--text-primary); font-weight: 700; }
+.milestone-mini-days button i { position: absolute; bottom: 2px; width: 4px; height: 4px; border-radius: 50%; }
+.milestone-mini-days button i:nth-of-type(1) { left: calc(50% - 7px); }
+.milestone-mini-days button i:nth-of-type(2) { left: calc(50% - 2px); }
+.milestone-mini-days button i:nth-of-type(3) { left: calc(50% + 3px); }
+.milestone-year-empty { margin: var(--space-2) 0 0; color: var(--text-muted); font-size: 10px; }
+.milestone-year-summary { display: grid; gap: 2px; margin-top: var(--space-2); }
+.milestone-year-summary button { overflow: hidden; padding: 1px 0 1px 7px; color: var(--text-secondary); background: transparent; border: 0; border-left: 2px solid; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.milestone-year-summary button:hover { color: var(--text-primary); }
+.milestone-year-summary span { color: var(--text-muted); font-size: 10px; }
+.milestone-calendar-legend { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin: var(--space-4) 0 0; padding: 0; list-style: none; }
+.milestone-calendar-legend li { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-secondary); font-size: var(--font-meta); }
+.milestone-calendar-legend li span { width: 9px; height: 9px; border-radius: 50%; }
+.milestone-day-dialog { width: min(620px, calc(100vw - 32px)); max-height: min(780px, calc(100dvh - 32px)); overflow: auto; padding: var(--space-6); color: var(--text-primary); background: var(--panel); border: 1px solid #607469; border-radius: var(--radius-panel); box-shadow: 0 18px 56px #0009; }
+.milestone-day-dialog::backdrop { background: #000a; }
+.milestone-day-dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-4); }
+.milestone-day-dialog-header h2 { margin: 0; font-size: 22px; font-weight: 600; text-transform: capitalize; }
+.milestone-day-dialog-header > button { min-width: 40px; min-height: 40px; color: var(--text-primary); background: var(--input-background); border: 1px solid #52665b; border-radius: var(--radius-control); font-size: 22px; cursor: pointer; }
+.milestone-day-dialog-list { display: grid; gap: var(--space-2); max-height: 52vh; overflow-y: auto; }
+.milestone-day-dialog-actions { display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-6); }
+.milestone-day-dialog-actions button { min-height: 42px; padding: var(--space-2) var(--space-3); color: var(--text-primary); background: var(--input-background); border: 1px solid #52665b; border-radius: var(--radius-control); cursor: pointer; }
+.milestone-day-dialog-actions .milestone-open-work-week { color: var(--control-text); background: var(--control-background); }
+.milestone-day-dialog-actions button:disabled { opacity: .6; cursor: not-allowed; }
 .calendar-widget { position: fixed; z-index: 10; left: 50%; bottom: var(--space-4); width: min(480px, calc(100vw - 32px)); translate: -50% 0; }
 .widget-bar, .widget-panel { background: var(--panel); border: 1px solid #4a5d53; box-shadow: 0 12px 32px #0005; border-radius: var(--radius-panel); }
 .widget-bar { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3); }
