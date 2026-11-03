@@ -159,4 +159,5 @@ jobs:
         with:
           name: playwright-results
           path: frontend/.test-artifacts/
+          include-hidden-files: true
           retention-days: 7
