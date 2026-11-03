@@ -60,9 +60,7 @@ def _uuid(value: Any, label: str) -> str:
 
 
 def _date(value: Any, label: str) -> str:
-    if not isinstance(value, str) or not re.fullmatch(
-        r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value
-    ):
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
         raise ReducerValidationError(f"{label}_date")
     try:
         date.fromisoformat(value)
@@ -75,16 +73,10 @@ def _text(value: Any, label: str, maximum: int, *, note: bool = False) -> str:
     if not isinstance(value, str):
         raise ReducerValidationError(f"{label}_text")
     normalized = unicodedata.normalize("NFC", value)
-    canonical = (
-        normalized.replace("\r\n", "\n").replace("\r", "\n")
-        if note
-        else normalized.strip()
-    )
+    canonical = normalized.replace("\r\n", "\n").replace("\r", "\n") if note else normalized.strip()
     if canonical != value or len(value) > maximum or (not note and len(value) < 1):
         raise ReducerValidationError(f"{label}_text")
-    controls = re.search(
-        r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]" if note else r"[\x00-\x1f\x7f]", value
-    )
+    controls = re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]" if note else r"[\x00-\x1f\x7f]", value)
     if controls or (not note and ("\r" in value or "\n" in value)):
         raise ReducerValidationError(f"{label}_control")
     return value
@@ -119,9 +111,7 @@ def _milestone_data(value: Any, label: str) -> dict[str, Any]:
     )
     _text(item["title"], f"{label}_title", 120)
     _date(item["date"], f"{label}_date")
-    if item["period"] is not None and (
-        not isinstance(item["period"], str) or item["period"] not in PERIODS
-    ):
+    if item["period"] is not None and (not isinstance(item["period"], str) or item["period"] not in PERIODS):
         raise ReducerValidationError(f"{label}_period")
     _text(item["note"], f"{label}_note", 4000, note=True)
     _nullable_uuid(item["plan_id"], f"{label}_plan_id")
@@ -151,9 +141,7 @@ def _task_data(value: Any, label: str) -> dict[str, Any]:
     if not isinstance(item["period"], str) or item["period"] not in PERIODS:
         raise ReducerValidationError(f"{label}_period")
     duration = item["duration_minutes"]
-    if duration is not None and (
-        type(duration) is not int or not 1 <= duration <= 1440
-    ):
+    if duration is not None and (type(duration) is not int or not 1 <= duration <= 1440):
         raise ReducerValidationError(f"{label}_duration")
     _nullable_uuid(item["plan_id"], f"{label}_plan_id")
     _color(item["standalone_color_id"], f"{label}_standalone_color")
@@ -197,9 +185,7 @@ def _task_template_data(value: Any, label: str) -> dict[str, Any]:
     if not isinstance(item["period"], str) or item["period"] not in PERIODS:
         raise ReducerValidationError(f"{label}_period")
     duration = item["duration_minutes"]
-    if duration is not None and (
-        type(duration) is not int or not 1 <= duration <= 1440
-    ):
+    if duration is not None and (type(duration) is not int or not 1 <= duration <= 1440):
         raise ReducerValidationError(f"{label}_duration")
     _nullable_uuid(item["plan_id"], f"{label}_plan_id")
     _color(item["standalone_color_id"], f"{label}_standalone_color")
@@ -213,15 +199,9 @@ def _validate_family_integrity(root_id: str, root: dict[str, Any]) -> None:
         {"owner_id", "deleted", "kind", "single", "segment_origins", "family"},
         "work_item_family",
     )
-    if (
-        root["kind"] != "recurrence_family"
-        or root["single"] is not None
-        or type(root["deleted"]) is not bool
-    ):
+    if root["kind"] != "recurrence_family" or root["single"] is not None or type(root["deleted"]) is not bool:
         raise ReducerValidationError("work_item_family_shape")
-    if not isinstance(root["segment_origins"], list) or not isinstance(
-        root["family"], dict
-    ):
+    if not isinstance(root["segment_origins"], list) or not isinstance(root["family"], dict):
         raise ReducerValidationError("work_item_family_collections")
     family = _exact(
         root["family"],
@@ -245,9 +225,7 @@ def _validate_family_integrity(root_id: str, root: dict[str, Any]) -> None:
         )
         segment_id = _uuid(origin["segment_id"], "segment_origin_id")
         born = _date(origin["born_from_date"], "segment_origin_born_from_date")
-        operation_id = _uuid(
-            origin["created_by_operation_id"], "segment_origin_operation_id"
-        )
+        operation_id = _uuid(origin["created_by_operation_id"], "segment_origin_operation_id")
         command_index = origin["command_index"]
         if (
             type(command_index) is not int
@@ -277,11 +255,7 @@ def _validate_family_integrity(root_id: str, root: dict[str, Any]) -> None:
         )
         segment_id = _uuid(segment["segment_id"], "rule_segment_id")
         from_date = _date(segment["from_date"], "segment_from_date")
-        until_date = (
-            None
-            if segment["until_date"] is None
-            else _date(segment["until_date"], "segment_until_date")
-        )
+        until_date = None if segment["until_date"] is None else _date(segment["until_date"], "segment_until_date")
         if until_date is not None and from_date >= until_date:
             raise ReducerValidationError("empty_segment_interval")
         _recurrence_rule(segment["rule"], "segment_rule")
@@ -290,8 +264,7 @@ def _validate_family_integrity(root_id: str, root: dict[str, Any]) -> None:
         if origin is None or origin["born_from_date"] != from_date:
             raise ReducerValidationError("missing_segment_origin")
         if prior_segment is not None and (
-            prior_segment["until_date"] is None
-            or from_date < prior_segment["until_date"]
+            prior_segment["until_date"] is None or from_date < prior_segment["until_date"]
         ):
             raise ReducerValidationError("overlapping_segments")
         prior_segment = {"from_date": from_date, "until_date": until_date}
@@ -313,28 +286,18 @@ def _validate_family_integrity(root_id: str, root: dict[str, Any]) -> None:
         requested = _date(override["original_date"], "override_date")
         override_id = _uuid(override["override_id"], "override_id")
         source_id = _uuid(override["source_segment_id"], "override_source")
-        if (
-            override_id != _override_id(root_id, requested)
-            or requested in override_dates
-            or source_id not in origins
-        ):
+        if override_id != _override_id(root_id, requested) or requested in override_dates or source_id not in origins:
             raise ReducerValidationError("invalid_occurrence_override")
         override_dates.add(requested)
         if override["kind"] == "replacement":
-            if (
-                override["replacement"] is None
-                or override["detached_task_id"] is not None
-            ):
+            if override["replacement"] is None or override["detached_task_id"] is not None:
                 raise ReducerValidationError("invalid_replacement_override")
             _task_data(override["replacement"], "override_replacement")
             segment = _matching_segment(root, requested)
             if segment is None or segment["segment_id"] != source_id:
                 raise ReducerValidationError("replacement_source_mismatch")
         elif override["kind"] == "deleted":
-            if (
-                override["replacement"] is not None
-                or override["detached_task_id"] is not None
-            ):
+            if override["replacement"] is not None or override["detached_task_id"] is not None:
                 raise ReducerValidationError("invalid_deleted_override")
         elif override["kind"] == "detached":
             if override["replacement"] is not None:
@@ -353,11 +316,7 @@ def _validate_family_integrity(root_id: str, root: dict[str, Any]) -> None:
         requested = _date(rank["original_date"], "order_override_date")
         source_id = _uuid(rank["source_segment_id"], "order_override_source")
         _order_key(rank["order_key"], "order_override")
-        if (
-            requested in rank_dates
-            or requested in override_dates
-            or source_id not in origins
-        ):
+        if requested in rank_dates or requested in override_dates or source_id not in origins:
             raise ReducerValidationError("invalid_order_override")
         rank_dates.add(requested)
         segment = _matching_segment(root, requested)
@@ -391,8 +350,7 @@ def _validate_family_integrity(root_id: str, root: dict[str, Any]) -> None:
             if (
                 not child
                 or child["original_date"] != override["original_date"]
-                or child["source_occurrence_id"]
-                != _occurrence_id(root_id, override["original_date"])
+                or child["source_occurrence_id"] != _occurrence_id(root_id, override["original_date"])
             ):
                 raise ReducerValidationError("detached_override_reference")
 
@@ -470,16 +428,12 @@ def _iso_weekday(value: str) -> int:
 
 
 def _date_in_segment(requested: str, segment: dict[str, Any]) -> bool:
-    return segment["from_date"] <= requested and (
-        segment["until_date"] is None or requested < segment["until_date"]
-    )
+    return segment["from_date"] <= requested and (segment["until_date"] is None or requested < segment["until_date"])
 
 
 def _sort_family(root: dict[str, Any]) -> None:
     root["segment_origins"].sort(key=lambda entry: UUID(entry["segment_id"]).bytes)
-    root["family"]["segments"].sort(
-        key=lambda entry: (entry["from_date"], UUID(entry["segment_id"]).bytes)
-    )
+    root["family"]["segments"].sort(key=lambda entry: (entry["from_date"], UUID(entry["segment_id"]).bytes))
     root["family"]["overrides"].sort(key=lambda entry: entry["original_date"])
     root["family"]["order_overrides"].sort(key=lambda entry: entry["original_date"])
     root["family"]["detached"].sort(key=lambda entry: UUID(entry["task_id"]).bytes)
@@ -489,8 +443,7 @@ def _matching_segment(root: dict[str, Any], requested: str) -> dict[str, Any] | 
     matches = [
         segment
         for segment in root["family"]["segments"]
-        if _date_in_segment(requested, segment)
-        and _iso_weekday(requested) in segment["rule"]["weekdays"]
+        if _date_in_segment(requested, segment) and _iso_weekday(requested) in segment["rule"]["weekdays"]
     ]
     if len(matches) > 1:
         raise ReducerValidationError("overlapping_occurrences")
@@ -499,11 +452,7 @@ def _matching_segment(root: dict[str, Any], requested: str) -> dict[str, Any] | 
 
 def _find_override(root: dict[str, Any], requested: str) -> dict[str, Any] | None:
     return next(
-        (
-            entry
-            for entry in root["family"]["overrides"]
-            if entry["original_date"] == requested
-        ),
+        (entry for entry in root["family"]["overrides"] if entry["original_date"] == requested),
         None,
     )
 
@@ -515,15 +464,12 @@ def _find_detached(root: dict[str, Any], task_id: str) -> dict[str, Any] | None:
     )
 
 
-def _active_order_override(
-    root: dict[str, Any], requested: str, segment_id: str
-) -> dict[str, Any] | None:
+def _active_order_override(root: dict[str, Any], requested: str, segment_id: str) -> dict[str, Any] | None:
     return next(
         (
             entry
             for entry in root["family"]["order_overrides"]
-            if entry["original_date"] == requested
-            and entry["source_segment_id"] == segment_id
+            if entry["original_date"] == requested and entry["source_segment_id"] == segment_id
         ),
         None,
     )
@@ -589,11 +535,7 @@ def _make_segment(
 def _put_override(root: dict[str, Any], override: dict[str, Any]) -> None:
     entries = root["family"]["overrides"]
     existing = next(
-        (
-            index
-            for index, item in enumerate(entries)
-            if item["original_date"] == override["original_date"]
-        ),
+        (index for index, item in enumerate(entries) if item["original_date"] == override["original_date"]),
         None,
     )
     if existing is None:
@@ -604,19 +546,13 @@ def _put_override(root: dict[str, Any], override: dict[str, Any]) -> None:
 
 def _remove_order_override(root: dict[str, Any], requested: str) -> None:
     root["family"]["order_overrides"] = [
-        entry
-        for entry in root["family"]["order_overrides"]
-        if entry["original_date"] != requested
+        entry for entry in root["family"]["order_overrides"] if entry["original_date"] != requested
     ]
 
 
 def _source_origin(root: dict[str, Any], source_id: str, cutoff: str) -> dict[str, Any]:
     origin = next(
-        (
-            entry
-            for entry in root["segment_origins"]
-            if entry["segment_id"] == source_id
-        ),
+        (entry for entry in root["segment_origins"] if entry["segment_id"] == source_id),
         None,
     )
     if origin is None or cutoff < origin["born_from_date"]:
@@ -624,9 +560,7 @@ def _source_origin(root: dict[str, Any], source_id: str, cutoff: str) -> dict[st
     return origin
 
 
-def _occurrence_data(
-    root: dict[str, Any], segment: dict[str, Any], requested: str
-) -> dict[str, Any] | None:
+def _occurrence_data(root: dict[str, Any], segment: dict[str, Any], requested: str) -> dict[str, Any] | None:
     override = _find_override(root, requested)
     if override:
         if override["kind"] != "replacement" or override["replacement"] is None:
@@ -640,15 +574,11 @@ def _occurrence_data(
 
 
 def semantic_root_hash(root: dict[str, str], value: dict[str, Any] | None) -> str:
-    content = canonicalize(
-        {"root": root, "state": _semantic_state(root, value)}
-    ).encode("utf-8")
+    content = canonicalize({"root": root, "state": _semantic_state(root, value)}).encode("utf-8")
     return hashlib.sha256(content).hexdigest()
 
 
-def _bucket_cards(
-    state: dict[str, Any], requested_date: str, period: str
-) -> list[dict[str, str]]:
+def _bucket_cards(state: dict[str, Any], requested_date: str, period: str) -> list[dict[str, str]]:
     cards = []
     for key, value in state["roots"].items():
         kind, root_id = key.split(":", 1)
@@ -669,11 +599,7 @@ def _bucket_cards(
             continue
         for child in value["family"]["detached"]:
             data = child["data"]
-            if (
-                not child["deleted"]
-                and data["date"] == requested_date
-                and data["period"] == period
-            ):
+            if not child["deleted"] and data["date"] == requested_date and data["period"] == period:
                 cards.append(
                     {
                         "root_id": root_id,
@@ -732,20 +658,14 @@ def bucket_order_hash(state: dict[str, Any], requested_date: str, period: str) -
     return hashlib.sha256(content).hexdigest()
 
 
-def _set_order_bucket(
-    state: dict[str, Any], command: dict[str, Any]
-) -> tuple[str, str] | None:
+def _set_order_bucket(state: dict[str, Any], command: dict[str, Any]) -> tuple[str, str] | None:
     root = command.get("root")
     if not isinstance(root, dict):
         return None
     value = _root(state, root)
     if value is None or value.get("deleted"):
         return None
-    target = (
-        command.get("payload", {}).get("target")
-        if isinstance(command.get("payload"), dict)
-        else None
-    )
+    target = command.get("payload", {}).get("target") if isinstance(command.get("payload"), dict) else None
     if not isinstance(target, dict) or value.get("kind") not in (
         "single",
         "recurrence_family",
@@ -753,34 +673,21 @@ def _set_order_bucket(
         return None
     if value["kind"] == "single":
         data = value["single"]
-        return (
-            (data["date"], data["period"]) if target.get("kind") == "single" else None
-        )
+        return (data["date"], data["period"]) if target.get("kind") == "single" else None
     if target.get("kind") == "detached" and isinstance(target.get("task_id"), str):
         child = _find_detached(value, target["task_id"])
-        return (
-            (child["data"]["date"], child["data"]["period"])
-            if child and not child["deleted"]
-            else None
-        )
-    if target.get("kind") == "occurrence" and isinstance(
-        target.get("original_date"), str
-    ):
+        return (child["data"]["date"], child["data"]["period"]) if child and not child["deleted"] else None
+    if target.get("kind") == "occurrence" and isinstance(target.get("original_date"), str):
         requested = target["original_date"]
         override = _find_override(value, requested)
         if override and override["kind"] == "detached":
             child = _find_detached(value, override["detached_task_id"])
-            return (
-                (child["data"]["date"], child["data"]["period"])
-                if child and not child["deleted"]
-                else None
-            )
+            return (child["data"]["date"], child["data"]["period"]) if child and not child["deleted"] else None
         if override and override["kind"] == "deleted":
             return None
         segment = _matching_segment(value, requested)
         if not segment or (
-            isinstance(target.get("source_segment_id"), str)
-            and segment["segment_id"] != target["source_segment_id"]
+            isinstance(target.get("source_segment_id"), str) and segment["segment_id"] != target["source_segment_id"]
         ):
             return None
         data = (
@@ -792,9 +699,7 @@ def _set_order_bucket(
     return None
 
 
-def _preconditions_match(
-    state: dict[str, Any], operation: dict[str, Any]
-) -> list[tuple[str, str, str]]:
+def _preconditions_match(state: dict[str, Any], operation: dict[str, Any]) -> list[tuple[str, str, str]]:
     root_conditions: list[tuple[dict[str, str], str]] = []
     bucket_conditions: list[tuple[str, str, str]] = []
     for command in operation["commands"]:
@@ -826,9 +731,7 @@ def _preconditions_match(
                 or not HASH.fullmatch(bucket["order_hash"])
             ):
                 raise ReducerValidationError("expected_bucket")
-            bucket_conditions.append(
-                (bucket["date"], bucket["period"], bucket["order_hash"])
-            )
+            bucket_conditions.append((bucket["date"], bucket["period"], bucket["order_hash"]))
         if command["action"] == "set_order" and (
             not isinstance(condition, dict) or "expected_root_hash" not in condition
         ):
@@ -845,9 +748,7 @@ def _preconditions_match(
         seen.add(key)
         if bucket_order_hash(state, requested_date, period) != expected:
             raise _NoOp("precondition_failed")
-    bucket_keys = {
-        (requested_date, period) for requested_date, period, _ in bucket_conditions
-    }
+    bucket_keys = {(requested_date, period) for requested_date, period, _ in bucket_conditions}
     for command in operation["commands"]:
         if command["action"] != "set_order":
             continue
@@ -943,19 +844,13 @@ def _apply_series_edit(
             child_id = _detached_id(root_id, override["original_date"])
             child = {
                 "task_id": child_id,
-                "source_occurrence_id": _occurrence_id(
-                    root_id, override["original_date"]
-                ),
+                "source_occurrence_id": _occurrence_id(root_id, override["original_date"]),
                 "original_date": override["original_date"],
                 "data": copy.deepcopy(override["replacement"]),
                 "deleted": False,
             }
             child_index = next(
-                (
-                    index
-                    for index, existing in enumerate(next_children)
-                    if existing["task_id"] == child_id
-                ),
+                (index for index, existing in enumerate(next_children) if existing["task_id"] == child_id),
                 None,
             )
             if child_index is None:
@@ -981,22 +876,15 @@ def _apply_series_edit(
         if not edit_future or rule is None or template is None:
             continue
         prior_segment = _matching_segment(prior_root, rank["original_date"])
-        if (
-            prior_segment is None
-            or _iso_weekday(rank["original_date"]) not in rule["weekdays"]
-        ):
+        if prior_segment is None or _iso_weekday(rank["original_date"]) not in rule["weekdays"]:
             continue
         if (
             prior_segment["template"]["period"] != template["period"]
             or prior_segment["template"]["order_key"] != template["order_key"]
         ):
             continue
-        successor = _make_segment(
-            root_id, operation, command_index, cutoff, rule, template
-        )
-        next_ranks.append(
-            {**copy.deepcopy(rank), "source_segment_id": successor["segment_id"]}
-        )
+        successor = _make_segment(root_id, operation, command_index, cutoff, rule, template)
+        next_ranks.append({**copy.deepcopy(rank), "source_segment_id": successor["segment_id"]})
 
     root["family"]["segments"] = kept_segments
     root["family"]["overrides"] = next_overrides
@@ -1004,9 +892,7 @@ def _apply_series_edit(
     root["family"]["detached"] = next_children
     if edit_future:
         assert rule is not None and template is not None
-        segment = _make_segment(
-            root_id, operation, command_index, cutoff, rule, template
-        )
+        segment = _make_segment(root_id, operation, command_index, cutoff, rule, template)
         root["family"]["segments"].append(segment)
         root["segment_origins"].append(
             {
@@ -1066,11 +952,7 @@ def _apply_command(
                 raise _NoOp("duplicate_target")
             if action == "milestone.replace" and current is None:
                 raise _NoOp("reference_unavailable")
-            if (
-                action == "milestone.replace"
-                and current is not None
-                and "kind" in current
-            ):
+            if action == "milestone.replace" and current is not None and "kind" in current:
                 raise ReducerValidationError("milestone_id_conflicts_with_work_item")
             _plan_exists(state, data["plan_id"])
             _put(
@@ -1089,12 +971,7 @@ def _apply_command(
             return
         raise ReducerValidationError("unsupported_milestone_action")
 
-    if (
-        action.startswith(
-            ("work_item.", "single.", "occurrence.", "detached.", "series.")
-        )
-        or action == "set_order"
-    ):
+    if action.startswith(("work_item.", "single.", "occurrence.", "detached.", "series.")) or action == "set_order":
         if root["kind"] != "work_item":
             raise ReducerValidationError("work_item_root_kind")
         if action == "work_item.create_single":
@@ -1144,9 +1021,7 @@ def _apply_command(
             if current is not None:
                 raise _NoOp("duplicate_target")
             _plan_exists(state, template["plan_id"])
-            segment = _make_segment(
-                root["id"], operation, command_index, start_date, rule, template
-            )
+            segment = _make_segment(root["id"], operation, command_index, start_date, rule, template)
             _put(
                 state,
                 root,
@@ -1220,10 +1095,7 @@ def _apply_command(
                     "detached": [],
                 },
             }
-            family_root["segment_origins"] = (
-                copy.deepcopy(current["segment_origins"])
-                + family_root["segment_origins"]
-            )
+            family_root["segment_origins"] = copy.deepcopy(current["segment_origins"]) + family_root["segment_origins"]
             _put(state, root, family_root)
             return
         if action in ("occurrence.replace", "occurrence.delete"):
@@ -1235,20 +1107,14 @@ def _apply_command(
             payload = _exact(payload, fields, action)
             source_id = _uuid(payload["source_segment_id"], "occurrence_source")
             requested = _date(payload["original_date"], "occurrence_date")
-            occurrence_data = (
-                _task_data(payload["data"], "occurrence_data")
-                if action == "occurrence.replace"
-                else None
-            )
+            occurrence_data = _task_data(payload["data"], "occurrence_data") if action == "occurrence.replace" else None
             if occurrence_data:
                 _plan_exists(state, occurrence_data["plan_id"])
             if current is None:
                 raise _NoOp("reference_unavailable")
             if current.get("kind") != "recurrence_family":
                 raise _NoOp("target_retired")
-            _apply_occurrence_edit(
-                state, root, current, action, source_id, requested, occurrence_data
-            )
+            _apply_occurrence_edit(state, root, current, action, source_id, requested, occurrence_data)
             return
         if action in ("detached.replace", "detached.delete"):
             payload = _exact(
@@ -1257,21 +1123,11 @@ def _apply_command(
                 action,
             )
             task_id = _uuid(payload["task_id"], "detached_task_id")
-            detached_data = (
-                _task_data(payload["data"], "detached_data")
-                if action == "detached.replace"
-                else None
-            )
+            detached_data = _task_data(payload["data"], "detached_data") if action == "detached.replace" else None
             if detached_data:
                 _plan_exists(state, detached_data["plan_id"])
-            if (
-                current is None
-                or current.get("kind") != "recurrence_family"
-                or current["deleted"]
-            ):
-                raise _NoOp(
-                    "target_retired" if current is not None else "reference_unavailable"
-                )
+            if current is None or current.get("kind") != "recurrence_family" or current["deleted"]:
+                raise _NoOp("target_retired" if current is not None else "reference_unavailable")
             child = _find_detached(current, task_id)
             if child is None:
                 raise _NoOp("target_retired")
@@ -1294,9 +1150,7 @@ def _apply_command(
             series_template: dict[str, Any] | None = None
             if action == "series.edit_future":
                 series_rule = _recurrence_rule(payload["rule"], "series_rule")
-                series_template = _task_template_data(
-                    payload["template"], "series_template"
-                )
+                series_template = _task_template_data(payload["template"], "series_template")
                 _plan_exists(state, series_template["plan_id"])
             if current is None:
                 raise _NoOp("reference_unavailable")
@@ -1370,9 +1224,7 @@ def _apply_command(
                 override["replacement"]["order_key"] = payload["order_key"]
                 return
             if payload["intent"] == "rank_maintenance":
-                rank = _active_order_override(
-                    current, requested, current_segment["segment_id"]
-                )
+                rank = _active_order_override(current, requested, current_segment["segment_id"])
                 if rank:
                     rank["order_key"] = payload["order_key"]
                 else:
@@ -1385,9 +1237,7 @@ def _apply_command(
                     )
             else:
                 data = _task_from_template(current_segment["template"], requested)
-                rank = _active_order_override(
-                    current, requested, current_segment["segment_id"]
-                )
+                rank = _active_order_override(current, requested, current_segment["segment_id"])
                 if rank:
                     data["order_key"] = rank["order_key"]
                 data["order_key"] = payload["order_key"]
@@ -1440,9 +1290,7 @@ def _validate_projection(state: dict[str, Any]) -> None:
                 {"owner_id", "deleted", "kind", "single", "segment_origins", "family"},
                 "single_work_item",
             )
-            if value["family"] is not None or not isinstance(
-                value["segment_origins"], list
-            ):
+            if value["family"] is not None or not isinstance(value["segment_origins"], list):
                 raise ReducerValidationError("single_work_item_shape")
             data = _task_data(value["single"], "single_data")
             if not value["deleted"]:
@@ -1460,15 +1308,12 @@ def _validate_projection(state: dict[str, Any]) -> None:
                 )
                 segment_id = _uuid(origin["segment_id"], "origin_segment_id")
                 _date(origin["born_from_date"], "origin_born_from_date")
-                operation_id = _uuid(
-                    origin["created_by_operation_id"], "origin_operation_id"
-                )
+                operation_id = _uuid(origin["created_by_operation_id"], "origin_operation_id")
                 command_index = origin["command_index"]
                 if (
                     type(command_index) is not int
                     or command_index < 0
-                    or segment_id
-                    != _uuid5(root_id, f"segment:{operation_id}:{command_index}")
+                    or segment_id != _uuid5(root_id, f"segment:{operation_id}:{command_index}")
                 ):
                     raise ReducerValidationError("single_segment_origin")
             continue
@@ -1492,14 +1337,10 @@ def _verify_rank_maintenance(
     operation: dict[str, Any],
     buckets: list[tuple[str, str, str]],
 ) -> None:
-    commands = [
-        command for command in operation["commands"] if command["action"] == "set_order"
-    ]
+    commands = [command for command in operation["commands"] if command["action"] == "set_order"]
     if not commands:
         return
-    has_user_reorder = any(
-        command["payload"]["intent"] == "user_reorder" for command in commands
-    )
+    has_user_reorder = any(command["payload"]["intent"] == "user_reorder" for command in commands)
     user_targets: set[str] = set()
     for command in commands:
         if command["payload"]["intent"] != "user_reorder":
@@ -1510,13 +1351,9 @@ def _verify_rank_maintenance(
         root = command["root"]
         if target.get("kind") == "single":
             user_targets.add(root["id"])
-        elif target.get("kind") == "detached" and isinstance(
-            target.get("task_id"), str
-        ):
+        elif target.get("kind") == "detached" and isinstance(target.get("task_id"), str):
             user_targets.add(target["task_id"])
-        elif target.get("kind") == "occurrence" and isinstance(
-            target.get("original_date"), str
-        ):
+        elif target.get("kind") == "occurrence" and isinstance(target.get("original_date"), str):
             value = _root(before, root)
             override = (
                 _find_override(value, target["original_date"])
@@ -1529,22 +1366,14 @@ def _verify_rank_maintenance(
                 else _occurrence_id(root["id"], target["original_date"])
             )
     for requested, period, _ in buckets:
-        previous = [
-            card["card_id"] for card in _bucket_cards(before, requested, period)
-        ]
-        following = [
-            card["card_id"] for card in _bucket_cards(after, requested, period)
-        ]
+        previous = [card["card_id"] for card in _bucket_cards(before, requested, period)]
+        following = [card["card_id"] for card in _bucket_cards(after, requested, period)]
         if not has_user_reorder:
             if previous != following:
                 raise _NoOp("precondition_failed")
             continue
-        prior_untouched = [
-            card_id for card_id in previous if card_id not in user_targets
-        ]
-        next_untouched = [
-            card_id for card_id in following if card_id not in user_targets
-        ]
+        prior_untouched = [card_id for card_id in previous if card_id not in user_targets]
+        next_untouched = [card_id for card_id in following if card_id not in user_targets]
         if prior_untouched != next_untouched:
             raise _NoOp("precondition_failed")
 
@@ -1556,9 +1385,7 @@ def _merge_origins(current: dict[str, Any], restored: dict[str, Any]) -> dict[st
         if existing is not None and canonicalize(existing) != canonicalize(origin):
             raise _NoOp("undo_not_applicable")
         by_id[origin["segment_id"]] = copy.deepcopy(origin)
-    restored["segment_origins"] = sorted(
-        by_id.values(), key=lambda entry: UUID(entry["segment_id"]).bytes
-    )
+    restored["segment_origins"] = sorted(by_id.values(), key=lambda entry: UUID(entry["segment_id"]).bytes)
     return restored
 
 
@@ -1574,21 +1401,14 @@ def _has_live_plan_reference(state: dict[str, Any], plan_id: str) -> bool:
             if value["single"]["plan_id"] == plan_id:
                 return True
             continue
-        if any(
-            segment["template"]["plan_id"] == plan_id
-            for segment in value["family"]["segments"]
-        ):
+        if any(segment["template"]["plan_id"] == plan_id for segment in value["family"]["segments"]):
             return True
         if any(
-            override["kind"] == "replacement"
-            and override["replacement"]["plan_id"] == plan_id
+            override["kind"] == "replacement" and override["replacement"]["plan_id"] == plan_id
             for override in value["family"]["overrides"]
         ):
             return True
-        if any(
-            not child["deleted"] and child["data"]["plan_id"] == plan_id
-            for child in value["family"]["detached"]
-        ):
+        if any(not child["deleted"] and child["data"]["plan_id"] == plan_id for child in value["family"]["detached"]):
             return True
     return False
 
@@ -1602,9 +1422,7 @@ def _apply_undo(
 ) -> None:
     if len(operation["commands"]) != 1 or command["action"] != "undo":
         raise ReducerValidationError("undo_requires_single_command")
-    payload = _exact(
-        command["payload"], {"original_operation_id", "expected_states"}, "undo_payload"
-    )
+    payload = _exact(command["payload"], {"original_operation_id", "expected_states"}, "undo_payload")
     original_id = _uuid(payload["original_operation_id"], "undo_original_operation_id")
     if not isinstance(payload["expected_states"], list):
         raise ReducerValidationError("undo_expected_states")
@@ -1614,8 +1432,7 @@ def _apply_undo(
     if not original or original["effect"] != "applied" or not original["roots"]:
         raise _NoOp("undo_not_applicable")
     if not any(
-        root["kind"] == command["root"]["kind"] and root["id"] == command["root"]["id"]
-        for root in original["roots"]
+        root["kind"] == command["root"]["kind"] and root["id"] == command["root"]["id"] for root in original["roots"]
     ):
         raise _NoOp("undo_not_applicable")
     expected: dict[str, str] = {}
@@ -1633,16 +1450,11 @@ def _apply_undo(
         if key in expected:
             raise ReducerValidationError("undo_duplicate_expected_root")
         expected[key] = entry["hash"]
-    if len(expected) != len(original["roots"]) or any(
-        _root_key(root) not in expected for root in original["roots"]
-    ):
+    if len(expected) != len(original["roots"]) or any(_root_key(root) not in expected for root in original["roots"]):
         raise _NoOp("undo_not_applicable")
     for root in original["roots"]:
         key = _root_key(root)
-        if (
-            latest_by_root.get(key) != original_id
-            or semantic_root_hash(root, _root(state, root)) != expected[key]
-        ):
+        if latest_by_root.get(key) != original_id or semantic_root_hash(root, _root(state, root)) != expected[key]:
             raise _NoOp("undo_not_applicable")
 
     inverse = copy.deepcopy(state)
@@ -1660,27 +1472,21 @@ def _apply_undo(
             and previous.get("kind") in ("single", "recurrence_family")
             and current.get("kind") in ("single", "recurrence_family")
         ):
-            inverse["roots"][key] = _merge_origins(
-                copy.deepcopy(current), copy.deepcopy(previous)
-            )
+            inverse["roots"][key] = _merge_origins(copy.deepcopy(current), copy.deepcopy(previous))
         else:
             inverse["roots"][key] = copy.deepcopy(previous)
-    if any(
-        root["kind"] == "plan" and _has_live_plan_reference(inverse, root["id"])
-        for root in original["roots"]
-    ):
+    if any(root["kind"] == "plan" and _has_live_plan_reference(inverse, root["id"]) for root in original["roots"]):
         raise _NoOp("undo_not_applicable")
     try:
         _validate_projection(inverse)
-    except (ReducerValidationError, _NoOp):
+    except ReducerValidationError, _NoOp:
         raise _NoOp("undo_not_applicable") from None
     state["roots"] = inverse["roots"]
 
 
 def _operation_key(operation: dict[str, Any]) -> tuple[int, int, int, bytes, bytes]:
     deleting = any(
-        command["action"].endswith(".delete")
-        or command["action"] == "series.stop_future"
+        command["action"].endswith(".delete") or command["action"] == "series.stop_future"
         for command in operation["commands"]
     )
     return (
@@ -1692,9 +1498,7 @@ def _operation_key(operation: dict[str, Any]) -> tuple[int, int, int, bytes, byt
     )
 
 
-def replay(
-    operations: list[dict[str, Any]], owner_id: str
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def replay(operations: list[dict[str, Any]], owner_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if any(operation["owner_id"] != owner_id for operation in operations):
         raise ReducerValidationError("owner_mismatch")
     by_id = {operation["operation_id"]: operation for operation in operations}
@@ -1704,8 +1508,7 @@ def replay(
         if any(dependency not in by_id for dependency in operation["dependencies"]):
             raise ReducerValidationError("missing_dependency")
         if any(
-            _operation_key(by_id[dependency]) >= _operation_key(operation)
-            for dependency in operation["dependencies"]
+            _operation_key(by_id[dependency]) >= _operation_key(operation) for dependency in operation["dependencies"]
         ):
             raise ReducerValidationError("dependency_order")
 
@@ -1740,8 +1543,7 @@ def replay(
                 (
                     key
                     for key in set(before["roots"]) | set(working["roots"])
-                    if canonicalize(before["roots"].get(key))
-                    != canonicalize(working["roots"].get(key))
+                    if canonicalize(before["roots"].get(key)) != canonicalize(working["roots"].get(key))
                 ),
                 key=lambda key: (
                     key.split(":", 1)[0],
@@ -1751,10 +1553,7 @@ def replay(
             if effect == "applied"
             else []
         )
-        changed = [
-            {"kind": key.split(":", 1)[0], "id": key.split(":", 1)[1]}
-            for key in changed_keys
-        ]
+        changed = [{"kind": key.split(":", 1)[0], "id": key.split(":", 1)[1]} for key in changed_keys]
         state = working
         outcomes.append(
             {
@@ -1767,9 +1566,7 @@ def replay(
         history[operation["operation_id"]] = {
             "effect": effect,
             "roots": changed,
-            "before": {
-                key: copy.deepcopy(before["roots"].get(key)) for key in changed_keys
-            },
+            "before": {key: copy.deepcopy(before["roots"].get(key)) for key in changed_keys},
         }
         for key in changed_keys:
             latest_by_root[key] = operation["operation_id"]
@@ -1781,11 +1578,7 @@ def effect_at_commit(
 ) -> tuple[str, str | None]:
     before_state, _ = replay(existing, owner_id)
     after_state, outcomes = replay([*existing, candidate], owner_id)
-    outcome = next(
-        result
-        for result in outcomes
-        if result["operation_id"] == candidate["operation_id"]
-    )
+    outcome = next(result for result in outcomes if result["operation_id"] == candidate["operation_id"])
     if outcome["effect"] == "no_op":
         return "no_op", outcome["reason"]
     if canonicalize(before_state) == canonicalize(after_state):

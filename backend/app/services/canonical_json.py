@@ -63,10 +63,7 @@ def canonicalize(value: Any) -> str:
         if isinstance(item, list):
             return "[" + ",".join(serialize(child) for child in item) + "]"
         if isinstance(item, dict) and all(isinstance(key, str) for key in item):
-            members = (
-                _quote(key) + ":" + serialize(item[key])
-                for key in sorted(item, key=_sort_key)
-            )
+            members = (_quote(key) + ":" + serialize(item[key]) for key in sorted(item, key=_sort_key))
             return "{" + ",".join(members) + "}"
         raise ValueError("invalid_json_value")
 
