@@ -468,7 +468,7 @@ test("ownerCanCreateTaskAndNestedPlanWithoutLosingTheTaskDraft", async ({ page }
   await page.getByRole("button", { name: "Thêm công việc", exact: true }).click();
   const taskDialog = page.getByRole("dialog", { name: "Thêm công việc" });
   await expect(taskDialog).toBeVisible();
-  await expect(taskDialog.getByLabel("Ngày")).toHaveValue("2026-11-03");
+  await expect(taskDialog.getByLabel("Ngày", { exact: true })).toHaveValue("2026-11-03");
   await expect(taskDialog.getByLabel("Buổi")).toHaveValue("");
   await taskDialog.getByLabel("Tên công việc").fill("Nộp báo cáo cuối kỳ");
   await taskDialog.getByLabel("Thời lượng ước tính (phút, không bắt buộc)").fill("45");
@@ -486,7 +486,7 @@ test("ownerCanCreateTaskAndNestedPlanWithoutLosingTheTaskDraft", async ({ page }
   await expect(planDialog).toBeHidden();
   await expect(taskDialog).toBeVisible();
   await expect(taskDialog.getByLabel("Tên công việc")).toHaveValue("Nộp báo cáo cuối kỳ");
-  await expect(taskDialog.getByLabel("Ngày")).toHaveValue("2026-11-03");
+  await expect(taskDialog.getByLabel("Ngày", { exact: true })).toHaveValue("2026-11-03");
   await expect(taskDialog.getByLabel("Buổi")).toHaveValue("afternoon");
   await expect(taskDialog.getByLabel("Thời lượng ước tính (phút, không bắt buộc)")).toHaveValue("45");
   await expect(taskDialog.getByLabel("Kế hoạch")).toHaveValue(/.+/);
@@ -559,7 +559,7 @@ test("ownerCanCreateTaskAndNestedPlanWithoutLosingTheTaskDraft", async ({ page }
 
   await afternoonBucket.locator(".work-task-card").filter({ hasText: "Nộp báo cáo bản cuối" }).click();
   const rescheduleDialog = page.getByRole("dialog", { name: "Sửa công việc" });
-  await rescheduleDialog.getByLabel("Ngày").fill("2026-11-04");
+  await rescheduleDialog.getByLabel("Ngày", { exact: true }).fill("2026-11-04");
   await rescheduleDialog.getByLabel("Buổi").selectOption("evening");
   await rescheduleDialog.getByRole("button", { name: "Lưu công việc", exact: true }).click();
   await expect(rescheduleDialog).toBeHidden();
@@ -692,7 +692,7 @@ test("ownerCanCompleteOverdueAndDeleteTasksWithOfflineUndoAtUtc7Midnight", async
 
   await card.click();
   const editDialog = page.getByRole("dialog", { name: "Sửa công việc" });
-  await expect(editDialog.getByLabel("Ngày")).toHaveValue("2026-11-02");
+  await expect(editDialog.getByLabel("Ngày", { exact: true })).toHaveValue("2026-11-02");
   await editDialog.getByRole("button", { name: "Xóa công việc", exact: true }).click();
   const confirmDelete = page.getByRole("alertdialog", { name: "Xóa công việc khỏi lịch?" });
   await expect(confirmDelete).toBeVisible();
