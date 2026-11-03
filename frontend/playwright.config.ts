@@ -16,7 +16,10 @@ export default defineConfig({
     : {
         command: "pnpm exec next dev --hostname 127.0.0.1 --port 3010",
         url: "http://127.0.0.1:3010",
-        env: { API_INTERNAL_ORIGIN: "http://127.0.0.1:8000" },
+        env: {
+          API_INTERNAL_ORIGIN: "http://127.0.0.1:8000",
+          DAYFORGE_SYNC_TEST_HARNESS: "1",
+        },
         reuseExistingServer: false,
       },
 });

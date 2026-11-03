@@ -176,6 +176,11 @@ async function commitCommands(commands: SyncCommand[], dependencies: UUID[] = []
   }
 }
 
+async function seedDensityCommands(commands: SyncCommand[], dependencies: UUID[] = []): Promise<{ operationId: UUID; requestHash: string }> {
+  if (commands.length < 1 || commands.length > 1_000) throw new Error("Density seed batches must contain between 1 and 1000 commands");
+  return commitCommands(commands, dependencies);
+}
+
 async function createPlan(name: string, clockOffsetMs = 0): Promise<{ operationId: UUID; requestHash: string; planId: UUID }> {
   if (typeof name !== "string" || !name || new TextEncoder().encode(name).byteLength > 300) throw new Error("Test plan name is invalid");
   const planId = crypto.randomUUID() as UUID;
@@ -809,6 +814,8 @@ declare global {
     __dayforgeSyncTestAbortOnReady?: OwnerWriteAbortTarget;
     __dayforgeSyncBrowserHarness?: {
       inspect(dates?: string[]): ReturnType<typeof inspect>;
+      seedDensityCommands(commands: SyncCommand[], dependencies?: UUID[]): ReturnType<typeof seedDensityCommands>;
+      refreshCalendar(): Promise<void>;
       createPlan(name: string, clockOffsetMs?: number): ReturnType<typeof createPlan>;
       replacePlan(planId: UUID, name: string, dependencyId: UUID): ReturnType<typeof replacePlan>;
       createWorkItem(planId: UUID, dependencyId: UUID): ReturnType<typeof createWorkItem>;
@@ -852,6 +859,8 @@ export function SyncBrowserHarness(): React.JSX.Element {
   useLayoutEffect(() => {
     window.__dayforgeSyncBrowserHarness = {
       inspect,
+      seedDensityCommands,
+      refreshCalendar: account.refreshCalendar,
       createPlan,
       replacePlan,
       createWorkItem,
@@ -893,7 +902,7 @@ export function SyncBrowserHarness(): React.JSX.Element {
     }
     window.dispatchEvent(new CustomEvent("dayforge:sync-test-harness-ready"));
     return () => { delete window.__dayforgeSyncBrowserHarness; };
-  }, [coordinatorStatus, repairClockIssues, stopSync, wakeSync]);
+  }, [account.refreshCalendar, coordinatorStatus, repairClockIssues, stopSync, wakeSync]);
 
   return <main><p role="status">Test sync harness sẵn sàng.</p></main>;
 }
