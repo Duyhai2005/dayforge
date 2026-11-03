@@ -1090,9 +1090,13 @@ async function runBrowserScenario(baseURL) {
     const stalePushStartIndex = pushFaultEvidence.requestBodies.length;
     staleLeaderResponse.armed = true;
     const staleLeaderOperation = await leaderPage.evaluate(
-      (planName) => window.__dayforgeSyncBrowserHarness.createPlan(planName),
+      async (planName) => {
+        const operation = await window.__dayforgeSyncBrowserHarness.createPlan(planName);
+        return { ...operation, syncWoken: window.__dayforgeSyncBrowserHarness.wakeSync() };
+      },
       staleLeaderPlan,
     );
+    assert(staleLeaderOperation.syncWoken, "the successor leader coordinator must be available to push the stale-response operation");
     await waitFor(() => staleLeaderResponse.held,
       "the old leader's push response to arrive from the server and pause before the browser receives it");
     const staleLeaderCdp = await contextA.newCDPSession(leaderPage);
