@@ -1,6 +1,6 @@
 # T21 — Recurrence rules and visible occurrences
 
-Status: implementation in progress on `feature/recurring-rules`; PR and CI verification pending.
+Status: implementation and CI verification complete on `feature/recurring-rules` (PR #21).
 
 ## Delivered locally
 
@@ -19,6 +19,7 @@ Status: implementation in progress on `feature/recurring-rules`; PR and CI verif
 | Reducer work-week expansion Playwright case | Passed |
 | Create weekly recurrence across viewed weeks Playwright case | Passed |
 | Enable recurrence while preserving a completed first task Playwright case | Passed |
-| GitHub CI | Pending |
+| GitHub CI run #80 | Passed: quality, development/production browser suites, production build/API check, MySQL integration and two-browser sync acceptance |
+| Offline web shell run #65 | Passed: production offline suite and same-origin A/B update suite |
 
-The local browser cases use the app's auth and offline mutation flow; they do not claim multi-device/MySQL acceptance, which belongs to T23.
+The local browser cases use the app's auth and offline mutation flow. The CI backend-mysql job also passed the current MySQL and two-browser sync acceptance suites; T23 will add recurrence-specific multi-device scenarios.
