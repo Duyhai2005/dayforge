@@ -12,10 +12,12 @@ import { WorkWeekCalendar } from "./work-week-calendar";
 import { MilestoneEditor, type MilestoneEditorTarget } from "./milestone-editor";
 import { MilestoneCalendar } from "./milestone-calendar";
 import type { Period } from "../../lib/sync/reducer";
+import { useAccount } from "../account/account-provider";
 
 export type CalendarViewProps = { calendar: CalendarKind };
 
 export function CalendarView({ calendar }: CalendarViewProps): React.JSX.Element {
+  const account = useAccount();
   const pathname = usePathname();
   const search = useSearchParams();
   const router = useRouter();
@@ -110,7 +112,10 @@ export function CalendarView({ calendar }: CalendarViewProps): React.JSX.Element
       onAddTask={(date, period) => setTaskEditor({ date, period })}
       onEditTask={(editing) => setTaskEditor({ date: editing.data.date, period: editing.data.period, editing })}
       onAddMilestone={(date) => setMilestoneEditor({ date })}
-      onEditMilestone={(editing) => setMilestoneEditor({ date: editing.data.date, editing })} />}
+      onEditMilestone={(editing) => setMilestoneEditor({ date: editing.data.date, editing })}
+      onMoveTask={async (target, date, period, beforeTaskId) => {
+        await account.repositionTask(target.id, { ...target.data, date, period }, target.expectedRootHash, beforeTaskId);
+      }} />}
     {view && calendar === "milestones" && <MilestoneCalendar anchor={view.anchor} scale={view.scale}
       onNavigate={navigate}
       onEditMilestone={(editing) => setMilestoneEditor({ date: editing.data.date, editing })}

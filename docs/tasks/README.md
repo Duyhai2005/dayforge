@@ -10,7 +10,7 @@
 
 **Spec:** [Thiết kế T01 đã duyệt](t01/design.md), [tổng quan hồ sơ](../project-definition/README.md), [yêu cầu chức năng](../project-definition/02-functional-requirements.md), [UX](../project-definition/03-ux-and-interactions.md), [kiến trúc](../project-definition/04-technical-architecture.md), [dữ liệu và đồng bộ](../project-definition/05-data-and-sync.md), [nghiệm thu](../project-definition/06-delivery-and-acceptance.md).
 
-Ngày cập nhật: **03/11/2026** · Trạng thái: **T01–T03 hoàn thành thiết kế/hợp đồng; T04–T09 hoàn thành nền theo các báo cáo kiểm chứng liên kết bên dưới. T10–T13 đã có lõi sync server/client, reducer và offline shell; còn kiểm chứng lại sau khi tích hợp với nền `develop`, nghiệm thu UX lịch và môi trường đích. T14–T17 đã merge PR #14–#17 sau khi CI xanh. T18 đang triển khai trên nhánh riêng; PR/CI còn chờ. T19–T36 còn lại; email tới inbox production thuộc T30/T32.**
+Ngày cập nhật: **03/11/2026** · Trạng thái: **T01–T03 hoàn thành thiết kế/hợp đồng; T04–T09 hoàn thành nền theo các báo cáo kiểm chứng liên kết bên dưới. T10–T13 đã có lõi sync server/client, reducer và offline shell; còn kiểm chứng lại sau khi tích hợp với nền `develop`, nghiệm thu UX lịch và môi trường đích. T14–T18 đã merge PR #14–#18 sau khi CI xanh. T19 đã triển khai trên nhánh riêng; PR/CI còn chờ. T20–T36 còn lại; email tới inbox production thuộc T30/T32.**
 
 ## 1. Cách dùng kế hoạch
 
@@ -90,8 +90,8 @@ Tài liệu riêng của từng task đặt trong `docs/tasks/tXX/`. Hồ sơ hi
 - [x] **T15 — Làm thêm/sửa công việc nhanh.** Biểu mẫu nổi điền sẵn ngày/buổi, nhập thời lượng và kế hoạch; tạo kế hoạch trong luồng vẫn giữ bản nháp. PR #15 đã merge sau khi CI xanh; xem [báo cáo kiểm chứng](t15/review-and-verification.md).
 - [x] **T16 — Làm lịch công việc tuần với dữ liệu thật.** Hiện đủ công việc theo ngày và ba buổi, điều hướng tuần/hôm nay; xử lý ngày trống, ngày đông và tuần bắc qua tháng/năm. PR #16 đã merge sau khi CI xanh; xem [báo cáo kiểm chứng](t16/review-and-verification.md).
 - [x] **T17 — Làm thêm/sửa/xóa dấu mốc.** Tạo riêng với ngày, buổi tùy chọn, ghi chú liên quan, kế hoạch/màu và lựa chọn hiện trên lịch công việc; không chuyển từ task, cả hai lịch đọc cùng bản ghi; lưu offline và đồng bộ đầy đủ các trường. PR #17 đã merge sau khi CI xanh; xem [báo cáo kiểm chứng](t17/review-and-verification.md).
-- [ ] **T18 — Làm lịch dấu mốc tuần/tháng/năm.** Điều hướng các năm, thể hiện dấu mốc cả ngày hoặc theo buổi, xem ngày nhiều dấu mốc và mở tuần công việc liên quan mà vẫn giữ ngữ cảnh; mở được ghi chú liên quan. Đang triển khai trên nhánh riêng.
-- [ ] **T19 — Làm kéo thả và đổi thứ tự.** Đổi ngày/buổi/thứ tự, có vùng thả rõ, hủy kéo sai, hoàn tác và cách đổi lịch tương đương bằng form/bàn phím.
+- [x] **T18 — Làm lịch dấu mốc tuần/tháng/năm.** Điều hướng các năm, thể hiện dấu mốc cả ngày hoặc theo buổi, xem ngày nhiều dấu mốc và mở tuần công việc liên quan mà vẫn giữ ngữ cảnh; mở được ghi chú liên quan. PR #18 đã merge sau khi CI xanh; xem [báo cáo kiểm chứng](t18/review-and-verification.md).
+- [ ] **T19 — Làm kéo thả và đổi thứ tự.** Đổi ngày/buổi/thứ tự, có vùng thả rõ, hủy kéo sai, hoàn tác và cách đổi lịch tương đương bằng form/bàn phím. Đã triển khai trên nhánh riêng; PR/CI còn chờ. Xem [báo cáo kiểm chứng](t19/review-and-verification.md).
 - [ ] **T20 — Làm trạng thái và gỡ công việc.** Hoàn thành/bỏ hoàn thành, đánh dấu chưa xong đúng theo ngày, giữ màu kế hoạch; xóa và hoàn tác truyền đúng qua đồng bộ.
 
 **Kết quả nhóm:** hai lịch dùng được với công việc một lần, kế hoạch và dấu mốc; toàn bộ thao tác ghi đi qua nền offline/sync. T17 cần T14/T16; T18 cần T17; T19 và T20 có thể làm song song sau T15/T16.

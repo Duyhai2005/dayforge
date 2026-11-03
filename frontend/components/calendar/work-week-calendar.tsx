@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { todayInUtc7 } from "../../lib/calendar/view-state";
 import { workWeekDates } from "../../lib/calendar/work-week";
 import { semanticRootHash, type ColorId, type MilestoneData, type MilestoneRoot, type Period, type ProjectionState, type SingleWorkRoot, type TaskData } from "../../lib/sync/reducer";
@@ -71,10 +71,18 @@ export type WorkWeekCalendarProps = {
   onEditTask(target: TaskEditorTarget): void;
   onAddMilestone(date: string): void;
   onEditMilestone(target: MilestoneEditorTarget): void;
+  onMoveTask(target: TaskEditorTarget, date: string, period: Period, beforeTaskId: UUID | null): Promise<void>;
 };
 
-export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone, onEditMilestone }: WorkWeekCalendarProps): React.JSX.Element {
+type DropPreview = { taskId: UUID; date: string; period: Period; beforeTaskId: UUID | null };
+
+export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone, onEditMilestone, onMoveTask }: WorkWeekCalendarProps): React.JSX.Element {
   const account = useAccount();
+  const [draggedTaskId, setDraggedTaskId] = useState<UUID | null>(null);
+  const [dropPreview, setDropPreview] = useState<DropPreview | null>(null);
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const draggedTaskRef = useRef<UUID | null>(null);
+  const autoScrollFrameRef = useRef<number | null>(null);
   const dates = useMemo(() => workWeekDates(anchor), [anchor]);
   const days = useMemo(() => dates.map(weekDayFor), [dates]);
   const projection = account.state === "unlocked" && account.calendarReady ? account.calendarProjection : null;
@@ -106,7 +114,120 @@ export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone
     onEditMilestone({ id: milestone.id, data: milestone.data, expectedRootHash });
   }
 
+  async function moveTask(card: WorkCard, date: string, period: Period, beforeTaskId: UUID | null): Promise<void> {
+    try {
+      setMoveError(null);
+      if (beforeTaskId === card.id) return;
+      const destinationCards = cards.filter((entry) => entry.data.date === date && entry.data.period === period);
+      const remaining = destinationCards.filter((entry) => entry.id !== card.id);
+      const insertionIndex = beforeTaskId === null ? remaining.length : remaining.findIndex((entry) => entry.id === beforeTaskId);
+      if (insertionIndex < 0) throw new Error("Vị trí nhận đã thay đổi. Hãy thử thao tác lại.");
+      const nextIds = remaining.map((entry) => entry.id);
+      nextIds.splice(insertionIndex, 0, card.id);
+      const sameBucket = card.data.date === date && card.data.period === period;
+      const currentIds = destinationCards.map((entry) => entry.id);
+      if (sameBucket && currentIds.length === nextIds.length && currentIds.every((entry, index) => entry === nextIds[index])) return;
+      const expectedRootHash = await semanticRootHash({ kind: "work_item", id: card.id }, card.root);
+      await onMoveTask({ id: card.id, data: card.data, expectedRootHash }, date, period, beforeTaskId);
+    } catch (cause) {
+      setMoveError(cause instanceof Error ? cause.message : "Không thể đổi lịch công việc.");
+    }
+  }
+
+  function insertionBefore(bucket: HTMLDivElement, clientY: number, taskId: UUID): UUID | null {
+    const entries = [...bucket.querySelectorAll<HTMLElement>(".work-task-entry[data-work-item-id]")];
+    for (const entry of entries) {
+      const entryId = entry.dataset.workItemId as UUID | undefined;
+      if (!entryId || entryId === taskId) continue;
+      const bounds = entry.getBoundingClientRect();
+      if (clientY < bounds.top + bounds.height / 2) return entryId;
+    }
+    return null;
+  }
+
+  function previewFor(event: React.DragEvent<HTMLDivElement>, taskId: UUID): DropPreview | null {
+    const date = event.currentTarget.dataset.workDate;
+    const period = event.currentTarget.dataset.period as Period | undefined;
+    if (!date || !period) return null;
+    return { taskId, date, period, beforeTaskId: insertionBefore(event.currentTarget, event.clientY, taskId) };
+  }
+
+  function showPreview(next: DropPreview | null): void {
+    setDropPreview((current) => current?.taskId === next?.taskId && current?.date === next?.date &&
+      current?.period === next?.period && current?.beforeTaskId === next?.beforeTaskId ? current : next);
+  }
+
+  function handleDragStart(event: React.DragEvent<HTMLButtonElement>, card: WorkCard): void {
+    if (!ready) { event.preventDefault(); return; }
+    draggedTaskRef.current = card.id;
+    setDraggedTaskId(card.id);
+    setMoveError(null);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", card.id);
+    const dragImage = document.createElement("div");
+    dragImage.className = "work-task-drag-preview";
+    dragImage.textContent = card.data.title;
+    document.body.appendChild(dragImage);
+    event.dataTransfer.setDragImage(dragImage, 12, 16);
+    window.setTimeout(() => dragImage.remove(), 0);
+  }
+
+  function handleDragOver(event: React.DragEvent<HTMLDivElement>): void {
+    const taskId = draggedTaskRef.current;
+    if (!ready || !taskId) return;
+    const next = previewFor(event, taskId);
+    if (!next) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    showPreview(next);
+    const scrollDelta = event.clientY < 72 ? -10 : event.clientY > window.innerHeight - 72 ? 10 : 0;
+    if (scrollDelta !== 0 && autoScrollFrameRef.current === null) {
+      autoScrollFrameRef.current = window.requestAnimationFrame(() => {
+        window.scrollBy(0, scrollDelta);
+        autoScrollFrameRef.current = null;
+      });
+    }
+  }
+
+  function handleDrop(event: React.DragEvent<HTMLDivElement>): void {
+    const taskId = draggedTaskRef.current;
+    if (!taskId) return;
+    event.preventDefault();
+    const preview = previewFor(event, taskId);
+    draggedTaskRef.current = null;
+    setDraggedTaskId(null);
+    setDropPreview(null);
+    const card = cards.find((entry) => entry.id === taskId);
+    if (!preview || !card || preview.beforeTaskId === taskId) return;
+    void moveTask(card, preview.date, preview.period, preview.beforeTaskId);
+  }
+
+  function handleDragEnd(): void {
+    draggedTaskRef.current = null;
+    setDraggedTaskId(null);
+    setDropPreview(null);
+    if (autoScrollFrameRef.current !== null) window.cancelAnimationFrame(autoScrollFrameRef.current);
+    autoScrollFrameRef.current = null;
+  }
+
+  function handleDragLeave(event: React.DragEvent<HTMLDivElement>): void {
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+    setDropPreview((current) => current && current.date === event.currentTarget.dataset.workDate && current.period === event.currentTarget.dataset.period ? null : current);
+  }
+
+  function keyboardMove(card: WorkCard, index: number, taskCards: WorkCard[], direction: -1 | 1): void {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= taskCards.length) return;
+    const beforeTaskId = direction < 0
+      ? taskCards[targetIndex].id
+      : taskCards[targetIndex + 1]?.id ?? null;
+    void moveTask(card, card.data.date, card.data.period, beforeTaskId);
+  }
+
   return <section className="work-week" aria-label="Lịch công việc theo tuần">
+    <p id="work-week-move-help" className="work-week-move-help">Kéo thẻ công việc để đổi ngày, buổi hoặc vị trí. Dùng các nút Sắp xếp bằng bàn phím; mở thẻ để đổi ngày và buổi trong biểu mẫu.</p>
+    <p className="sr-only" role="status" aria-live="polite">{dropPreview ? `Điểm thả: ${days.find((day) => day.date === dropPreview.date)?.weekday ?? dropPreview.date}, buổi ${PERIODS.find((period) => period.id === dropPreview.period)?.name.toLocaleLowerCase("vi") ?? ""}${dropPreview.beforeTaskId ? ", trước công việc được chọn" : ", cuối danh sách"}.` : draggedTaskId ? "Đang kéo công việc. Thả vào một buổi trong tuần đang xem hoặc nhấn Escape để hủy." : ""}</p>
+    {moveError && <p className="work-week-message account-error" role="alert">{moveError}</p>}
     <div className="work-week-days">
       {days.map((day, index) => <div key={day.date ?? `outside-${index}`} className="work-week-day-heading" data-today={day.date === today}>
         <h2>{day.weekday}</h2>
@@ -144,7 +265,10 @@ export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone
           const dayName = day.date ? `${day.weekday} ${day.dateLabel}` : day.dateLabel;
           const taskCards = day.date ? cardsByBucket.get(`${day.date}:${period.id}`) ?? [] : [];
           const periodMilestones = day.date ? (milestonesByDate.get(day.date) ?? []).filter((item) => item.data.period === period.id) : [];
-          return <div key={`${day.date ?? `outside-${index}`}:${period.id}`} className="work-week-bucket" data-work-date={day.date ?? undefined} data-period={period.id}>
+          const isDropActive = dropPreview?.date === day.date && dropPreview.period === period.id;
+          return <div key={`${day.date ?? `outside-${index}`}:${period.id}`} className="work-week-bucket" data-work-date={day.date ?? undefined} data-period={period.id}
+            data-drop-active={isDropActive ? "true" : undefined} onDragOver={handleDragOver} onDrop={handleDrop} onDragLeave={handleDragLeave}>
+            {isDropActive && <div className="work-task-drop-target"><span>Thả vào</span><strong>{dayName}</strong><span>Buổi {period.name.toLocaleLowerCase("vi")}</span></div>}
             {periodMilestones.map((milestone) => {
               const color = colorForTask(projection, milestone.data);
               return <button key={milestone.id} type="button" className="work-task-card work-milestone-card" data-milestone-id={milestone.id} data-work-date={milestone.data.date}
@@ -154,19 +278,32 @@ export function WorkWeekCalendar({ anchor, onAddTask, onEditTask, onAddMilestone
                 <span className="work-task-meta">Dấu mốc{milestone.data.note && " · ▤ Có ghi chú"}</span>
               </button>;
             })}
-            {taskCards.map((card) => {
+            {taskCards.map((card, cardIndex) => {
               const color = colorForTask(projection, card.data);
               const late = card.data.status === "pending" && card.data.date < today;
               const stateLabel = card.data.status === "completed" ? "Đã hoàn thành" : late ? "Chưa hoàn thành" : "";
               const accessibleLabel = [card.data.title, card.data.duration_minutes === null ? "Chưa ước lượng" : `${card.data.duration_minutes} phút`, stateLabel].filter(Boolean).join(", ");
-              return <button key={card.id} type="button" className="work-task-card" data-work-item-id={card.id} style={{ backgroundColor: color.background, color: color.foreground }} aria-label={accessibleLabel} onClick={() => void editTask(card)}>
-                <span className="work-task-title">{card.data.title}</span>
-                <span className="work-task-meta">
-                  {card.data.duration_minutes === null ? "Chưa ước lượng" : `${card.data.duration_minutes} phút`}
-                  {stateLabel && <span className="work-task-state">{card.data.status === "completed" ? "✓" : "◷"} {stateLabel}</span>}
-                </span>
-              </button>;
+              const showInsertionBefore = isDropActive && dropPreview.beforeTaskId === card.id;
+              return <Fragment key={card.id}>
+                {showInsertionBefore && <div className="work-task-drop-marker" aria-label={`Thả trước ${card.data.title}`}><span />Thả trước {card.data.title}</div>}
+                <div className="work-task-entry" data-work-item-id={card.id} data-dragging={draggedTaskId === card.id ? "true" : undefined}>
+                  <button type="button" draggable={ready} className="work-task-card" style={{ backgroundColor: color.background, color: color.foreground }} aria-label={`${accessibleLabel}, mở biểu mẫu để đổi ngày hoặc buổi`} aria-describedby="work-week-move-help"
+                    onClick={() => void editTask(card)} onDragStart={(event) => handleDragStart(event, card)} onDragEnd={handleDragEnd}>
+                    <span className="work-task-grip" aria-hidden="true">⠿</span>
+                    <span className="work-task-title">{card.data.title}</span>
+                    <span className="work-task-meta">
+                      {card.data.duration_minutes === null ? "Chưa ước lượng" : `${card.data.duration_minutes} phút`}
+                      {stateLabel && <span className="work-task-state">{card.data.status === "completed" ? "✓" : "◷"} {stateLabel}</span>}
+                    </span>
+                  </button>
+                  <div className="work-task-order-actions" aria-label={`Sắp xếp ${card.data.title}`}>
+                    <button type="button" disabled={!ready || cardIndex === 0} aria-label={`Đưa ${card.data.title} lên trước`} title="Đưa lên trước" onClick={() => keyboardMove(card, cardIndex, taskCards, -1)}>↑</button>
+                    <button type="button" disabled={!ready || cardIndex === taskCards.length - 1} aria-label={`Đưa ${card.data.title} xuống sau`} title="Đưa xuống sau" onClick={() => keyboardMove(card, cardIndex, taskCards, 1)}>↓</button>
+                  </div>
+                </div>
+              </Fragment>;
             })}
+            {isDropActive && dropPreview.beforeTaskId === null && <div className="work-task-drop-marker" aria-label="Thả ở cuối danh sách"><span />Thả ở cuối danh sách</div>}
             <button type="button" className="work-week-add" disabled={!ready || !day.date} aria-label={`Thêm công việc buổi ${period.name.toLocaleLowerCase("vi")} ngày ${dayName}`} onClick={() => {
               if (day.date) onAddTask(day.date, period.id);
             }}>+</button>

@@ -214,7 +214,9 @@ export function TaskEditor({ open, date, period = null, editing = null, onClose,
           : await nextOrderKeyForBucket(account.calendarProjection, fields.date, fields.period),
       };
       const id = editing?.id ?? crypto.randomUUID() as UUID;
-      if (editing) await account.replaceTask(id, data, editing.expectedRootHash);
+      if (editing && (editing.data.date !== data.date || editing.data.period !== data.period)) {
+        await account.repositionTask(id, data, editing.expectedRootHash, null);
+      } else if (editing) await account.replaceTask(id, data, editing.expectedRootHash);
       else await account.createTask(id, data);
       onSaved?.(id);
       onClose();
