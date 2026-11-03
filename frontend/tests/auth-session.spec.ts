@@ -528,6 +528,82 @@ test("ownerCanCreateTaskAndNestedPlanWithoutLosingTheTaskDraft", async ({ page }
   await expect(afternoonBucket.locator(".work-task-card").first()).toContainText("Nộp báo cáo bản cuối");
 });
 
+test("ownerCanCreateEditAndRemoveMilestoneWithWorkCalendarVisibility", async ({ page }) => {
+  await mockAuthApi(page);
+  await page.goto("/account");
+  await page.getByLabel("Email").fill("owner@example.test");
+  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
+  await page.getByRole("button", { name: "Đăng nhập và mở kho local", exact: true }).click();
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
+
+  await page.goto("/work?date=2026-11-03");
+  await page.getByRole("button", { name: "Mở hoặc đóng điều hướng lịch" }).click();
+  await page.getByRole("button", { name: "Thêm dấu mốc", exact: true }).click();
+  const createDialog = page.getByRole("dialog", { name: "Thêm dấu mốc" });
+  await expect(createDialog.getByRole("textbox", { name: "Ngày" })).toHaveValue("2026-11-03");
+  await createDialog.getByLabel("Tên dấu mốc").fill("Thuyết trình cuối kỳ");
+  await createDialog.getByLabel("Buổi").selectOption("afternoon");
+  await createDialog.getByLabel("Ghi chú liên quan (không bắt buộc)").fill("Phòng 302, chuẩn bị slide trước.");
+  await createDialog.getByRole("button", { name: "Tạo kế hoạch", exact: true }).click();
+  const planDialog = page.getByRole("dialog", { name: "Kế hoạch" });
+  await planDialog.getByRole("button", { name: "Tạo kế hoạch", exact: true }).click();
+  await planDialog.getByLabel("Tên kế hoạch").fill("Thuyết trình môn học");
+  await planDialog.getByRole("radio", { name: "Xanh lam" }).check();
+  await planDialog.getByRole("button", { name: "Lưu kế hoạch", exact: true }).click();
+  await expect(planDialog).toBeHidden();
+  await expect(createDialog.getByLabel("Tên dấu mốc")).toHaveValue("Thuyết trình cuối kỳ");
+  await expect(createDialog.getByLabel("Ghi chú liên quan (không bắt buộc)")).toHaveValue("Phòng 302, chuẩn bị slide trước.");
+  await expect(createDialog.getByLabel("Kế hoạch")).toHaveValue(/.+/);
+  await createDialog.getByRole("button", { name: "Thêm dấu mốc", exact: true }).click();
+  await expect(createDialog).toBeHidden();
+
+  const bucket = page.locator('.work-week-bucket[data-work-date="2026-11-03"][data-period="afternoon"]');
+  const milestoneCard = bucket.locator(".work-milestone-card");
+  await expect(milestoneCard).toBeVisible();
+  await expect(milestoneCard).toContainText("Dấu mốc");
+  await expect(milestoneCard).toContainText("Có ghi chú");
+  await expect(milestoneCard).not.toContainText("Phòng 302, chuẩn bị slide trước.");
+
+  await milestoneCard.click();
+  const editDialog = page.getByRole("dialog", { name: "Sửa dấu mốc" });
+  await expect(editDialog.getByRole("textbox", { name: "Ngày" })).toHaveValue("2026-11-03");
+  await expect(editDialog.getByLabel("Buổi")).toHaveValue("afternoon");
+  await editDialog.getByLabel("Tên dấu mốc").fill("Thuyết trình môn học");
+  await editDialog.getByRole("button", { name: "Lưu thay đổi", exact: true }).click();
+  await expect(editDialog).toBeHidden();
+  await expect(bucket.locator(".work-milestone-card")).toContainText("Thuyết trình môn học");
+
+  await bucket.locator(".work-milestone-card").click();
+  const deleteDialog = page.getByRole("dialog", { name: "Sửa dấu mốc" });
+  await deleteDialog.getByRole("button", { name: "Gỡ dấu mốc", exact: true }).click();
+  const confirmDelete = page.getByRole("alertdialog", { name: "Gỡ dấu mốc khỏi lịch?" });
+  await expect(confirmDelete).toBeVisible();
+  await confirmDelete.getByRole("button", { name: "Gỡ dấu mốc", exact: true }).click();
+  await expect(deleteDialog).toBeHidden();
+  await expect(bucket.locator(".work-milestone-card")).toHaveCount(0);
+  expect(await readEncryptedOutbox(page)).toHaveLength(4);
+});
+
+test("milestoneCanBeKeptOutOfTheWorkCalendar", async ({ page }) => {
+  await mockAuthApi(page);
+  await page.goto("/account");
+  await page.getByLabel("Email").fill("owner@example.test");
+  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
+  await page.getByRole("button", { name: "Đăng nhập và mở kho local", exact: true }).click();
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
+
+  await page.goto("/work?date=2026-11-03");
+  await page.getByRole("button", { name: "Mở hoặc đóng điều hướng lịch" }).click();
+  await page.getByRole("button", { name: "Thêm dấu mốc", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Thêm dấu mốc" });
+  await dialog.getByLabel("Tên dấu mốc").fill("Ghi nhớ riêng trong lịch dấu mốc");
+  await dialog.getByLabel("Hiện dấu mốc trên lịch công việc").uncheck();
+  await dialog.getByRole("button", { name: "Thêm dấu mốc", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator(".work-milestone-card")).toHaveCount(0);
+  expect(await readEncryptedOutbox(page)).toHaveLength(1);
+});
+
 test("loginRecoversFromExpiredCsrfByRefreshingAndRetryingOnce", async ({ page }) => {
   const api = await mockAuthApi(page);
   await page.goto("/account");
