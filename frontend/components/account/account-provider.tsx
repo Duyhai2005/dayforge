@@ -16,9 +16,9 @@ import {
 } from "../../lib/storage/vault";
 import { startSyncCoordinator, type CoordinatorStatus, type SyncCoordinatorHandle } from "../../lib/sync/coordinator";
 import type { UUID } from "../../lib/sync/protocol";
-import { commitLocalMutation, type LocalMutationResult } from "../../lib/sync/mutation";
+import { commitLocalMutation, LocalMutationNoOp, type LocalMutationResult } from "../../lib/sync/mutation";
 import { rebuildOwnerProjection } from "../../lib/sync/projection";
-import type { PlanData, ProjectionState } from "../../lib/sync/reducer";
+import { semanticRootHash, type PlanData, type ProjectionState, type TaskData } from "../../lib/sync/reducer";
 import { useBuildGate } from "../offline/offline-bootstrap";
 
 interface OwnerView {
@@ -75,6 +75,8 @@ interface AccountContextValue {
   refreshCalendar(): Promise<void>;
   createPlan(id: UUID, data: PlanData): Promise<LocalMutationResult>;
   replacePlan(id: UUID, data: PlanData): Promise<LocalMutationResult>;
+  createTask(id: UUID, data: TaskData): Promise<LocalMutationResult>;
+  replaceTask(id: UUID, data: TaskData, expectedRootHash: string): Promise<LocalMutationResult>;
 }
 
 const AccountContext = createContext<AccountContextValue | null>(null);
@@ -477,6 +479,76 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
   const createPlan = useCallback((id: UUID, data: PlanData) => writePlan(id, "plan.create", data), [writePlan]);
   const replacePlan = useCallback((id: UUID, data: PlanData) => writePlan(id, "plan.replace", data), [writePlan]);
 
+  const writeTask = useCallback(async (
+    id: UUID,
+    action: "work_item.create_single" | "single.replace",
+    data: TaskData,
+    expectedRootHash?: string,
+  ): Promise<LocalMutationResult> => {
+    const db = databaseRef.current;
+    const ownerId = owner?.id;
+    if (!db || !ownerId || state !== "unlocked") throw new Error("Hãy mở khóa kho local trước khi lưu công việc.");
+    const operationId = crypto.randomUUID() as UUID;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const gate = await readBuildGate(db);
+      if (!gate) throw new Error("Trạng thái cập nhật offline chưa sẵn sàng.");
+      const snapshot = await readOwnerSnapshot(db, ownerId, build.buildId);
+      const root = { kind: "work_item" as const, id };
+      const precondition = action === "single.replace" && expectedRootHash
+        ? { expected_root_hash: expectedRootHash }
+        : null;
+      let result: LocalMutationResult;
+      try {
+        result = await commitLocalMutation({
+          database: db,
+          snapshot,
+          gate,
+          expectedBuild: build.buildId,
+          requireApplied: true,
+          draft: {
+            operationId,
+            commands: [{
+              root,
+              action,
+              payload: { data },
+              precondition,
+            }],
+          },
+        });
+      } catch (cause) {
+        if (cause instanceof LocalMutationNoOp) {
+          if (cause.reason === "precondition_failed") throw new Error("Công việc đã thay đổi ở nơi khác. Hãy mở lại rồi thử sửa lần nữa.");
+          if (cause.reason === "reference_unavailable") throw new Error("Kế hoạch đã chọn không còn khả dụng. Hãy chọn lại rồi lưu.");
+          if (cause.reason === "target_retired") throw new Error("Công việc không còn khả dụng. Hãy tải lại lịch rồi thử tiếp.");
+        }
+        throw cause;
+      }
+      if (!result.result.committed) {
+        if (result.result.reason === "stale_snapshot") continue;
+        throw new Error("Không thể lưu công việc khi kho local hoặc bản cập nhật đang đổi.");
+      }
+      if (owner?.id !== ownerId || databaseRef.current !== db) throw new Error("Kho local đã khóa trong lúc lưu công việc.");
+      setCalendarProjection(result.projection);
+      setCalendarReady(true);
+      setCalendarError(null);
+      coordinatorRef.current?.wake();
+      setError(null);
+      setInfo("Đã lưu công việc trên thiết bị. Trạng thái đồng bộ được hiển thị riêng.");
+      return result;
+    }
+    throw new Error("Dữ liệu lịch liên tục thay đổi ở tab khác. Hãy thử lưu lại.");
+  }, [build.buildId, owner?.id, state]);
+
+  const createTask = useCallback((id: UUID, data: TaskData) => writeTask(id, "work_item.create_single", data), [writeTask]);
+  const replaceTask = useCallback(async (id: UUID, data: TaskData, expectedRootHash: string) => {
+    const current = calendarProjection?.roots[`work_item:${id}`] ?? null;
+    const actualRootHash = await semanticRootHash({ kind: "work_item", id }, current);
+    if (actualRootHash !== expectedRootHash) {
+      throw new Error("Công việc đã thay đổi ở nơi khác. Hãy mở lại rồi thử sửa lần nữa.");
+    }
+    return writeTask(id, "single.replace", data, expectedRootHash);
+  }, [calendarProjection, writeTask]);
+
   const clearNotice = useCallback(() => { setError(null); setInfo(null); }, []);
   const wakeSync = useCallback(() => {
     if (!coordinatorRef.current) return false;
@@ -495,9 +567,9 @@ export function AccountProvider({ children }: Readonly<{ children: ReactNode }>)
   );
   const value = useMemo<AccountContextValue>(() => ({
     state, session, owner, syncStatus, error, info, login, register, requestPasswordReset,
-    calendarProjection, calendarReady, calendarError, refreshCalendar, createPlan, replacePlan,
+    calendarProjection, calendarReady, calendarError, refreshCalendar, createPlan, replacePlan, createTask, replaceTask,
     confirmEmail, resetPassword, logout, repairClockIssues, inspectPendingChanges, wakeSync, stopSync, coordinatorStatus, refreshSession, clearNotice,
-  }), [calendarError, calendarProjection, calendarReady, clearNotice, confirmEmail, coordinatorStatus, createPlan, error, info, inspectPendingChanges, login, logout, owner, refreshCalendar, refreshSession, register, repairClockIssues, replacePlan, requestPasswordReset, resetPassword, session, state, stopSync, syncStatus, wakeSync]);
+  }), [calendarError, calendarProjection, calendarReady, clearNotice, confirmEmail, coordinatorStatus, createPlan, createTask, error, info, inspectPendingChanges, login, logout, owner, refreshCalendar, refreshSession, register, repairClockIssues, replacePlan, replaceTask, requestPasswordReset, resetPassword, session, state, stopSync, syncStatus, wakeSync]);
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;
 }

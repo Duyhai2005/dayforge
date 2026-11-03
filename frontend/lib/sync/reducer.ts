@@ -405,6 +405,17 @@ async function bucketCards(state: ProjectionState, date: string, period: Period)
   });
   return cards;
 }
+export async function nextOrderKeyForBucket(state: ProjectionState, date: string, period: Period): Promise<string> {
+  assertLocalDate(date, "bucket.date");
+  const cards = await bucketCards(state, date, period);
+  const last = cards.at(-1);
+  if (!last) return "0";
+  const lastRank = BigInt(last.order_key);
+  const spacedRank = lastRank + 1024n;
+  if (spacedRank <= INT64_MAX) return spacedRank.toString();
+  if (lastRank < INT64_MAX) return INT64_MAX.toString();
+  throw new Error("Không còn khoảng thứ tự để thêm công việc trong buổi này.");
+}
 export async function bucketOrderHash(state: ProjectionState, date: string, period: Period): Promise<string> {
   assertLocalDate(date, "bucket.date");
   return sha256({ date, period, cards: await bucketCards(state, date, period) });

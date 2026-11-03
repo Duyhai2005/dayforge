@@ -104,9 +104,9 @@ test("calendarMutationsRequireAnUnlockedLocalVault", async ({ page }) => {
   for (const name of ["Thêm công việc", "Thêm dấu mốc", "Quản lý kế hoạch"]) {
     const action = page.getByRole("button", { name, exact: true });
     await expect(action).toBeDisabled();
-    await expect(action).toHaveAccessibleDescription("Mở khóa kho local để quản lý kế hoạch. Biểu mẫu công việc và dấu mốc sẽ được bổ sung tiếp theo.");
+    await expect(action).toHaveAccessibleDescription("Mở khóa kho local để thêm công việc hoặc quản lý kế hoạch. Biểu mẫu dấu mốc sẽ được bổ sung tiếp theo.");
   }
-  await expect(page.getByText("Mở khóa kho local để quản lý kế hoạch. Biểu mẫu công việc và dấu mốc sẽ được bổ sung tiếp theo.")).toBeVisible();
+  await expect(page.getByText("Mở khóa kho local để thêm công việc hoặc quản lý kế hoạch. Biểu mẫu dấu mốc sẽ được bổ sung tiếp theo.")).toBeVisible();
 });
 
 test("widgetHonorsReducedMotion", async ({ page }) => {

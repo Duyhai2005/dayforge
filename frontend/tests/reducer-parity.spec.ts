@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { replayOperations } from "../lib/sync/reducer";
+import { nextOrderKeyForBucket, replayOperations } from "../lib/sync/reducer";
 import { assertSyncPage, compareDecimal, type Operation, type UUID } from "../lib/sync/protocol";
 
 function permutations<T>(values: readonly T[]): T[][] {
@@ -23,6 +23,17 @@ test("TypeScript reducer matches the shared basic fixture for every arrival perm
     const result = await replayOperations(operations, fixture.owner_id);
     expect(result.state).toEqual(fixture.expected_projection);
   }
+});
+
+test("new work items get a spaced rank after the current bucket and zero in an empty bucket", async () => {
+  const fixturePath = path.resolve(process.cwd(), "../docs/tasks/t12/fixtures/reducer-v1-basic.json");
+  const fixture = JSON.parse(await readFile(fixturePath, "utf8")) as {
+    owner_id: UUID;
+    operations: Operation[];
+  };
+  const { state } = await replayOperations(fixture.operations, fixture.owner_id);
+  await expect(nextOrderKeyForBucket(state, "2026-11-02", "afternoon")).resolves.toBe("1044");
+  await expect(nextOrderKeyForBucket(state, "2026-11-03", "morning")).resolves.toBe("0");
 });
 
 test("TypeScript reducer matches the shared recurrence and detached-task fixture", async () => {
