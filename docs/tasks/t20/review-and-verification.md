@@ -1,6 +1,6 @@
 # T20 — Task status, overdue state and deletion
 
-Status: implementation complete locally on `feature/task-status-and-deletion`; CI verification pending.
+Status: implementation and CI verification complete on `feature/task-status-and-deletion` (PR #20).
 
 ## Delivered
 
@@ -18,7 +18,8 @@ Status: implementation complete locally on `feature/task-status-and-deletion`; C
 | `pnpm --filter @dayforge/frontend typecheck` | Passed |
 | `pnpm build:web` | Passed |
 | `git diff --check` | Passed |
-| Focused local Playwright browser flow | Could not reach the local web server because this sandbox denies loopback connections; CI will run the browser flow |
-| GitHub CI and Offline web shell | Pending PR |
+| Focused local Playwright browser flow | Could not reach the local web server because this sandbox denies loopback connections |
+| GitHub CI | Passed: frontend development and production browser suites, Next.js production build/API check, quality checks, backend integration tests and two-browser sync acceptance |
+| Offline web shell | Passed: production offline suite and same-origin A/B update suite |
 
 The browser scenario checks completed/pending transitions, the plan color on completed and overdue tasks, the UTC+07:00 midnight transition while the page remains open, delete and undo, and local encrypted outbox persistence across a reload while sync requests fail.
