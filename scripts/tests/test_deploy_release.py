@@ -10,8 +10,14 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
+from scripts.check_release_compatibility import RuntimeCompatibility  # noqa: E402
 from scripts.deploy_config import load_deploy_config  # noqa: E402
-from scripts.deploy_release import DeploymentError, deploy_release  # noqa: E402
+from scripts.deploy_release import (  # noqa: E402
+    DeploymentError,
+    activate_restored_release,
+    deploy_release,
+    rollback_release,
+)
 from scripts.release_manifest import ReleaseManifest  # noqa: E402
 
 
@@ -107,6 +113,49 @@ class DeployReleaseTests(unittest.TestCase):
             **kwargs,
         )
 
+    def rollback(self, runner, current_release, target_release=None, **kwargs):
+        return rollback_release(
+            self.config,
+            current_release,
+            target_release or self.release,
+            RuntimeCompatibility("0004_sync", 2, 1, 1),
+            env_file=self.env_file,
+            compose_file=self.compose_file,
+            runner=runner,
+            smoke=lambda origin, build_id: {"ok": True},
+            now=datetime(2026, 11, 4, 12, tzinfo=timezone.utc),
+            **kwargs,
+        )
+
+    def current_release(self):
+        return replace(
+            self.release,
+            release_id="release-20261104-b5c6d7e8",
+            build_id="build-456",
+            web_image=f"ghcr.io/dayforge/web@sha256:{'e' * 64}",
+            api_image=f"ghcr.io/dayforge/api@sha256:{'f' * 64}",
+            created_at="2026-11-04T05:00:00Z",
+        )
+
+    def prepare_rollback(self, current_release):
+        (self.state / "current-release.json").write_text(
+            json.dumps(
+                {
+                    "release_id": current_release.release_id,
+                    "git_sha": current_release.git_sha,
+                    "build_id": current_release.build_id,
+                    "database_revision": "0004_sync",
+                    "recorded_at": "2026-11-04T11:00:00Z",
+                }
+            ),
+            encoding="utf-8",
+        )
+        (self.state / "backup.enabled").touch()
+        (self.state / "last-backup.json").write_text(
+            json.dumps({"completed_at": "2026-11-04T11:00:00Z"}),
+            encoding="utf-8",
+        )
+
     def test_initializes_only_empty_staging_and_starts_after_migration(self):
         runner = FakeRunner()
         result = self.deploy(runner, initialize=True)
@@ -132,6 +181,80 @@ class DeployReleaseTests(unittest.TestCase):
         self.assertIn("--no-deps", events[migration_index])
         self.assertFalse((self.state / "operation.lock").exists())
         self.assertFalse((self.state / "edge-maintenance" / "on").exists())
+
+    def _restore_config(self):
+        restore_id = "a" * 32
+        target = {
+            "environment": "restore",
+            "provider": "aws",
+            "region": "ap-southeast-1",
+            "platform": "linux/amd64",
+            "public_origin": "https://restore.example.test",
+            "compose_project": f"dayforge-restore-{restore_id}",
+            "db_name": f"dayforge_restore_{restore_id}",
+            "secrets_dir": str(self.secrets),
+            "state_dir": str(self.state),
+            "edge_alias": f"restore-{restore_id}",
+            "app_subnet": "10.81.10.0/24",
+        }
+        target_path = self.root / "restore-target.json"
+        target_path.write_text(json.dumps(target), encoding="utf-8")
+        return load_deploy_config(target_path)
+
+    def _write_restore_ready(self, snapshot_id):
+        (self.state / "restore-ready.json").write_text(
+            json.dumps(
+                {
+                    "snapshot_id": snapshot_id,
+                    "source_environment": "staging",
+                    "restored_revision": "0004_sync",
+                    "verified_dump_sha256": "f" * 64,
+                    "completed_at": "2026-11-04T11:00:00Z",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def test_restored_release_starts_without_migration(self):
+        config = self._restore_config()
+        snapshot_id = "e" * 64
+        self._write_restore_ready(snapshot_id)
+        runner = FakeRunner(table_count=12, current_revision="0004_sync")
+
+        result = activate_restored_release(
+            config,
+            self.release,
+            snapshot_id=snapshot_id,
+            env_file=self.env_file,
+            compose_file=self.compose_file,
+            runner=runner,
+            now=datetime(2026, 11, 4, 12, tzinfo=timezone.utc),
+            smoke=lambda origin, build_id: {"ok": True},
+        )
+
+        events = [event for event, _ in runner.events]
+        self.assertTrue(result.healthy)
+        self.assertEqual(result.migrated_revision, "0004_sync")
+        self.assertTrue((self.state / "current-release.json").is_file())
+        self.assertFalse(any("upgrade" in event for event in events))
+        self.assertFalse(any("restore_database" in event for event in events))
+
+    def test_restored_release_rejects_wrong_snapshot_before_commands(self):
+        config = self._restore_config()
+        self._write_restore_ready("e" * 64)
+        runner = FakeRunner(table_count=12, current_revision="0004_sync")
+
+        with self.assertRaisesRegex(DeploymentError, "restore_ready_record_mismatch"):
+            activate_restored_release(
+                config,
+                self.release,
+                snapshot_id="d" * 64,
+                env_file=self.env_file,
+                compose_file=self.compose_file,
+                runner=runner,
+                smoke=lambda origin, build_id: {"ok": True},
+            )
+        self.assertEqual(runner.events, [])
 
     def test_migration_failure_does_not_start_candidate_or_echo_output(self):
         runner = FakeRunner(fail_on="upgrade")
@@ -225,6 +348,89 @@ class DeployReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(DeploymentError, "environment_not_allowed"):
             deploy_release(production, self.release, runner=runner, initialize=True)
         self.assertEqual(runner.events, [])
+
+    def test_incompatible_rollback_is_refused_before_any_command(self):
+        current = self.current_release()
+        self.prepare_rollback(current)
+        runner = FakeRunner(table_count=1, current_revision="0005_rehearsal")
+
+        with self.assertRaisesRegex(DeploymentError, "rollback_incompatible"):
+            rollback_release(
+                self.config,
+                current,
+                self.release,
+                RuntimeCompatibility("0005_rehearsal", 2, 1, 1),
+                env_file=self.env_file,
+                compose_file=self.compose_file,
+                runner=runner,
+            )
+
+        self.assertEqual(runner.events, [])
+        self.assertFalse((self.state / "edge-maintenance" / "on").exists())
+
+    def test_compatible_binary_rollback_keeps_database_and_never_migrates(self):
+        current = self.current_release()
+        self.prepare_rollback(current)
+        runner = FakeRunner(table_count=1, current_revision="0004_sync")
+
+        result = self.rollback(runner, current)
+
+        self.assertTrue(result.healthy)
+        self.assertEqual(result.migrated_revision, "0004_sync")
+        events = [event for event, _ in runner.events]
+        self.assertFalse(
+            any("upgrade" in event or "downgrade" in event for event in events)
+        )
+        self.assertFalse(any("restore_database" in event for event in events))
+        self.assertTrue(any(event[-2:] == ["api", "web"] for event in events))
+        self.assertTrue(
+            all(
+                env["COMPOSE_PROJECT"] == "dayforge-staging" for _, env in runner.events
+            )
+        )
+        self.assertTrue(
+            all(env["MYSQL_IMAGE"] == current.mysql_image for _, env in runner.events)
+        )
+        recorded = json.loads(
+            (self.state / "current-release.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(recorded["release_id"], self.release.release_id)
+        self.assertEqual(recorded["database_revision"], "0004_sync")
+        self.assertFalse((self.state / "edge-maintenance" / "on").exists())
+
+    def test_failed_candidate_smoke_restores_the_current_release(self):
+        current = self.current_release()
+        self.prepare_rollback(current)
+        runner = FakeRunner(table_count=1, current_revision="0004_sync")
+        smoke_calls = []
+
+        def smoke(origin, build_id):
+            smoke_calls.append(build_id)
+            if build_id == self.release.build_id:
+                raise ValueError("private smoke detail")
+            return {"ok": True}
+
+        with self.assertRaisesRegex(
+            DeploymentError, "rollback_candidate_failed_previous_restored"
+        ):
+            rollback_release(
+                self.config,
+                current,
+                self.release,
+                RuntimeCompatibility("0004_sync", 2, 1, 1),
+                env_file=self.env_file,
+                compose_file=self.compose_file,
+                runner=runner,
+                smoke=smoke,
+                now=datetime(2026, 11, 4, 12, tzinfo=timezone.utc),
+            )
+
+        self.assertEqual(smoke_calls, [self.release.build_id, current.build_id])
+        recorded = json.loads(
+            (self.state / "current-release.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(recorded["release_id"], current.release_id)
+        self.assertFalse((self.state / "edge-maintenance" / "on").exists())
 
 
 if __name__ == "__main__":
