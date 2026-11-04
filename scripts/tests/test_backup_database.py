@@ -228,6 +228,8 @@ class BackupDatabaseTests(unittest.TestCase):
             "--skip-lock-tables",
         ):
             self.assertIn(option, shell_script)
+        self.assertIn('"$MYSQL_DATABASE"', shell_script)
+        self.assertNotIn("--database=", shell_script)
         self.assertNotIn("--all-databases", shell_script)
         self.assertNotIn("EMAIL_SMTP_PASSWORD", json.dumps(marker))
         self.assertTrue(any("backup" in command for command, _ in self.runner.events))
