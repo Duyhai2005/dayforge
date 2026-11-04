@@ -1,6 +1,7 @@
 from email.message import EmailMessage
 
 import pytest
+
 from app.cli.send_mail_probe import send_mail_probe
 from app.core.config import SettingsError
 
