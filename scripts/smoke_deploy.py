@@ -44,7 +44,7 @@ def _request(url: str, timeout_seconds: int) -> HttpResponse:
                 {key.lower(): value for key, value in response.headers.items()},
                 response.read(2_000_001),
             )
-    except (OSError, TimeoutError, urllib.error.URLError, ValueError):
+    except OSError, TimeoutError, urllib.error.URLError, ValueError:
         raise SmokeDeploymentError("http_request_failed") from None
 
 
@@ -85,7 +85,7 @@ def smoke_deployment(
     ):
         try:
             manifest = json.loads(manifest_response.body)
-        except (UnicodeError, json.JSONDecodeError):
+        except UnicodeError, json.JSONDecodeError:
             manifest = None
         manifest_ok = (
             isinstance(manifest, dict)
@@ -103,13 +103,13 @@ def smoke_deployment(
         if path.endswith("/health") and ok:
             try:
                 payload = json.loads(response.body)
-            except (UnicodeError, json.JSONDecodeError):
+            except UnicodeError, json.JSONDecodeError:
                 payload = None
             ok = isinstance(payload, dict) and payload.get("status") == "ok"
         if path.endswith("/version") and ok:
             try:
                 payload = json.loads(response.body)
-            except (UnicodeError, json.JSONDecodeError):
+            except UnicodeError, json.JSONDecodeError:
                 payload = None
             ok = (
                 isinstance(payload, dict)
