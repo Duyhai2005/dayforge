@@ -12,6 +12,8 @@ The package is built once for a selected Linux platform and moved by immutable i
 
 The `deploy/.env.example` file contains examples only. Keep target-specific non-secret values in a host-owned env file and place each password/key in a mode-restricted file under the `secrets_dir` from a validated target. The file names required by Compose are listed in the `secrets:` section of the Compose file. `*_FILE` and direct secret environment variables cannot be supplied together. Secret files may end in one newline; application loading removes only that one ending and preserves password spaces.
 
+The MySQL bootstrap reads the root, runtime-user, and migration-user passwords from their secret files and accepts non-empty printable ASCII values. It SQL-quotes apostrophes and disables backslash escapes for its provisioning session. Generate random values such as `openssl rand -hex 32` so they remain easy to pass between tools without changing the stored password.
+
 Never pass credentials as Docker build arguments, include them in an image layer, expose them in a release manifest, or copy a real `.env`, `.aws`, `.local`, virtual environment, `node_modules`, or test artifact into the build context. The repository `.dockerignore` excludes those paths. The example registry digest values are intentionally unusable placeholders and must be replaced by a real manifest before starting Compose.
 
 ## SMTP runtime settings

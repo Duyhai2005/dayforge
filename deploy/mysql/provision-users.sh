@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 umask 077
+LC_ALL=C
+export LC_ALL
 
 case "$DB_NAME" in
   dayforge_staging|dayforge_production|dayforge_restore_*) ;;
@@ -21,24 +23,31 @@ strip_one_line_ending() {
   head -c "$size" "$file"
 }
 
-secret_hex() {
-  strip_one_line_ending "$1" | od -An -vtx1 | tr -d ' \n'
+secret_sql_literal() {
+  value=$(strip_one_line_ending "$1") || return 1
+  [ -n "$value" ] || return 1
+  case "$value" in
+    *[! -~]*) return 1 ;;
+  esac
+  escaped=$(printf '%s' "$value" | sed "s/'/''/g") || return 1
+  printf "'%s'" "$escaped"
 }
 
-root_password_hex=$(secret_hex /run/secrets/mysql_root_password)
-app_password_hex=$(secret_hex /run/secrets/db_password)
-migrator_password_hex=$(secret_hex /run/secrets/db_migrator_password)
-[ -n "$root_password_hex" ] && [ -n "$app_password_hex" ] && [ -n "$migrator_password_hex" ]
+root_password_sql=$(secret_sql_literal /run/secrets/mysql_root_password)
+app_password_sql=$(secret_sql_literal /run/secrets/db_password)
+migrator_password_sql=$(secret_sql_literal /run/secrets/db_migrator_password)
+[ -n "$root_password_sql" ] && [ -n "$app_password_sql" ] && [ -n "$migrator_password_sql" ]
 sql_file=$(mktemp /tmp/dayforge-users.XXXXXX.sql)
 trap 'rm -f "$sql_file"' EXIT HUP INT TERM
 
 cat >"$sql_file" <<SQL
-ALTER USER 'root'@'%' IDENTIFIED BY 0x${root_password_hex};
-CREATE USER IF NOT EXISTS '${DB_USER}'@'%' IDENTIFIED BY 0x${app_password_hex};
-ALTER USER '${DB_USER}'@'%' IDENTIFIED BY 0x${app_password_hex};
+SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES';
+ALTER USER 'root'@'%' IDENTIFIED BY ${root_password_sql};
+CREATE USER IF NOT EXISTS '${DB_USER}'@'%' IDENTIFIED BY ${app_password_sql};
+ALTER USER '${DB_USER}'@'%' IDENTIFIED BY ${app_password_sql};
 GRANT SELECT, INSERT, UPDATE, DELETE ON \`${DB_NAME}\`.* TO '${DB_USER}'@'%';
-CREATE USER IF NOT EXISTS '${DB_MIGRATOR_USER}'@'%' IDENTIFIED BY 0x${migrator_password_hex};
-ALTER USER '${DB_MIGRATOR_USER}'@'%' IDENTIFIED BY 0x${migrator_password_hex};
+CREATE USER IF NOT EXISTS '${DB_MIGRATOR_USER}'@'%' IDENTIFIED BY ${migrator_password_sql};
+ALTER USER '${DB_MIGRATOR_USER}'@'%' IDENTIFIED BY ${migrator_password_sql};
 GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_MIGRATOR_USER}'@'%';
 SQL
 
