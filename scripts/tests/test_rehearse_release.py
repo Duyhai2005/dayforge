@@ -9,8 +9,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.deploy_config import load_deploy_config
-from scripts.rehearse_release import (
+from scripts.deploy_config import load_deploy_config  # noqa: E402
+from scripts.rehearse_release import (  # noqa: E402
     RehearsalError,
     RehearsalInputs,
     _record_migration_case,
@@ -19,7 +19,7 @@ from scripts.rehearse_release import (
     validate_rehearsal_inputs,
     validate_restore_phase,
 )
-from scripts.release_manifest import load_release_manifest
+from scripts.release_manifest import load_release_manifest  # noqa: E402
 
 
 class RehearseReleaseTests(unittest.TestCase):

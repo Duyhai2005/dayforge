@@ -6,12 +6,12 @@ Ngày cập nhật: **04/11/2026** (Asia/Bangkok).
 
 ## Kiểm tra harness cục bộ
 
-- Python unit tests cho rehearsal runner, result validator, deploy/rollback: chạy sau khi hoàn tất code; xem lệnh/kết quả trong CI hoặc session report đi kèm PR T33.
+- Python unit tests cho compatibility validator, rehearsal runner, result validator và deploy/rollback: 35 PASS, 1 Windows symlink test SKIP vì symlink creation không khả dụng.
 - Frontend TypeScript typecheck và Playwright `--list`: xác nhận code biên dịch và release config cô lập đúng 11 test; đây không phải browser acceptance trên target.
-- Ruff lint: phải pass trước merge.
+- Ruff check/format trên các file Python liên quan T33 đã pass.
 - Disposable MySQL interruption/roll-forward fixture: **chưa chạy**. Docker CLI hiện không thể mở Docker Desktop engine (`permission denied` với pipe `dockerDesktopLinuxEngine`). Không đổi quyền Docker/khởi động hạ tầng trong lần chạy này.
 
-Kết quả cục bộ của lần hoàn thiện harness: 31 Python unit tests PASS, 1 Windows symlink test SKIP vì symlink creation không khả dụng; Ruff check/format PASS; TypeScript typecheck PASS; ESLint các release spec/fixture PASS; Playwright discovery PASS với 11 release tests. Không có Playwright browser test hoặc MySQL integration test được chạy.
+Kết quả cục bộ của lần hoàn thiện harness: 35 Python unit tests PASS, 1 Windows symlink test SKIP vì symlink creation không khả dụng; Ruff check/format PASS; TypeScript typecheck PASS; ESLint các release spec/fixture PASS; Playwright discovery PASS với 11 release tests. Không có Playwright browser test hoặc MySQL integration test được chạy.
 
 ## Ma trận acceptance
 
