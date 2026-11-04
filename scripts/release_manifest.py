@@ -161,7 +161,7 @@ def _from_dict(raw: dict[str, object]) -> ReleaseManifest:
 def load_release_manifest(path: Path) -> ReleaseManifest:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
+    except OSError, UnicodeError, json.JSONDecodeError:
         raise ReleaseManifestError("manifest_file") from None
     if not isinstance(raw, dict):
         raise ReleaseManifestError("manifest")
@@ -180,5 +180,5 @@ def write_release_manifest(path: Path, manifest: ReleaseManifest) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(raw, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    except (OSError, UnicodeError):
+    except OSError, UnicodeError:
         raise ReleaseManifestError("manifest_write") from None
