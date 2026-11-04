@@ -1,3 +1,4 @@
+import importlib
 import json
 import sys
 import tempfile
@@ -9,8 +10,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.release_manifest import ReleaseManifest
-from scripts.validate_acceptance import validate_acceptance_results
+ReleaseManifest = importlib.import_module("scripts.release_manifest").ReleaseManifest
+validate_acceptance_results = importlib.import_module(
+    "scripts.validate_acceptance"
+).validate_acceptance_results
 
 
 class AcceptanceResultsTests(unittest.TestCase):

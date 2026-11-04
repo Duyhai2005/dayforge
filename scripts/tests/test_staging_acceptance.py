@@ -1,3 +1,4 @@
+import importlib
 import json
 import os
 import sys
@@ -10,14 +11,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.release_manifest import (
-    ReleaseManifest,
-    write_release_manifest,
-)
-from scripts.staging_acceptance import (
-    StagingInputError,
-    validate_staging_inputs,
-)
+_release_manifest = importlib.import_module("scripts.release_manifest")
+_staging_acceptance = importlib.import_module("scripts.staging_acceptance")
+ReleaseManifest = _release_manifest.ReleaseManifest
+write_release_manifest = _release_manifest.write_release_manifest
+StagingInputError = _staging_acceptance.StagingInputError
+validate_staging_inputs = _staging_acceptance.validate_staging_inputs
 
 
 class StagingAcceptanceTests(unittest.TestCase):
