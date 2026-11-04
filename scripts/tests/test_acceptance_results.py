@@ -1,8 +1,13 @@
 import json
+import sys
 import tempfile
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.release_manifest import ReleaseManifest
 from scripts.validate_acceptance import validate_acceptance_results

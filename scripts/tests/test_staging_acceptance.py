@@ -1,12 +1,23 @@
 import json
 import os
+import sys
 import tempfile
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
 
-from scripts.release_manifest import ReleaseManifest, write_release_manifest
-from scripts.staging_acceptance import StagingInputError, validate_staging_inputs
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.release_manifest import (
+    ReleaseManifest,
+    write_release_manifest,
+)
+from scripts.staging_acceptance import (
+    StagingInputError,
+    validate_staging_inputs,
+)
 
 
 class StagingAcceptanceTests(unittest.TestCase):
