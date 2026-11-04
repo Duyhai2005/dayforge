@@ -312,7 +312,7 @@ class BackupRestoreIntegrationTests(unittest.TestCase):
                     if secret:
                         diagnostic = diagnostic.replace(secret, "<redacted>")
             diagnostic = diagnostic.replace(str(config.secrets_dir), "<secrets-dir>")[
-                :500
+                :2000
             ]
             if diagnostic:
                 raise DeploymentError(f"{error}; compose_stderr={diagnostic}") from None
