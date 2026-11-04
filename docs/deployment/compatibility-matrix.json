@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "acceptance_status": "TARGET_PENDING",
+  "candidate_binding": {
+    "release_a": {
+      "git_sha": null,
+      "image_digest": null,
+      "build_id": null,
+      "platform": null,
+      "db_revision": null,
+      "indexeddb_schema_version": null,
+      "protocol_version": null,
+      "reducer_version": null
+    },
+    "release_b": {
+      "git_sha": null,
+      "image_digest": null,
+      "build_id": null,
+      "platform": null,
+      "db_revision": null,
+      "indexeddb_schema_version": null,
+      "protocol_version": null,
+      "reducer_version": null
+    }
+  },
+  "cases": [
+    {
+      "case_id": "UP-01",
+      "case_variants": [],
+      "scenario": "A same-origin update is offered while a draft is dirty.",
+      "expected_action": "Keep A approved and defer the service-worker/build switch until the draft is safely resolved and the user accepts the update.",
+      "actual_status": "TARGET_PENDING",
+      "evidence_paths": []
+    },
+    {
+      "case_id": "UP-02",
+      "case_variants": [],
+      "scenario": "A device has pending encrypted operations during A-to-B activation.",
+      "expected_action": "Preserve operation IDs and ciphertext hashes across the switch; do not clear or rewrite the pending queue.",
+      "actual_status": "TARGET_PENDING",
+      "evidence_paths": []
+    },
+    {
+      "case_id": "UP-03",
+      "case_variants": [],
+      "scenario": "The server commits a push but its response is lost before the client receives the ACK.",
+      "expected_action": "Retry the byte-identical envelope and observe exactly one server-side effect for its operation ID.",
+      "actual_status": "TARGET_PENDING",
+      "evidence_paths": []
+    },
+    {
+      "case_id": "UP-04",
+      "case_variants": [],
+      "scenario": "A tab is frozen or suspended while a new build is waiting.",
+      "expected_action": "Do not treat the suspended tab as update consent; keep its approved build until an explicit safe transition occurs.",
+      "actual_status": "TARGET_PENDING",
+      "evidence_paths": []
+    },
+    {
+      "case_id": "UP-05",
+      "case_variants": [],
+      "scenario": "The candidate has an incomplete or failed asset installation.",
+      "expected_action": "Keep A available and approved; do not activate B until its required assets and health checks pass.",
+      "actual_status": "TARGET_PENDING",
+      "evidence_paths": []
+    },
+    {
+      "case_id": "UP-06",
+      "case_variants": ["late-flight", "previous-static"],
+      "scenario": "A Flight response is in flight during cutover and the browser later requests a static asset emitted only by A.",
+      "expected_action": "Keep the response bound to its originating build and serve retained A-only static assets from the previous web image.",
+      "actual_status": "TARGET_PENDING",
+      "evidence_paths": []
+    },
+    {
+      "case_id": "RB-01",
+      "case_variants": [],
+      "scenario": "B has written data and a rollback to A is explicitly compatible with the current database and client protocols.",
+      "expected_action": "Switch binaries only; retain the current database, keys, and writes made while B was active.",
+      "actual_status": "TARGET_PENDING",
+      "evidence_paths": []
+    },
+    {
+      "case_id": "RB-02",
+      "case_variants": [],
+      "scenario": "A does not advertise support for the current database revision or protocol state.",
+      "expected_action": "Reject rollback before activation, keep healthy B serving, and use the documented roll-forward path if recovery is needed.",
+      "actual_status": "TARGET_PENDING",
+      "evidence_paths": []
+    },
+    {
+      "case_id": "RF-01",
+      "case_variants": [],
+      "scenario": "An interrupted MySQL DDL migration leaves a partial schema on a disposable database.",
+      "expected_action": "Readiness remains failed until the verified fixture repair is applied and a forward retry reaches the packaged head.",
+      "actual_status": "TARGET_PENDING",
+      "evidence_paths": []
+    },
+    {
+      "case_id": "DR-01",
+      "case_variants": ["restore-union"],
+      "scenario": "Restore snapshot S into a second isolated target and reconnect the same two persistent profiles after a new epoch is prepared.",
+      "expected_action": "Reconcile the baseline E0, acknowledged shadow events E1/E2, pending P0, and unchanged encrypted draft without duplicate effects; both devices converge.",
+      "actual_status": "TARGET_PENDING",
+      "evidence_paths": []
+    }
+  ],
+  "supporting_gates": [
+    {
+      "gate_id": "MYSQL-INTERRUPTED-DDL",
+      "scenario": "Disposable MySQL interruption, readiness failure, verified repair, and forward retry.",
+      "actual_status": "TARGET_PENDING",
+      "reason": "Docker Desktop engine access was denied in the current environment; the integration fixture was not run."
+    },
+    {
+      "gate_id": "INDEXEDDB-UPGRADE",
+      "scenario": "IndexedDB v1-to-v2 migration preserves the journal and outbox; a future unsupported version fails safely.",
+      "actual_status": "TARGET_PENDING",
+      "reason": "The real-browser release suite has not run against an approved HTTPS target."
+    }
+  ]
+}
