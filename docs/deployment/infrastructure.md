@@ -83,6 +83,8 @@ sudo systemctl enable --now dayforge-health@staging.timer
 systemctl list-timers dayforge-health@staging.timer
 ```
 
+The host bootstrap also installs the daily encrypted backup and weekly repository-check units. It leaves those timers disabled until private restic credentials and the independent recovery password have been configured and a manual off-host backup has been verified. Follow [the backup and restore runbook](backup-restore.md), then enable `dayforge-backup@<environment>.timer` and `dayforge-backup-check@<environment>.timer`. The daily job is scheduled for 02:15 Asia/Bangkok; weekly check and retention runs at 04:00 Sunday. The first confirmed snapshot creates `state/backup.enabled`; only after that does the existing health check enforce the 26-hour backup freshness threshold.
+
 `dayforge-app@staging.service` starts existing containers only. It does not pull an image, create containers, or run migration. Docker restart policies recover container exits. An unhealthy container is reported by health checks; health state alone does not restart or recreate MySQL.
 
 For later release upgrades, the deployment CLI requires the release's current database revision to be in `supported_db_revisions` and a successful backup record no older than 26 hours. Use the same immutable release manifest that passed package CI. Do not use `--initialize` to bypass an upgrade or recovery gate.

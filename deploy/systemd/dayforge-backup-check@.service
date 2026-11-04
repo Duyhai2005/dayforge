@@ -1,0 +1,20 @@
+[Unit]
+Description=Verify and apply retention to the Dayforge %i backup repository
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/dayforge
+Environment=PYTHONPATH=/opt/dayforge
+ExecStart=/usr/bin/python3 /opt/dayforge/scripts/backup_database.py --config /etc/dayforge/%i/target.json --policy /etc/dayforge/%i/backup-policy.json --check-repository
+TimeoutStartSec=4h
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/srv/dayforge/%i/state
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

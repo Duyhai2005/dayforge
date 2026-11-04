@@ -130,6 +130,10 @@ ensure_network dayforge-production-ingress
 install -m 0644 "$script_root/deploy/systemd/dayforge-app@.service" /etc/systemd/system/dayforge-app@.service
 install -m 0644 "$script_root/deploy/systemd/dayforge-health@.service" /etc/systemd/system/dayforge-health@.service
 install -m 0644 "$script_root/deploy/systemd/dayforge-health@.timer" /etc/systemd/system/dayforge-health@.timer
+install -m 0644 "$script_root/deploy/systemd/dayforge-backup@.service" /etc/systemd/system/dayforge-backup@.service
+install -m 0644 "$script_root/deploy/systemd/dayforge-backup@.timer" /etc/systemd/system/dayforge-backup@.timer
+install -m 0644 "$script_root/deploy/systemd/dayforge-backup-check@.service" /etc/systemd/system/dayforge-backup-check@.service
+install -m 0644 "$script_root/deploy/systemd/dayforge-backup-check@.timer" /etc/systemd/system/dayforge-backup-check@.timer
 systemctl daemon-reload
 systemctl enable docker.service >/dev/null 2>&1 || fail docker_service_enable_failed
 printf '%s\n' "bootstrap_apply_ok environment=$environment platform=$host_platform compose=$compose_version"
