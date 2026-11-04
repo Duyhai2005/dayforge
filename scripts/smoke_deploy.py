@@ -33,7 +33,10 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 def _request(url: str, timeout_seconds: int) -> HttpResponse:
     request = urllib.request.Request(
         url,
-        headers={"Accept": "application/json, text/html, */*", "User-Agent": "dayforge-smoke/1"},
+        headers={
+            "Accept": "application/json, text/html, */*",
+            "User-Agent": "dayforge-smoke/1",
+        },
         method="GET",
     )
     try:
@@ -74,7 +77,10 @@ def smoke_deployment(
     results: dict[str, bool] = {}
     for path in ("/work", "/milestones", "/sw.js"):
         response = request(origin + path, timeout_seconds)
-        results[path] = response.status == 200 and response.headers.get("x-dayforge-build") == expected_build_id
+        results[path] = (
+            response.status == 200
+            and response.headers.get("x-dayforge-build") == expected_build_id
+        )
 
     manifest_response = request(origin + "/dayforge-build.json", timeout_seconds)
     manifest_ok = False
@@ -133,7 +139,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timeout-seconds", type=int, default=60)
     args = parser.parse_args(argv)
     try:
-        results = smoke_deployment(args.origin, args.build_id, timeout_seconds=args.timeout_seconds)
+        results = smoke_deployment(
+            args.origin, args.build_id, timeout_seconds=args.timeout_seconds
+        )
     except SmokeDeploymentError as exc:
         print(str(exc), file=sys.stderr)
         return 1
