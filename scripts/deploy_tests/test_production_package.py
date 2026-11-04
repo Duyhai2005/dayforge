@@ -226,6 +226,26 @@ class ProductionPackageSmokeTests(unittest.TestCase):
                 "--wait",
                 "--wait-timeout",
                 "180",
+                "mysql",
+            ],
+            timeout=240,
+        )
+        self._run(
+            [*self.compose, "run", "--rm", "--no-deps", "provision-users"],
+            timeout=240,
+        )
+        self._run(
+            [*self.compose, "run", "--rm", "--no-deps", "migrate", "upgrade", "head"],
+            timeout=240,
+        )
+        self._run(
+            [
+                *self.compose,
+                "up",
+                "--detach",
+                "--wait",
+                "--wait-timeout",
+                "180",
                 "api",
                 "web",
             ],
