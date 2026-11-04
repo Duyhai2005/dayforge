@@ -118,9 +118,9 @@ Kế hoạch triển khai, phụ thuộc và tiêu chí nghiệm thu chi tiết:
 
 ### Nhóm 7 — Chuẩn bị và diễn tập deploy · T29–T33
 
-Kế hoạch chi tiết ngày **04/11/2026**: [plan tổng nhóm 7](../superpowers/plans/2026-11-04-group7-deployment-rehearsal.md), gồm phụ thuộc, hợp đồng artifact/config, lựa chọn hạ tầng cần chốt và các cổng kiểm chứng. T29 đang được triển khai theo nhánh feature; hạ tầng thật, inbox và các bước T30–T33 chưa được nghiệm thu.
+Kế hoạch chi tiết ngày **04/11/2026**: [plan tổng nhóm 7](../superpowers/plans/2026-11-04-group7-deployment-rehearsal.md), gồm phụ thuộc, hợp đồng artifact/config, lựa chọn hạ tầng cần chốt và các cổng kiểm chứng. PR #29 hoàn tất package code và CI smoke; T29 vẫn mở vì chưa chọn target/nguồn ngân sách và chưa đo sizing. Hạ tầng thật, inbox và các bước T30–T33 chưa được nghiệm thu.
 
-- [ ] **T29 — Chọn phương án deploy và đóng gói production.** Phần package đã có SMTP TLS/file secrets, Dockerfiles, Compose/Caddy, digest lock và release manifest; chưa chọn cloud, registry hay SMTP vì thiếu account/budget/domain/inbox, chưa chạy Docker smoke cục bộ. [Kế hoạch chi tiết](t29/plan.md), [decision record](t29/deployment-decision.md), [kiểm chứng và giới hạn](t29/review-and-verification.md).
+- [ ] **T29 — Chọn phương án deploy và đóng gói production.** Package code và smoke CI đã qua PR #29; còn thiếu target cloud, registry, SMTP, budget/domain/inbox và số đo sizing nên T29 chưa được ký nghiệm thu. [Kế hoạch chi tiết](t29/plan.md), [decision record](t29/deployment-decision.md), [kiểm chứng và giới hạn](t29/review-and-verification.md).
 - [ ] **T30 — Chuẩn bị hạ tầng chạy độc lập.** Thiết lập host không phụ thuộc PC, HTTPS/tên miền nếu dùng, lưu trữ bền, MySQL riêng, restart/health/log; cấu hình gửi email, URL xác minh/reset và kiểm chứng email tới inbox. [Kế hoạch chi tiết](t30/plan.md).
 - [ ] **T31 — Thiết lập sao lưu và thử khôi phục.** Có backup MySQL tự động, nơi giữ/thời hạn giữ rõ; restore vào DB sạch và kiểm tra dữ liệu bằng app, không coi outbox chưa gửi là đã được backup. [Kế hoạch chi tiết](t31/plan.md).
 - [ ] **T32 — Deploy thử bản ứng viên.** Staging cô lập DB/secrets/origin; kiểm tra route/HTTPS/API, đăng nhập tài khoản đã xác minh trên hai thiết bị, email thực, callback/cache owner, offline và dịch vụ khi PC tắt. [Kế hoạch chi tiết](t32/plan.md).

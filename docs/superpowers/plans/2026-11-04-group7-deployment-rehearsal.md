@@ -37,7 +37,7 @@ Các câu dưới đây giữ nguyên từ đặc tả; quyết định bổ sun
 
 ## 1. Phạm vi và trạng thái lập kế hoạch
 
-Ngày lập: **04/11/2026**, Asia/Bangkok. Checkout khảo sát: **develop @ 319a12e**. Kế hoạch được dùng làm checklist triển khai cho T29–T33. T29 package implementation đang được làm riêng; các checkbox chỉ được đánh dấu khi có kiểm chứng, còn các cổng hạ tầng/inbox/staging/backup/rehearsal phải chờ tài nguyên thật.
+Ngày lập: **04/11/2026**, Asia/Bangkok. Checkout khảo sát: **develop @ 319a12e**. Kế hoạch được dùng làm checklist triển khai cho T29–T33. PR #29 hoàn tất package code và CI smoke; T29 còn cổng target/sizing cần đầu vào thật. Các checkbox chỉ được đánh dấu khi có kiểm chứng; hạ tầng/inbox/staging/backup/rehearsal phải chờ tài nguyên thật.
 
 Repo đang có Compose MySQL **development**, SMTP không TLS/auth để dùng Mailpit, build/offline/sync runners và migration đến **0004_sync**. Chưa có thư mục deploy, Dockerfile production, SMTP credentials/TLS, timer backup hay deployment workflow. Next config hiện chỉ nhận API_INTERNAL_ORIGIN=http://127.0.0.1:8000; scripts/build-frontend.cjs sinh public/dayforge-build.json **sau** next build. Hai chi tiết này phải được xử lý khi đóng gói, không copy nguyên dev stack lên host.
 

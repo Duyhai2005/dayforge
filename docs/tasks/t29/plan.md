@@ -2,6 +2,8 @@
 
 > **Implementation:** Follow the task steps below and track completed work with checkboxes.
 
+**Current status:** Package code and the disposable Docker/MySQL/API/web smoke passed on candidate SHA `907772c5df493ea23881e7e7572549637d7386fd` (see [review and verification](review-and-verification.md)). T29 remains open until the deployment target, budget, email/backup destination, and host sizing evidence are supplied.
+
 **Goal:** Chốt target AWS/Oracle và email dựa trên tài nguyên thật, rồi tạo cặp image Next.js/FastAPI, config/secrets và package production có thể mang sang host mà không build lại.
 
 **Architecture:** Dùng Compose app theo từng environment và một edge Caddy cho host. Web standalone proxy API qua tên service api:8000; API tự load file secret và SMTP TLS/auth; migration là job riêng dùng cùng image API nhưng credential khác. Metadata release ràng buộc SHA/build ID/platform/digest/schema để các task sau triển khai đúng artifact.
