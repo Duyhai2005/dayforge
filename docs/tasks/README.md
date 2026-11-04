@@ -10,7 +10,7 @@
 
 **Spec:** [Thiết kế T01 đã duyệt](t01/design.md), [tổng quan hồ sơ](../project-definition/README.md), [yêu cầu chức năng](../project-definition/02-functional-requirements.md), [UX](../project-definition/03-ux-and-interactions.md), [kiến trúc](../project-definition/04-technical-architecture.md), [dữ liệu và đồng bộ](../project-definition/05-data-and-sync.md), [nghiệm thu](../project-definition/06-delivery-and-acceptance.md).
 
-Ngày cập nhật: **04/11/2026** · Trạng thái: **T01–T03 hoàn thành thiết kế/hợp đồng; T04–T09 hoàn thành nền theo các báo cáo kiểm chứng liên kết bên dưới. T10–T13 đã có lõi sync server/client, reducer và offline shell; còn kiểm chứng lại sau khi tích hợp với nền `develop`, nghiệm thu UX lịch và môi trường đích. T14–T27 đã merge PR #14–#27 sau khi CI xanh. T28 có ma trận local 35 PASS/3 TARGET_PENDING; PR/CI đang chờ. T29–T36 còn lại; email tới inbox production thuộc T30/T32.**
+Ngày cập nhật: **04/11/2026** · Trạng thái: **T01–T03 hoàn thành thiết kế/hợp đồng; T04–T09 hoàn thành nền theo các báo cáo kiểm chứng liên kết bên dưới. T10–T13 đã có lõi sync server/client, reducer và offline shell; còn kiểm chứng lại sau khi tích hợp với nền `develop`, nghiệm thu UX lịch và môi trường đích. T14–T27 đã merge PR #14–#27 sau khi CI xanh. T28 có ma trận 35 PASS/3 TARGET_PENDING; hai workflow CI đã xanh trên code candidate của PR #28, đang chờ CI cuối sau cập nhật tài liệu và merge. T29–T36 còn lại; email tới inbox production thuộc T30/T32.**
 
 ## 1. Cách dùng kế hoạch
 
@@ -112,9 +112,9 @@ Kế hoạch triển khai, phụ thuộc và tiêu chí nghiệm thu chi tiết:
 - [x] **T25 — Hoàn thiện trạng thái lỗi, tài khoản và sync.** Hoàn thành và merge PR #25 sau CI xanh; trạng thái sync, Retry-After, phiên hết hạn, pending theo owner và logout khi form bẩn đã được kiểm tra trên PR.
 - [x] **T26 — Hoàn thiện khả năng thao tác.** Hoàn thành và merge PR #26 sau CI xanh; xem [báo cáo kiểm chứng](t26/review-and-verification.md).
 - [x] **T27 — Tối ưu hiệu năng desktop.** Hoàn thành và merge PR #27 sau CI xanh; xem [kết quả benchmark](t27/performance-results.md).
-- [ ] **T28 — Kiểm thử tích hợp, nghiệm thu và sửa lỗi.** Ma trận [AC-01–AC-38](t28/acceptance-results.md) hiện có 35 PASS và 3 TARGET_PENDING (AC-31/32 inbox thật tại T32; AC-36 host độc lập tại T32/T36). Local checks đã chạy; PR CI đang chờ.
+- [x] **T28 — Kiểm thử tích hợp, nghiệm thu và sửa lỗi.** Ma trận [AC-01–AC-38](t28/acceptance-results.md) có 35 PASS và 3 TARGET_PENDING (AC-31/32 inbox thật tại T32; AC-36 host độc lập tại T32/T36). Code candidate của PR #28 đã qua cả hai workflow CI; tài liệu thay đổi sau đó sẽ được CI kiểm tra lại trước merge.
 
-**Kết quả nhóm:** T24–T27 đã merge qua CI. T28 lưu kết quả kiểm chứng local cho 35 tiêu chí; AC-31/32 cần inbox thật và AC-36 cần host độc lập ở T32/T36, chưa coi các case đó đã đạt. PR/CI của T28 đang chờ; các kết quả này chưa phải xác nhận production. T24/T25 cần các luồng tính năng hoàn chỉnh; T26/T27 có thể chạy song song sau đó; T28 chốt đối chiếu trước deploy.
+**Kết quả nhóm:** T24–T27 đã merge qua CI; T28 đã hoàn tất ma trận và code candidate, với cả hai workflow xanh. AC-31/32 vẫn cần inbox thật và AC-36 cần host độc lập ở T32/T36; chưa coi các case đó đã đạt, và Group 6 chưa phải xác nhận production. PR #28 cần CI cuối sau cập nhật tài liệu rồi mới merge. T24/T25 cần các luồng tính năng hoàn chỉnh; T26/T27 có thể chạy song song sau đó; T28 chốt đối chiếu trước deploy.
 
 ### Nhóm 7 — Chuẩn bị và diễn tập deploy · T29–T33
 

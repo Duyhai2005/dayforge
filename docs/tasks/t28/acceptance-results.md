@@ -38,7 +38,9 @@ pnpm --filter @dayforge/frontend exec playwright test tests/auth-session.spec.ts
 pnpm --filter @dayforge/frontend exec playwright test --config=playwright.production.config.ts tests/auth-session.spec.ts --grep "milestoneEditsStayConsistentAcrossBothCalendarsWhenAWorkItemMoves" --workers=1
 ```
 
-The final PR CI run will execute the complete workflows on the pushed candidate SHA.
+## GitHub CI
+
+On code candidate SHA `e181e6782d267ae45992baff3d2755182d3d38cb`, [CI run #109](https://github.com/Duyhai2005/dayforge/actions/runs/41745077977) passed all three jobs (`quality`, `frontend`, `backend-mysql`), and [Offline web run #116](https://github.com/Duyhai2005/dayforge/actions/runs/41745077935) passed `offline-web`. The Group 6 status update below is documentation-only; its resulting PR head is subject to a final CI rerun before merge.
 
 ## AC-01–AC-38 matrix
 
