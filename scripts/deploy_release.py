@@ -14,7 +14,11 @@ from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
 from scripts.deploy_config import DeployConfig, DeployConfigError, load_deploy_config
-from scripts.release_manifest import ReleaseManifest, ReleaseManifestError, load_release_manifest
+from scripts.release_manifest import (
+    ReleaseManifest,
+    ReleaseManifestError,
+    load_release_manifest,
+)
 from scripts.smoke_deploy import SmokeDeploymentError, smoke_deployment
 
 _REVISION_LINE = re.compile(r"(?m)^([A-Za-z0-9_-]{1,64})(?:\s+\(head\))?\s*$")
@@ -35,7 +39,9 @@ class DeploymentResult:
 Runner = Callable[[Sequence[str], Mapping[str, str]], subprocess.CompletedProcess[str]]
 
 
-def _run(arguments: Sequence[str], environment: Mapping[str, str]) -> subprocess.CompletedProcess[str]:
+def _run(
+    arguments: Sequence[str], environment: Mapping[str, str]
+) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
             list(arguments),
@@ -172,17 +178,31 @@ def _backup_is_recent(state_dir: Path, now: datetime) -> bool:
     if not (state_dir / "backup.enabled").is_file():
         return False
     try:
-        record = json.loads((state_dir / "last-backup.json").read_text(encoding="utf-8"))
-        timestamp = datetime.fromisoformat(record["completed_at"].replace("Z", "+00:00"))
+        record = json.loads(
+            (state_dir / "last-backup.json").read_text(encoding="utf-8")
+        )
+        timestamp = datetime.fromisoformat(
+            record["completed_at"].replace("Z", "+00:00")
+        )
         if timestamp.tzinfo is None:
             return False
-    except OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError, AttributeError, ValueError:
+    except (
+        OSError,
+        UnicodeError,
+        json.JSONDecodeError,
+        KeyError,
+        TypeError,
+        AttributeError,
+        ValueError,
+    ):
         return False
     age = now.astimezone(timezone.utc) - timestamp.astimezone(timezone.utc)
     return timedelta(0) <= age <= _BACKUP_MAX_AGE
 
 
-def _write_current_release(state_dir: Path, manifest: ReleaseManifest, revision: str) -> None:
+def _write_current_release(
+    state_dir: Path, manifest: ReleaseManifest, revision: str
+) -> None:
     state_dir.mkdir(parents=True, exist_ok=True)
     destination = state_dir / "current-release.json"
     temporary = state_dir / f".current-release-{os.getpid()}.tmp"
@@ -191,7 +211,9 @@ def _write_current_release(state_dir: Path, manifest: ReleaseManifest, revision:
         "git_sha": manifest.git_sha,
         "build_id": manifest.build_id,
         "database_revision": revision,
-        "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "recorded_at": datetime.now(timezone.utc)
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z"),
     }
     try:
         descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -275,12 +297,17 @@ def deploy_release(
     if not maintenance_dir.is_dir():
         raise DeploymentError("maintenance_gate_unavailable")
     env_path = env_file or config.secrets_dir.parent / "runtime.env"
-    compose_path = compose_file or Path(__file__).resolve().parents[1] / "deploy" / "compose.app.yaml"
+    compose_path = (
+        compose_file
+        or Path(__file__).resolve().parents[1] / "deploy" / "compose.app.yaml"
+    )
     prefix, environment = _compose_prefix(config, release, env_path, compose_path)
 
     lock_path = state_dir / "operation.lock"
     try:
-        lock_descriptor = os.open(lock_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        lock_descriptor = os.open(
+            lock_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+        )
     except FileExistsError:
         raise DeploymentError("deployment_already_running_or_lock_stale") from None
     except OSError:
@@ -293,7 +320,13 @@ def deploy_release(
             raise DeploymentError("deployment_clock_invalid")
         existing_tables: int | None = None
         # Pull only the three services pinned by the release manifest.
-        _execute(runner, prefix, environment, ("pull", "mysql", "api", "web"), "image_pull_failed")
+        _execute(
+            runner,
+            prefix,
+            environment,
+            ("pull", "mysql", "api", "web"),
+            "image_pull_failed",
+        )
         _execute(
             runner,
             prefix,
@@ -322,7 +355,11 @@ def deploy_release(
         else:
             if current_record.is_file() is False:
                 raise DeploymentError("existing_target_record_missing")
-            if existing_tables == 0 or current is None or current not in release.supported_db_revisions:
+            if (
+                existing_tables == 0
+                or current is None
+                or current not in release.supported_db_revisions
+            ):
                 raise DeploymentError("database_revision_unsupported")
             if not _backup_is_recent(state_dir, instant):
                 raise DeploymentError("recent_backup_required")
@@ -330,9 +367,15 @@ def deploy_release(
         _set_maintenance(maintenance_dir, True)
         _execute(runner, prefix, environment, ("stop", "api"), "api_stop_failed")
         _execute(
-            runner, prefix, environment, ("run", "--rm", "--no-deps", "migrate", "upgrade", "head"), "migration_failed"
+            runner,
+            prefix,
+            environment,
+            ("run", "--rm", "--no-deps", "migrate", "upgrade", "head"),
+            "migration_failed",
         )
-        migrated = _current_revision(runner, prefix, environment, allow_uninitialized=False)
+        migrated = _current_revision(
+            runner, prefix, environment, allow_uninitialized=False
+        )
         if migrated != release.required_db_revision:
             raise DeploymentError("database_revision_mismatch")
         _execute(
@@ -354,7 +397,9 @@ def deploy_release(
         except DeploymentError:
             _set_maintenance(maintenance_dir, True)
             raise
-        return DeploymentResult(release_id=release.release_id, migrated_revision=migrated, healthy=True)
+        return DeploymentResult(
+            release_id=release.release_id, migrated_revision=migrated, healthy=True
+        )
     finally:
         os.close(lock_descriptor)
         try:
