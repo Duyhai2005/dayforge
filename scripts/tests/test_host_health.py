@@ -46,7 +46,12 @@ class HostHealthTests(unittest.TestCase):
             self.config,
             now=self.now,
             http_status=lambda url: next(
-                (status for suffix, status in self.statuses.items() if url.endswith(suffix)), None
+                (
+                    status
+                    for suffix, status in self.statuses.items()
+                    if url.endswith(suffix)
+                ),
+                None,
             ),
             disk_usage=lambda _: SimpleNamespace(total=100, used=disk_percent),
             clock_synchronized=lambda: clock,
@@ -67,18 +72,28 @@ class HostHealthTests(unittest.TestCase):
     def test_backup_stale_only_when_enabled_and_after_26_hours(self):
         self.state.mkdir(parents=True, exist_ok=True)
         timestamp = (self.now - timedelta(hours=26)).isoformat().replace("+00:00", "Z")
-        (self.state / "last-backup.json").write_text(json.dumps({"completed_at": timestamp}), encoding="utf-8")
+        (self.state / "last-backup.json").write_text(
+            json.dumps({"completed_at": timestamp}), encoding="utf-8"
+        )
         self.assertNotIn("backup_stale", self.check().codes)
         (self.state / "backup.enabled").touch()
         self.assertNotIn("backup_stale", self.check().codes)
-        timestamp = (self.now - timedelta(hours=26, seconds=1)).isoformat().replace("+00:00", "Z")
-        (self.state / "last-backup.json").write_text(json.dumps({"completed_at": timestamp}), encoding="utf-8")
+        timestamp = (
+            (self.now - timedelta(hours=26, seconds=1))
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+        (self.state / "last-backup.json").write_text(
+            json.dumps({"completed_at": timestamp}), encoding="utf-8"
+        )
         self.assertIn("backup_stale", self.check().codes)
 
     def test_malformed_backup_report_is_fixed_code_not_content(self):
         self.state.mkdir(parents=True, exist_ok=True)
         (self.state / "backup.enabled").touch()
-        (self.state / "last-backup.json").write_text("private secret sentinel", encoding="utf-8")
+        (self.state / "last-backup.json").write_text(
+            "private secret sentinel", encoding="utf-8"
+        )
         report = self.check()
         self.assertIn("backup_stale", report.codes)
         self.assertNotIn("private secret sentinel", str(report))
