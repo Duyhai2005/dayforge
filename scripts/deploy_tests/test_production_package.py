@@ -81,6 +81,7 @@ class ProductionPackageSmokeTests(unittest.TestCase):
             "\n".join(
                 (
                     f"COMPOSE_PROJECT={self.project}",
+                    "DEPLOYMENT_ENV=staging",
                     "APP_ENV=production",
                     "PUBLIC_ORIGIN=https://staging.example.test",
                     "DB_NAME=dayforge_staging",
@@ -312,3 +313,4 @@ class ProductionPackageSmokeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
