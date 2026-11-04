@@ -10,7 +10,7 @@ import { stageBootstrapPage } from "../../lib/sync/bootstrap";
 import { readRecordedShadow, rebuildOwnerProjection } from "../../lib/sync/projection";
 import type { CoordinatorStatus } from "../../lib/sync/coordinator";
 import type { SyncCommand, UUID } from "../../lib/sync/protocol";
-import { semanticRootHash, workItemsForDates, type RecurrenceRule, type TaskData, type TaskTemplate } from "../../lib/sync/reducer";
+import { semanticRootHash, workItemsForDates, type MilestoneData, type RecurrenceRule, type TaskData, type TaskTemplate } from "../../lib/sync/reducer";
 import { useAccount } from "../account/account-provider";
 
 const BUILD_ID = process.env.NEXT_PUBLIC_DAYFORGE_BUILD_ID ?? "development";
@@ -50,6 +50,7 @@ async function inspect(dates: string[] = []): Promise<{
   planColors: Array<{ id: UUID; name: string; colorId: string }>;
   recurrenceFamilies: Array<{ rootId: UUID; rootHash: string; deleted: boolean; family: unknown }>;
   workItems: Array<{ id: UUID; rootId: UUID; data: TaskData; target: unknown }>;
+  milestones: Array<{ id: UUID; data: MilestoneData }>;
   deletedWorkItemIds: string[];
   localStateRevision: number;
   clockCalibration: {
@@ -101,6 +102,10 @@ async function inspect(dates: string[] = []): Promise<{
       .sort((left, right) => left.rootId.localeCompare(right.rootId));
     const workItems = (await workItemsForDates(projection.replay.state, dates))
       .map(({ id, root_id, data, target }) => ({ id, rootId: root_id, data, target }));
+    const milestones = Object.entries(projection.replay.state.roots)
+      .filter(([key, value]) => key.startsWith("milestone:") && !value.deleted)
+      .map(([key, value]) => ({ id: key.slice("milestone:".length) as UUID, data: (value as { data: MilestoneData }).data }))
+      .sort((left, right) => left.id.localeCompare(right.id));
     const deletedWorkItemIds = Object.entries(projection.replay.state.roots)
       .filter(([key, value]) => key.startsWith("work_item:") && "kind" in value && value.deleted)
       .map(([key]) => key.slice("work_item:".length))
@@ -123,6 +128,7 @@ async function inspect(dates: string[] = []): Promise<{
       planColors,
       recurrenceFamilies,
       workItems,
+      milestones,
       deletedWorkItemIds,
       localStateRevision: snapshot.metadata.local_state_revision,
       clockCalibration: snapshot.metadata.clock_calibration ? {

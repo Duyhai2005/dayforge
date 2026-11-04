@@ -10,7 +10,7 @@
 
 **Spec:** [Thiết kế T01 đã duyệt](t01/design.md), [tổng quan hồ sơ](../project-definition/README.md), [yêu cầu chức năng](../project-definition/02-functional-requirements.md), [UX](../project-definition/03-ux-and-interactions.md), [kiến trúc](../project-definition/04-technical-architecture.md), [dữ liệu và đồng bộ](../project-definition/05-data-and-sync.md), [nghiệm thu](../project-definition/06-delivery-and-acceptance.md).
 
-Ngày cập nhật: **03/11/2026** · Trạng thái: **T01–T03 hoàn thành thiết kế/hợp đồng; T04–T09 hoàn thành nền theo các báo cáo kiểm chứng liên kết bên dưới. T10–T13 đã có lõi sync server/client, reducer và offline shell; còn kiểm chứng lại sau khi tích hợp với nền `develop`, nghiệm thu UX lịch và môi trường đích. T14–T19 đã merge PR #14–#19 sau khi CI xanh. T20 đã hoàn tất và CI xanh trên PR #20; T21–T36 còn lại; email tới inbox production thuộc T30/T32.**
+Ngày cập nhật: **04/11/2026** · Trạng thái: **T01–T03 hoàn thành thiết kế/hợp đồng; T04–T09 hoàn thành nền theo các báo cáo kiểm chứng liên kết bên dưới. T10–T13 đã có lõi sync server/client, reducer và offline shell; còn kiểm chứng lại sau khi tích hợp với nền `develop`, nghiệm thu UX lịch và môi trường đích. T14–T27 đã merge PR #14–#27 sau khi CI xanh. T28 có ma trận 35 PASS/3 TARGET_PENDING và PR #28 đã qua cả hai workflow CI. T29–T36 còn lại; email tới inbox production thuộc T30/T32.**
 
 ## 1. Cách dùng kế hoạch
 
@@ -108,13 +108,13 @@ Kế hoạch triển khai, phụ thuộc và tiêu chí nghiệm thu chi tiết:
 
 ### Nhóm 6 — Làm web đủ ổn để dùng hằng ngày · T24–T28
 
-- [ ] **T24 — Hoàn thiện chất lượng thị giác và chuyển động.** Tinh chỉnh hai lịch, widget, chuyển trang, kéo thả và form theo một bộ token/animation nhất quán, không gây rối.
-- [ ] **T25 — Hoàn thiện trạng thái lỗi, tài khoản và sync.** Có loading/rỗng, lỗi form/lưu/email, chưa xác minh, hết phiên, offline/chờ sync và lỗi LWW; giữ bản nháp/pending, cảnh báo đăng xuất và hướng dẫn đăng nhập lại đúng owner.
-- [ ] **T26 — Hoàn thiện khả năng thao tác.** Kiểm tra bàn phím, focus/overlay, nhãn biểu tượng, tương phản, tiếng Việt và giảm chuyển động trên các luồng chính.
-- [ ] **T27 — Tối ưu hiệu năng desktop.** Kiểm tra ngày nhiều việc, lịch năm, việc lặp và đồng bộ khi app mở; sửa giật/nhảy bố cục, giữ cỡ chữ dễ đọc trên màn laptop và màn lớn.
-- [ ] **T28 — Kiểm thử tích hợp, nghiệm thu và sửa lỗi.** Lập đối chiếu AC-01–AC-38 với kết quả; kiểm tra auth/Origin/CSRF/secrets/cache owner, email tới inbox, offline/LWW và dữ liệu biên, ghi rõ case môi trường đích cần T32/T36 xác nhận.
+- [x] **T24 — Hoàn thiện chất lượng thị giác và chuyển động.** Hoàn thành và merge PR #24 sau CI xanh; xem [báo cáo kiểm chứng](t24/review-and-verification.md).
+- [x] **T25 — Hoàn thiện trạng thái lỗi, tài khoản và sync.** Hoàn thành và merge PR #25 sau CI xanh; trạng thái sync, Retry-After, phiên hết hạn, pending theo owner và logout khi form bẩn đã được kiểm tra trên PR.
+- [x] **T26 — Hoàn thiện khả năng thao tác.** Hoàn thành và merge PR #26 sau CI xanh; xem [báo cáo kiểm chứng](t26/review-and-verification.md).
+- [x] **T27 — Tối ưu hiệu năng desktop.** Hoàn thành và merge PR #27 sau CI xanh; xem [kết quả benchmark](t27/performance-results.md).
+- [x] **T28 — Kiểm thử tích hợp, nghiệm thu và sửa lỗi.** Ma trận [AC-01–AC-38](t28/acceptance-results.md) có 35 PASS và 3 TARGET_PENDING (AC-31/32 inbox thật tại T32; AC-36 host độc lập tại T32/T36). PR #28 đã qua cả hai workflow CI.
 
-**Kết quả nhóm:** có bản ứng viên đạt nghiệm thu chức năng và dữ liệu trên máy mục tiêu; lưu kết quả và chỉ rõ case cần môi trường đích ở T32/T36, chưa coi các case đó đã đạt. T24/T25 cần các luồng tính năng hoàn chỉnh; T26/T27 có thể chạy song song sau đó; T28 chốt đối chiếu trước deploy.
+**Kết quả nhóm:** T24–T27 đã merge qua CI; T28 đã hoàn tất ma trận, và PR #28 đã qua cả hai workflow. AC-31/32 vẫn cần inbox thật và AC-36 cần host độc lập ở T32/T36; chưa coi các case đó đã đạt, và Group 6 chưa phải xác nhận production. T24/T25 cần các luồng tính năng hoàn chỉnh; T26/T27 có thể chạy song song sau đó; T28 chốt đối chiếu trước deploy.
 
 ### Nhóm 7 — Chuẩn bị và diễn tập deploy · T29–T33
 

@@ -566,30 +566,69 @@ async function runBrowserScenario(baseURL) {
     const reconnectDelete = await pageA.evaluate(({ workItemId, dependencyId }) =>
       window.__dayforgeSyncBrowserHarness.deleteWorkItem(workItemId, dependencyId),
     { workItemId: reconnectWorkItem.workItemId, dependencyId: reconnectWorkItem.operationId });
-    const reconnectOperations = [reconnectOperation, reconnectEdit, reconnectWorkItem, reconnectDelete];
+    const milestoneId = await pageA.evaluate(() => crypto.randomUUID());
+    const milestoneOriginalData = {
+      title: `${name}-milestone-note`,
+      date: "2030-01-08",
+      period: null,
+      note: "Ghi chú ban đầu.\nGiữ đúng tiếng Việt.",
+      plan_id: null,
+      standalone_color_id: "neutral",
+      show_in_work_calendar: true,
+    };
+    const milestoneEditedData = {
+      ...milestoneOriginalData,
+      note: "Đã sửa ghi chú ngoại tuyến.\nDòng thứ hai có dấu: ă, đ, ơ, ư.",
+    };
+    const milestoneCreate = await pageA.evaluate(({ id, data }) =>
+      window.__dayforgeSyncBrowserHarness.seedDensityCommands([{
+        root: { kind: "milestone", id },
+        action: "milestone.create",
+        payload: { data },
+        precondition: null,
+      }]), { id: milestoneId, data: milestoneOriginalData });
+    const milestoneEdit = await pageA.evaluate(({ id, data, dependencyId }) =>
+      window.__dayforgeSyncBrowserHarness.seedDensityCommands([{
+        root: { kind: "milestone", id },
+        action: "milestone.replace",
+        payload: { data },
+        precondition: null,
+      }], [dependencyId]), {
+      id: milestoneId,
+      data: milestoneEditedData,
+      dependencyId: milestoneCreate.operationId,
+    });
+    const reconnectOperations = [reconnectOperation, reconnectEdit, reconnectWorkItem, reconnectDelete, milestoneCreate, milestoneEdit];
     await waitFor(async () => {
       const state = await pageA.evaluate(() => window.__dayforgeSyncBrowserHarness.inspect());
       return state.planNames.includes(reconnectEditedName) && !state.planNames.includes(reconnectName) &&
         state.deletedWorkItemIds.includes(reconnectWorkItem.workItemId) &&
+        state.milestones.some((item) => item.id === milestoneId && item.data.note === milestoneEditedData.note && item.data.period === null) &&
         reconnectOperations.every((operation) => state.pending.some((entry) =>
           entry.operationId === operation.operationId && entry.state === "queued"));
-    }, "offline create, edit, and delete operations to stay committed locally and queued with dependencies", 20_000);
+    }, "offline work and milestone note operations to stay committed locally and queued with dependencies", 20_000);
     const beforeReconnectA = await pageA.evaluate(() => window.__dayforgeSyncBrowserHarness.inspect());
     assert(reconnectOperations.every((operation) => beforeReconnectA.pending.some((entry) => entry.operationId === operation.operationId)),
       "every offline create, edit, and delete operation must remain pending before reconnection");
+    const beforeReconnectB = await pageB.evaluate(() => window.__dayforgeSyncBrowserHarness.inspect());
+    assert(!beforeReconnectB.milestones.some((item) => item.id === milestoneId),
+      "the other device must not see an offline milestone before reconnection");
     await contextA.setOffline(false);
     await pageA.evaluate(() => { window.dispatchEvent(new Event("online")); window.__dayforgeSyncBrowserHarness.wakeSync(); });
     await pageB.evaluate(() => { window.dispatchEvent(new Event("online")); window.__dayforgeSyncBrowserHarness.wakeSync(); });
-    const allReconnectOperationsRecorded = async (page) => page.evaluate(({ expectedIds, editedName, deletedWorkItemId }) => {
+    const allReconnectOperationsRecorded = async (page) => page.evaluate(({ expectedIds, editedName, deletedWorkItemId, milestoneId, milestoneNote }) => {
       return window.__dayforgeSyncBrowserHarness.inspect().then((state) =>
         expectedIds.every((id) => state.recordedEvents.some((event) => event.operationId === id) &&
           !state.pending.some((entry) => entry.operationId === id)) &&
         state.planNames.includes(editedName) && !state.planNames.includes(`${editedName.replace(/-edited$/, "-original")}`) &&
-        state.deletedWorkItemIds.includes(deletedWorkItemId));
+        state.deletedWorkItemIds.includes(deletedWorkItemId) &&
+        state.milestones.some((item) => item.id === milestoneId && item.data.note === milestoneNote && item.data.period === null));
     }, {
       expectedIds: reconnectOperations.map((operation) => operation.operationId),
       editedName: reconnectEditedName,
       deletedWorkItemId: reconnectWorkItem.workItemId,
+      milestoneId,
+      milestoneNote: milestoneEditedData.note,
     });
     await waitFor(() => allReconnectOperationsRecorded(pageA),
       "device A to reconnect and record its dependent create/edit/delete operations in MySQL", 60_000);
@@ -611,9 +650,50 @@ async function runBrowserScenario(baseURL) {
       assert(state.planNames.includes(reconnectEditedName), "offline plan edit must survive reconnect and replay");
       assert(!state.planNames.includes(reconnectName), "offline plan replacement must win on both devices");
       assert(state.deletedWorkItemIds.includes(reconnectWorkItem.workItemId), "offline delete tombstone must survive reconnect");
+      assert(state.milestones.some((item) => item.id === milestoneId && item.data.note === milestoneEditedData.note &&
+        item.data.period === null && item.data.show_in_work_calendar),
+      "multiline Vietnamese milestone note and all-day visibility must survive reconnect on both devices");
     }
     console.log("Offline create/edit/delete operations reconnected in dependency order with original ids/hashes and converged through MySQL on both devices.");
 
+    await contextA.setOffline(true);
+    const milestoneClearedData = { ...milestoneEditedData, note: "" };
+    const milestoneClear = await pageA.evaluate(({ id, data, dependencyId }) =>
+      window.__dayforgeSyncBrowserHarness.seedDensityCommands([{
+        root: { kind: "milestone", id },
+        action: "milestone.replace",
+        payload: { data },
+        precondition: null,
+      }], [dependencyId]), {
+      id: milestoneId,
+      data: milestoneClearedData,
+      dependencyId: milestoneEdit.operationId,
+    });
+    reconnectOperations.push(milestoneClear);
+    await waitFor(async () => {
+      const state = await pageA.evaluate((id) => window.__dayforgeSyncBrowserHarness.inspect().then((snapshot) => ({
+        milestone: snapshot.milestones.find((item) => item.id === id),
+        pending: snapshot.pending,
+      })), milestoneId);
+      return state.milestone?.data.note === "" &&
+        state.pending.some((entry) => entry.operationId === milestoneClear.operationId && entry.state === "queued");
+    }, "offline milestone note removal to remain locally visible and queued");
+    const remoteBeforeNoteClear = await pageB.evaluate((id) =>
+      window.__dayforgeSyncBrowserHarness.inspect().then((state) => state.milestones.find((item) => item.id === id)), milestoneId);
+    assert.equal(remoteBeforeNoteClear?.data.note, milestoneEditedData.note,
+      "the other device must retain the last synced note until the note removal reconnects");
+    await contextA.setOffline(false);
+    await pageA.evaluate(() => { window.dispatchEvent(new Event("online")); window.__dayforgeSyncBrowserHarness.wakeSync(); });
+    await pageB.evaluate(() => { window.dispatchEvent(new Event("online")); window.__dayforgeSyncBrowserHarness.wakeSync(); });
+    const milestoneClearConverged = async (page) => page.evaluate(({ id, operationId }) =>
+      window.__dayforgeSyncBrowserHarness.inspect().then((state) => {
+        const marker = state.milestones.find((item) => item.id === id);
+        return marker?.data.note === "" && state.recordedEvents.some((event) => event.operationId === operationId) &&
+          !state.pending.some((entry) => entry.operationId === operationId);
+      }), { id: milestoneId, operationId: milestoneClear.operationId });
+    await waitFor(() => milestoneClearConverged(pageA), "device A to record the offline milestone note removal in MySQL");
+    await waitFor(() => milestoneClearConverged(pageB), "device B to pull the offline milestone note removal from MySQL");
+    console.log("Offline multiline Vietnamese milestone note edits and removal converged on both devices through MySQL.");
     const recurrenceDates = [
       "2030-01-01", "2030-01-08", "2030-01-09", "2030-01-10", "2030-01-15", "2030-01-16",
       "2030-01-17", "2030-01-20", "2030-01-22", "2030-01-24", "2030-01-29", "2030-01-31",
@@ -964,6 +1044,7 @@ async function runBrowserScenario(baseURL) {
       window.__dayforgeSyncBrowserHarness.createPlan(planName), pullAbortName);
     await waitFor(() => isRecorded(pageA, pullAbortName, pullAbortOperation.operationId),
       "device A to record the operation used for pull transaction abort");
+    await pageB.evaluate(() => { window.dispatchEvent(new Event("online")); window.__dayforgeSyncBrowserHarness.wakeSync(); });
     await waitFor(() => Promise.race([
       firstPullAbortResponseHeld.then(() => true),
       new Promise((resolve) => setTimeout(() => resolve(false), 45_000)),

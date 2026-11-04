@@ -1047,7 +1047,9 @@ test("ownerCanMoveAndReorderTasksInsideABucketWithRecurringOccurrences", async (
   await expect(entries).toHaveCount(2);
   await expect(entries.nth(0)).toContainText("Lần lặp");
   await expect(entries.nth(1)).toContainText("Việc đơn");
-  await entries.nth(1).getByRole("button", { name: "Đưa Việc đơn lên trước" }).click();
+  const moveEarlier = entries.nth(1).getByRole("button", { name: "Đưa Việc đơn lên trước" });
+  await moveEarlier.focus();
+  await page.keyboard.press("Enter");
   await expect(entries.nth(0)).toContainText("Việc đơn");
   await expect(entries.nth(1)).toContainText("Lần lặp");
 });
@@ -1270,6 +1272,77 @@ test("milestoneCalendarShowsHiddenMarkersAndOpensTheFullDayAndRelatedWorkWeek", 
   await expect(november).toContainText("Thi giữa kỳ");
   await november.getByRole("button", { name: "Thi giữa kỳ", exact: true }).click();
   await expect(page).toHaveURL(/\/milestones\?date=2026-11-03&scale=month$/);
+});
+
+test("milestoneEditsStayConsistentAcrossBothCalendarsWhenAWorkItemMoves", async ({ page }) => {
+  await mockAuthApi(page);
+  await page.goto("/account");
+  await page.getByLabel("Email").fill("owner@example.test");
+  await page.getByLabel("Mật khẩu").fill("Sundial Maple Crane 7429");
+  await page.getByRole("button", { name: "Đăng nhập và mở kho local", exact: true }).click();
+  await expect.poll(async () => (await readOwnerMeta(page))?.locked).toBe(false);
+
+  await page.goto("/work?date=2026-11-03");
+  const taskBucket = page.locator('.work-week-bucket[data-work-date="2026-11-03"][data-period="afternoon"]');
+  await taskBucket.locator(".work-week-add").click();
+  const taskDialog = page.getByRole("dialog", { name: "Thêm công việc" });
+  await taskDialog.getByLabel("Tên công việc").fill("Ôn ABC");
+  await taskDialog.getByRole("button", { name: "Lưu công việc", exact: true }).click();
+  await expect(taskDialog).toBeHidden();
+
+  await page.getByRole("button", { name: "Mở hoặc đóng điều hướng lịch" }).click();
+  await page.getByRole("button", { name: "Thêm dấu mốc", exact: true }).click();
+  const createMilestone = page.getByRole("dialog", { name: "Thêm dấu mốc" });
+  await createMilestone.getByLabel("Tên dấu mốc").fill("Thi giữa kỳ");
+  await createMilestone.getByLabel("Buổi").selectOption("afternoon");
+  await createMilestone.getByRole("button", { name: "Thêm dấu mốc", exact: true }).click();
+  await expect(createMilestone).toBeHidden();
+
+  await page.goto("/milestones?date=2026-11-03&scale=month");
+  const originalMarker = page.locator('.milestone-month-day[data-milestone-date="2026-11-03"] .milestone-calendar-event')
+    .filter({ hasText: "Thi giữa kỳ" });
+  await expect(originalMarker).toBeVisible();
+  const milestoneId = await originalMarker.getAttribute("data-milestone-id");
+  expect(milestoneId).toBeTruthy();
+  await originalMarker.click();
+  const editMilestone = page.getByRole("dialog", { name: "Sửa dấu mốc" });
+  await editMilestone.getByLabel("Tên dấu mốc").fill("Thi giữa kỳ đã đổi");
+  await editMilestone.getByLabel("Ngày", { exact: true }).fill("2026-11-04");
+  await editMilestone.getByRole("radio", { name: "Xanh lam" }).check();
+  await editMilestone.getByRole("button", { name: "Lưu thay đổi", exact: true }).click();
+  await expect(editMilestone).toBeHidden();
+
+  const editedDay = page.locator('.milestone-month-day[data-milestone-date="2026-11-04"]');
+  const editedMarker = editedDay.locator(".milestone-calendar-event").filter({ hasText: "Thi giữa kỳ đã đổi" });
+  await expect(editedMarker).toBeVisible();
+  await expect(editedMarker).toHaveAttribute("data-milestone-id", milestoneId ?? "");
+  await expect(page.locator('.milestone-month-day[data-milestone-date="2026-11-03"] .milestone-calendar-event')).toHaveCount(0);
+  const milestoneStyle = await editedMarker.getAttribute("style");
+
+  await page.goto("/work?date=2026-11-03");
+  const originalTask = page.locator('.work-week-bucket[data-work-date="2026-11-03"][data-period="afternoon"] .work-task-card')
+    .filter({ hasText: "Ôn ABC" });
+  await expect(originalTask).toBeVisible();
+  const milestoneBucket = page.locator('.work-week-bucket[data-work-date="2026-11-04"][data-period="afternoon"]');
+  const workMarker = milestoneBucket.locator(".work-milestone-card").filter({ hasText: "Thi giữa kỳ đã đổi" });
+  await expect(workMarker).toBeVisible();
+  await expect(workMarker).toHaveAttribute("data-milestone-id", milestoneId ?? "");
+  await expect(workMarker).toHaveAttribute("data-work-date", "2026-11-04");
+  expect(await workMarker.getAttribute("style")).toBe(milestoneStyle);
+
+  const thursdayMorning = page.locator('.work-week-bucket[data-work-date="2026-11-05"][data-period="morning"]');
+  await originalTask.dragTo(thursdayMorning);
+  await expect(thursdayMorning.locator(".work-task-card").filter({ hasText: "Ôn ABC" })).toBeVisible();
+  await expect(milestoneBucket.locator(".work-milestone-card").filter({ hasText: "Thi giữa kỳ đã đổi" }))
+    .toHaveAttribute("data-milestone-id", milestoneId ?? "");
+  await expect(milestoneBucket.locator(".work-milestone-card").filter({ hasText: "Thi giữa kỳ đã đổi" }))
+    .toHaveAttribute("data-work-date", "2026-11-04");
+
+  await page.goto("/milestones?date=2026-11-03&scale=month");
+  const finalMarker = page.locator('.milestone-month-day[data-milestone-date="2026-11-04"] .milestone-calendar-event')
+    .filter({ hasText: "Thi giữa kỳ đã đổi" });
+  await expect(finalMarker).toHaveAttribute("data-milestone-id", milestoneId ?? "");
+  expect(await finalMarker.getAttribute("style")).toBe(milestoneStyle);
 });
 
 test("loginRecoversFromExpiredCsrfByRefreshingAndRetryingOnce", async ({ page }) => {
