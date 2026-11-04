@@ -488,7 +488,7 @@ def rollback_release(
     current_record = state_dir / "current-release.json"
     try:
         recorded = json.loads(current_record.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
+    except OSError, UnicodeError, json.JSONDecodeError:
         raise DeploymentError("existing_target_record_invalid") from None
     if not isinstance(recorded, dict) or any(
         recorded.get(field) != getattr(current_release, field)
@@ -582,7 +582,7 @@ def rollback_release(
                 (smoke or smoke_deployment)(
                     config.public_origin, target_release.build_id
                 )
-            except (SmokeDeploymentError, OSError, TimeoutError, ValueError):
+            except SmokeDeploymentError, OSError, TimeoutError, ValueError:
                 _set_maintenance(maintenance_dir, True)
                 maintenance_started = True
                 raise DeploymentError("post_deploy_smoke_failed") from None
@@ -669,7 +669,7 @@ def activate_restored_release(
         ready = json.loads(ready_path.read_text(encoding="utf-8"))
     except DeploymentError:
         raise
-    except (OSError, UnicodeError, json.JSONDecodeError):
+    except OSError, UnicodeError, json.JSONDecodeError:
         raise DeploymentError("restore_ready_record_invalid") from None
     if (
         not isinstance(ready, dict)
@@ -735,7 +735,7 @@ def activate_restored_release(
             _set_maintenance(maintenance_dir, False)
             try:
                 (smoke or smoke_deployment)(config.public_origin, release.build_id)
-            except (SmokeDeploymentError, OSError, TimeoutError, ValueError):
+            except SmokeDeploymentError, OSError, TimeoutError, ValueError:
                 _set_maintenance(maintenance_dir, True)
                 raise DeploymentError("post_deploy_smoke_failed") from None
             _write_current_release(state_dir, release, revision)
