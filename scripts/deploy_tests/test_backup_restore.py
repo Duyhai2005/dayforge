@@ -86,7 +86,9 @@ class IsolatedDockerRunner:
 
     def popen(self, arguments: Sequence[str], **kwargs):
         command, env = self._isolated(arguments, kwargs.pop("env", {}))
-        if command[:2] == ["docker", "compose"] and "mysqldump" in command:
+        if command[:2] == ["docker", "compose"] and any(
+            "mysqldump" in argument for argument in command
+        ):
             kwargs["stderr"] = subprocess.PIPE
         self.last_popen = subprocess.Popen(command, cwd=ROOT, env=env, **kwargs)
         return self.last_popen
