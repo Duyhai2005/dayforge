@@ -74,8 +74,9 @@ def test_interrupted_0004_stays_unready_then_recovers_by_verified_roll_forward(m
         assert partial_table is not None
 
         database = create_database(settings)
+        loop = asyncio.new_event_loop()
         try:
-            ready = asyncio.run(check_readiness(database, required_revision=required_schema_revision()))
+            ready = loop.run_until_complete(check_readiness(database, required_revision=required_schema_revision()))
             assert ready is False
 
             # On this disposable fixture only, remove the one verified orphan
@@ -83,17 +84,22 @@ def test_interrupted_0004_stays_unready_then_recovers_by_verified_roll_forward(m
             with connection.cursor() as cursor:
                 cursor.execute("DROP TABLE owner_sync_states")
             command.upgrade(base_config, "head")
-            recovered = asyncio.run(check_readiness(database, required_revision=required_schema_revision()))
+            recovered = loop.run_until_complete(check_readiness(database, required_revision=required_schema_revision()))
             assert recovered is True
             with connection.cursor() as cursor:
                 cursor.execute("SELECT version_num FROM alembic_version")
                 assert cursor.fetchone()[0] == "0004_sync"
         finally:
-            asyncio.run(database.engine.dispose())
+            try:
+                loop.run_until_complete(database.engine.dispose())
+            finally:
+                loop.close()
     finally:
         try:
-            with connection.cursor() as cursor:
-                cursor.execute("DROP TABLE IF EXISTS owner_sync_states")
             command.downgrade(base_config, "base")
         finally:
-            connection.close()
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("DROP TABLE IF EXISTS owner_sync_states")
+            finally:
+                connection.close()
