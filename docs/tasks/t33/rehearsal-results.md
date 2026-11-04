@@ -8,10 +8,10 @@ Ngày cập nhật: **04/11/2026** (Asia/Bangkok).
 
 - Python unit tests cho compatibility validator, rehearsal runner, result validator và deploy/rollback: 35 PASS, 1 Windows symlink test SKIP vì symlink creation không khả dụng.
 - Frontend TypeScript typecheck và Playwright `--list`: xác nhận code biên dịch và release config cô lập đúng 11 test; đây không phải browser acceptance trên target.
-- Ruff check/format trên các file Python liên quan T33 đã pass.
+- Ruff check trên các file Python liên quan T33 đã pass; Black là formatter mà workflow CI dùng cho `scripts/`.
 - Disposable MySQL interruption/roll-forward fixture: **chưa chạy**. Docker CLI hiện không thể mở Docker Desktop engine (`permission denied` với pipe `dockerDesktopLinuxEngine`). Không đổi quyền Docker/khởi động hạ tầng trong lần chạy này.
 
-Kết quả cục bộ của lần hoàn thiện harness: 35 Python unit tests PASS, 1 Windows symlink test SKIP vì symlink creation không khả dụng; Ruff check/format PASS; TypeScript typecheck PASS; ESLint các release spec/fixture PASS; Playwright discovery PASS với 11 release tests. Không có Playwright browser test hoặc MySQL integration test được chạy.
+Kết quả cục bộ của lần hoàn thiện harness: 35 Python unit tests PASS, 1 Windows symlink test SKIP vì symlink creation không khả dụng; Ruff check PASS; TypeScript typecheck PASS; ESLint các release spec/fixture PASS; Playwright discovery PASS với 11 release tests. Không có Playwright browser test hoặc MySQL integration test được chạy cục bộ.
 
 ## Ma trận acceptance
 

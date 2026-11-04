@@ -11,6 +11,15 @@
 		respond "Temporarily unavailable" 503
 	}
 	handle {
+		@staging_static path /_next/static/*
+		handle @staging_static {
+			reverse_proxy staging-web:3000 {
+				@missing status 404
+				handle_response @missing {
+					reverse_proxy staging-web-previous:3000
+				}
+			}
+		}
 		reverse_proxy staging-web:3000
 	}
 }
@@ -23,6 +32,15 @@
 		respond "Temporarily unavailable" 503
 	}
 	handle {
+		@production_static path /_next/static/*
+		handle @production_static {
+			reverse_proxy production-web:3000 {
+				@missing status 404
+				handle_response @missing {
+					reverse_proxy production-web-previous:3000
+				}
+			}
+		}
 		reverse_proxy production-web:3000
 	}
 }

@@ -8,11 +8,17 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Callable, Mapping, Sequence
 
+from scripts.check_release_compatibility import (
+    RuntimeCompatibility,
+    RuntimeCompatibilityError,
+    check_release_compatibility,
+    load_runtime_compatibility,
+)
 from scripts.deploy_config import DeployConfig, DeployConfigError, load_deploy_config
 from scripts.release_manifest import (
     ReleaseManifest,
@@ -55,7 +61,10 @@ def _run(
         raise DeploymentError("command_unavailable_or_timed_out") from None
 
 
-def _docker_environment(manifest: ReleaseManifest) -> dict[str, str]:
+def _docker_environment(
+    manifest: ReleaseManifest,
+    previous_web_image: str | None = None,
+) -> dict[str, str]:
     allowed = {
         key: os.environ[key]
         for key in (
@@ -74,6 +83,11 @@ def _docker_environment(manifest: ReleaseManifest) -> dict[str, str]:
         API_IMAGE=manifest.api_image,
         MYSQL_IMAGE=manifest.mysql_image,
     )
+    if previous_web_image is not None:
+        allowed.update(
+            WEB_PREVIOUS_IMAGE=previous_web_image,
+            COMPOSE_PROFILES="previous-static",
+        )
     return allowed
 
 
@@ -82,10 +96,12 @@ def _compose_prefix(
     manifest: ReleaseManifest,
     env_file: Path,
     compose_file: Path,
+    *,
+    previous_web_image: str | None = None,
 ) -> tuple[list[str], dict[str, str]]:
     if not env_file.is_file() or not compose_file.is_file():
         raise DeploymentError("runtime_configuration_missing")
-    environment = _docker_environment(manifest)
+    environment = _docker_environment(manifest, previous_web_image)
     environment.update(
         COMPOSE_PROJECT=config.compose_project,
         DEPLOYMENT_ENV=config.environment,
@@ -276,6 +292,7 @@ def deploy_release(
     release: ReleaseManifest,
     *,
     initialize: bool = False,
+    previous_release: ReleaseManifest | None = None,
     env_file: Path | None = None,
     compose_file: Path | None = None,
     runner: Runner = _run,
@@ -289,6 +306,12 @@ def deploy_release(
         raise DeploymentError("release_platform_mismatch")
     if release.required_db_revision not in release.supported_db_revisions:
         raise DeploymentError("release_database_contract_invalid")
+    if previous_release is not None and (
+        previous_release.platform != config.platform
+        or previous_release.release_id == release.release_id
+        or previous_release.mysql_image != release.mysql_image
+    ):
+        raise DeploymentError("previous_release_invalid")
     if initialize and config.environment not in {"staging", "restore"}:
         raise DeploymentError("initialize_environment_not_allowed")
     state_dir = config.state_dir
@@ -302,7 +325,13 @@ def deploy_release(
         compose_file
         or Path(__file__).resolve().parents[1] / "deploy" / "compose.app.yaml"
     )
-    prefix, environment = _compose_prefix(config, release, env_path, compose_path)
+    prefix, environment = _compose_prefix(
+        config,
+        release,
+        env_path,
+        compose_path,
+        previous_web_image=previous_release.web_image if previous_release else None,
+    )
 
     lock_path = state_dir / "operation.lock"
     try:
@@ -325,7 +354,13 @@ def deploy_release(
             runner,
             prefix,
             environment,
-            ("pull", "mysql", "api", "web"),
+            (
+                "pull",
+                "mysql",
+                "api",
+                "web",
+                *(("web_previous",) if previous_release else ()),
+            ),
             "image_pull_failed",
         )
         _execute(
@@ -409,6 +444,321 @@ def deploy_release(
             pass
 
 
+def rollback_release(
+    config: DeployConfig,
+    current_release: ReleaseManifest,
+    target_release: ReleaseManifest,
+    runtime: RuntimeCompatibility,
+    *,
+    env_file: Path | None = None,
+    compose_file: Path | None = None,
+    runner: Runner = _run,
+    now: datetime | None = None,
+    smoke: Callable[[str, str], object] | None = None,
+) -> DeploymentResult:
+    """Switch back to a compatible binary release without changing the database."""
+    if config.environment not in {"staging", "restore"}:
+        raise DeploymentError("environment_not_allowed")
+    if (
+        current_release.platform != config.platform
+        or target_release.platform != config.platform
+    ):
+        raise DeploymentError("release_platform_mismatch")
+    if current_release.release_id == target_release.release_id:
+        raise DeploymentError("rollback_release_unchanged")
+    if target_release.required_db_revision not in target_release.supported_db_revisions:
+        raise DeploymentError("release_database_contract_invalid")
+    if not check_release_compatibility(target_release, runtime).allowed:
+        raise DeploymentError("rollback_incompatible")
+
+    state_dir = config.state_dir
+    if not state_dir.is_dir():
+        raise DeploymentError("state_directory_missing")
+    maintenance_dir = state_dir / "edge-maintenance"
+    if not maintenance_dir.is_dir():
+        raise DeploymentError("maintenance_gate_unavailable")
+    env_path = env_file or config.secrets_dir.parent / "runtime.env"
+    compose_path = (
+        compose_file
+        or Path(__file__).resolve().parents[1] / "deploy" / "compose.app.yaml"
+    )
+    if not env_path.is_file() or not compose_path.is_file():
+        raise DeploymentError("runtime_configuration_missing")
+
+    current_record = state_dir / "current-release.json"
+    try:
+        recorded = json.loads(current_record.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        raise DeploymentError("existing_target_record_invalid") from None
+    if not isinstance(recorded, dict) or any(
+        recorded.get(field) != getattr(current_release, field)
+        for field in ("release_id", "git_sha", "build_id")
+    ):
+        raise DeploymentError("current_release_record_mismatch")
+
+    instant = now or datetime.now(timezone.utc)
+    if instant.tzinfo is None or instant.utcoffset() is None:
+        raise DeploymentError("deployment_clock_invalid")
+    if not _backup_is_recent(state_dir, instant):
+        raise DeploymentError("recent_backup_required")
+
+    current_prefix, current_environment = _compose_prefix(
+        config, current_release, env_path, compose_path
+    )
+    target_prefix, target_environment = _compose_prefix(
+        config,
+        target_release,
+        env_path,
+        compose_path,
+        previous_web_image=current_release.web_image,
+    )
+    # Keep the database server binary at the version already running with B.
+    target_environment["MYSQL_IMAGE"] = current_release.mysql_image
+
+    lock_path = state_dir / "operation.lock"
+    try:
+        lock_descriptor = os.open(
+            lock_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+        )
+    except FileExistsError:
+        raise DeploymentError("deployment_already_running_or_lock_stale") from None
+    except OSError:
+        raise DeploymentError("operation_lock_unavailable") from None
+
+    maintenance_started = False
+    try:
+        _execute(
+            runner,
+            current_prefix,
+            current_environment,
+            ("up", "-d", "--wait", "--wait-timeout", "180", "mysql"),
+            "database_start_failed",
+        )
+        if _database_table_count(runner, current_prefix, current_environment) == 0:
+            raise DeploymentError("database_identity_check_failed")
+        actual_revision = _current_revision(
+            runner,
+            current_prefix,
+            current_environment,
+            allow_uninitialized=False,
+        )
+        if actual_revision is None or actual_revision != runtime.db_revision:
+            raise DeploymentError("runtime_database_revision_mismatch")
+        if actual_revision not in current_release.supported_db_revisions:
+            raise DeploymentError("current_database_revision_unsupported")
+        if actual_revision not in target_release.supported_db_revisions:
+            raise DeploymentError("rollback_incompatible")
+
+        _execute(
+            runner,
+            target_prefix,
+            target_environment,
+            ("pull", "api", "web", "web_previous"),
+            "image_pull_failed",
+        )
+        _set_maintenance(maintenance_dir, True)
+        maintenance_started = True
+        try:
+            _execute(
+                runner,
+                current_prefix,
+                current_environment,
+                ("stop", "api"),
+                "api_stop_failed",
+            )
+            _execute(
+                runner,
+                target_prefix,
+                target_environment,
+                ("up", "-d", "--wait", "--wait-timeout", "180", "api", "web"),
+                "runtime_start_failed",
+            )
+            _internal_smoke(
+                runner, target_prefix, target_environment, target_release.build_id
+            )
+            _set_maintenance(maintenance_dir, False)
+            maintenance_started = False
+            try:
+                (smoke or smoke_deployment)(
+                    config.public_origin, target_release.build_id
+                )
+            except (SmokeDeploymentError, OSError, TimeoutError, ValueError):
+                _set_maintenance(maintenance_dir, True)
+                maintenance_started = True
+                raise DeploymentError("post_deploy_smoke_failed") from None
+            _write_current_release(state_dir, target_release, actual_revision)
+            return DeploymentResult(
+                release_id=target_release.release_id,
+                migrated_revision=actual_revision,
+                healthy=True,
+            )
+        except (
+            DeploymentError,
+            SmokeDeploymentError,
+            OSError,
+            TimeoutError,
+            ValueError,
+        ):
+            if not maintenance_started:
+                _set_maintenance(maintenance_dir, True)
+                maintenance_started = True
+            try:
+                _execute(
+                    runner,
+                    current_prefix,
+                    current_environment,
+                    ("up", "-d", "--wait", "--wait-timeout", "180", "api", "web"),
+                    "previous_release_restore_failed",
+                )
+                _internal_smoke(
+                    runner,
+                    current_prefix,
+                    current_environment,
+                    current_release.build_id,
+                )
+                (smoke or smoke_deployment)(
+                    config.public_origin, current_release.build_id
+                )
+                _set_maintenance(maintenance_dir, False)
+                maintenance_started = False
+            except (
+                DeploymentError,
+                SmokeDeploymentError,
+                OSError,
+                TimeoutError,
+                ValueError,
+            ):
+                if not maintenance_started:
+                    _set_maintenance(maintenance_dir, True)
+                raise DeploymentError("rollback_failed_maintenance_required") from None
+            raise DeploymentError(
+                "rollback_candidate_failed_previous_restored"
+            ) from None
+    finally:
+        os.close(lock_descriptor)
+        try:
+            lock_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def activate_restored_release(
+    config: DeployConfig,
+    release: ReleaseManifest,
+    *,
+    snapshot_id: str,
+    env_file: Path | None = None,
+    compose_file: Path | None = None,
+    runner: Runner = _run,
+    now: datetime | None = None,
+    smoke: Callable[[str, str], object] | None = None,
+) -> DeploymentResult:
+    """Start a verified restore without running migrations or changing its DB."""
+    if config.environment != "restore":
+        raise DeploymentError("restore_environment_required")
+    if release.platform != config.platform:
+        raise DeploymentError("release_platform_mismatch")
+    if not re.fullmatch(r"[a-f0-9]{64}", snapshot_id):
+        raise DeploymentError("restore_snapshot_id_invalid")
+    state_dir = config.state_dir
+    ready_path = state_dir / "restore-ready.json"
+    try:
+        ready_info = ready_path.lstat()
+        if not ready_info or ready_path.is_symlink() or not ready_path.is_file():
+            raise DeploymentError("restore_ready_record_invalid")
+        ready = json.loads(ready_path.read_text(encoding="utf-8"))
+    except DeploymentError:
+        raise
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        raise DeploymentError("restore_ready_record_invalid") from None
+    if (
+        not isinstance(ready, dict)
+        or ready.get("snapshot_id") != snapshot_id
+        or ready.get("restored_revision") != release.required_db_revision
+        or ready.get("restored_revision") not in release.supported_db_revisions
+        or not re.fullmatch(r"[a-f0-9]{64}", str(ready.get("verified_dump_sha256", "")))
+    ):
+        raise DeploymentError("restore_ready_record_mismatch")
+    if (state_dir / "current-release.json").exists() or (
+        state_dir / "current-release.json"
+    ).is_symlink():
+        raise DeploymentError("restore_target_already_activated")
+    maintenance_dir = state_dir / "edge-maintenance"
+    if not maintenance_dir.is_dir() or maintenance_dir.is_symlink():
+        raise DeploymentError("maintenance_gate_unavailable")
+    instant = now or datetime.now(timezone.utc)
+    if instant.tzinfo is None or instant.utcoffset() is None:
+        raise DeploymentError("deployment_clock_invalid")
+    env_path = env_file or config.secrets_dir.parent / "runtime.env"
+    compose_path = (
+        compose_file
+        or Path(__file__).resolve().parents[1] / "deploy" / "compose.app.yaml"
+    )
+    prefix, environment = _compose_prefix(config, release, env_path, compose_path)
+    lock_path = state_dir / "operation.lock"
+    try:
+        lock_descriptor = os.open(
+            lock_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+        )
+    except FileExistsError:
+        raise DeploymentError("deployment_already_running_or_lock_stale") from None
+    except OSError:
+        raise DeploymentError("operation_lock_unavailable") from None
+    try:
+        _execute(
+            runner,
+            prefix,
+            environment,
+            ("up", "-d", "--wait", "--wait-timeout", "180", "mysql"),
+            "database_start_failed",
+        )
+        revision = _current_revision(
+            runner, prefix, environment, allow_uninitialized=False
+        )
+        if revision != release.required_db_revision:
+            raise DeploymentError("restored_database_revision_mismatch")
+        if _database_table_count(runner, prefix, environment) == 0:
+            raise DeploymentError("restored_database_empty")
+        _execute(
+            runner, prefix, environment, ("pull", "api", "web"), "image_pull_failed"
+        )
+        _set_maintenance(maintenance_dir, True)
+        try:
+            _execute(
+                runner,
+                prefix,
+                environment,
+                ("up", "-d", "--wait", "--wait-timeout", "180", "api", "web"),
+                "runtime_start_failed",
+            )
+            _internal_smoke(runner, prefix, environment, release.build_id)
+            _set_maintenance(maintenance_dir, False)
+            try:
+                (smoke or smoke_deployment)(config.public_origin, release.build_id)
+            except (SmokeDeploymentError, OSError, TimeoutError, ValueError):
+                _set_maintenance(maintenance_dir, True)
+                raise DeploymentError("post_deploy_smoke_failed") from None
+            _write_current_release(state_dir, release, revision)
+            return DeploymentResult(
+                release_id=release.release_id, migrated_revision=revision, healthy=True
+            )
+        except (
+            DeploymentError,
+            SmokeDeploymentError,
+            OSError,
+            TimeoutError,
+            ValueError,
+        ):
+            _set_maintenance(maintenance_dir, True)
+            raise
+    finally:
+        os.close(lock_descriptor)
+        try:
+            lock_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
@@ -416,18 +766,48 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--env-file", type=Path)
     parser.add_argument("--compose-file", type=Path)
     parser.add_argument("--initialize", action="store_true")
+    parser.add_argument("--rollback", action="store_true")
+    parser.add_argument("--skip-migration", action="store_true")
+    parser.add_argument("--current-release", type=Path)
+    parser.add_argument("--runtime", type=Path)
     args = parser.parse_args(argv)
     try:
         config = load_deploy_config(args.config)
         release = load_release_manifest(args.release)
-        result = deploy_release(
-            config,
-            release,
-            initialize=args.initialize,
-            env_file=args.env_file,
-            compose_file=args.compose_file,
-        )
-    except (DeployConfigError, ReleaseManifestError, DeploymentError) as exc:
+        if args.rollback:
+            if (
+                args.initialize
+                or not args.skip_migration
+                or not args.current_release
+                or not args.runtime
+            ):
+                raise DeploymentError("rollback_arguments_invalid")
+            current_release = load_release_manifest(args.current_release)
+            runtime = load_runtime_compatibility(args.runtime)
+            result = rollback_release(
+                config,
+                current_release,
+                release,
+                runtime,
+                env_file=args.env_file,
+                compose_file=args.compose_file,
+            )
+        else:
+            if args.skip_migration or args.current_release or args.runtime:
+                raise DeploymentError("rollback_arguments_require_rollback")
+            result = deploy_release(
+                config,
+                release,
+                initialize=args.initialize,
+                env_file=args.env_file,
+                compose_file=args.compose_file,
+            )
+    except (
+        DeployConfigError,
+        ReleaseManifestError,
+        RuntimeCompatibilityError,
+        DeploymentError,
+    ) as exc:
         print(f"deployment_failed: {exc}", file=sys.stderr)
         return 1
     print(

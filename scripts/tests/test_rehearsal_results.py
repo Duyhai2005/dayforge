@@ -80,11 +80,15 @@ class RehearsalResultsTests(unittest.TestCase):
                     "case_variants": (
                         ["late-flight", "previous-static"]
                         if case_id == "UP-06"
-                        else ["restore-union"]
-                        if case_id == "DR-01"
-                        else ["migration-interruption"]
-                        if case_id == "RF-01"
-                        else ["default"]
+                        else (
+                            ["restore-union"]
+                            if case_id == "DR-01"
+                            else (
+                                ["migration-interruption"]
+                                if case_id == "RF-01"
+                                else ["default"]
+                            )
+                        )
                     ),
                     "expected_action": f"expected {case_id}",
                     "actual_status": f"verified {case_id}",
@@ -205,9 +209,9 @@ class RehearsalResultsTests(unittest.TestCase):
             linked.symlink_to(source)
         except OSError:
             self.skipTest("symlink creation is unavailable on this platform")
-        self.results["cases"][0]["evidence_paths"][1] = (
-            "docs/tasks/t33/evidence/linked.txt"
-        )
+        self.results["cases"][0]["evidence_paths"][
+            1
+        ] = "docs/tasks/t33/evidence/linked.txt"
         self.write_results()
         self.assertIn("UP-01_case_evidence_missing", self.validate())
 
