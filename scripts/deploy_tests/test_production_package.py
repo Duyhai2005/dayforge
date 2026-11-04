@@ -41,15 +41,16 @@ class ProductionPackageSmokeTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.secrets_dir = self.root / "secrets"
         self.secrets_dir.mkdir()
+        self.secret_values = {}
         for name in (
             "mysql_root_password",
             "db_password",
             "db_migrator_password",
             "email_smtp_password",
         ):
-            (self.secrets_dir / name).write_text(
-                secrets.token_urlsafe(32), encoding="utf-8"
-            )
+            value = secrets.token_urlsafe(32)
+            self.secret_values[name] = value
+            (self.secrets_dir / name).write_text(value, encoding="utf-8")
         for name in (
             "local_key_kek_b64",
             "logout_ticket_key_b64",
@@ -57,12 +58,13 @@ class ProductionPackageSmokeTests(unittest.TestCase):
             "auth_email_outbox_key_b64",
             "sync_page_token_key_b64",
         ):
-            (self.secrets_dir / name).write_text(
+            value = (
                 base64.urlsafe_b64encode(secrets.token_bytes(32))
                 .decode("ascii")
-                .rstrip("="),
-                encoding="utf-8",
+                .rstrip("=")
             )
+            self.secret_values[name] = value
+            (self.secrets_dir / name).write_text(value, encoding="utf-8")
         (self.secrets_dir / "logout_ticket_previous_keys_b64").write_text(
             "", encoding="utf-8"
         )
@@ -143,14 +145,14 @@ class ProductionPackageSmokeTests(unittest.TestCase):
         except OSError, subprocess.TimeoutExpired:
             self.fail("Docker package smoke command was unavailable or timed out")
         if check and result.returncode:
-            statuses = self._service_statuses()
+            diagnostics = self._service_diagnostics()
             self.fail(
                 "Docker package smoke command failed "
-                f"(exit code {result.returncode}); service states: {statuses}"
+                f"(exit code {result.returncode}); diagnostics: {diagnostics}"
             )
         return result
 
-    def _service_statuses(self):
+    def _service_diagnostics(self):
         result = subprocess.run(
             [*self.compose, "ps", "--all", "--format", "json"],
             cwd=ROOT,
@@ -164,7 +166,7 @@ class ProductionPackageSmokeTests(unittest.TestCase):
             rows = payload if isinstance(payload, list) else [payload]
         except json.JSONDecodeError:
             rows = [json.loads(line) for line in result.stdout.splitlines() if line]
-        return [
+        statuses = [
             {
                 "service": row.get("Service"),
                 "state": row.get("State"),
@@ -174,6 +176,29 @@ class ProductionPackageSmokeTests(unittest.TestCase):
             for row in rows
             if isinstance(row, dict)
         ]
+        failures = [
+            row["service"]
+            for row in statuses
+            if row["service"]
+            and row["state"] == "exited"
+            and row["exit_code"] not in (None, 0, "0")
+        ]
+        logs = {}
+        for service in failures:
+            output = subprocess.run(
+                [*self.compose, "logs", "--no-color", "--tail", "30", service],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            ).stdout
+            for value in self.secret_values.values():
+                if value:
+                    output = output.replace(value, "<redacted>")
+                    output = output.replace(value.encode("utf-8").hex(), "<redacted>")
+            logs[service] = output.splitlines()[-30:]
+        return {"services": statuses, "failed_service_logs": logs}
 
     def _status(self, path):
         try:

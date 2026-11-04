@@ -103,7 +103,13 @@ def test_production_hides_openapi(settings_factory, monkeypatch):
             message="Using `httpx` with `starlette.testclient` is deprecated.*",
         )
         from fastapi.testclient import TestClient
-    with TestClient(create_app(settings_factory(app_env="production"))) as client:
+    production_settings = settings_factory(
+        app_env="production",
+        email_smtp_tls="starttls",
+        email_smtp_username="smtp-user",
+        email_smtp_password="smtp-password",
+    )
+    with TestClient(create_app(production_settings)) as client:
         assert client.get("/api/v1/openapi.json").status_code == 404
         assert client.get("/docs").status_code == 404
         assert client.get("/redoc").status_code == 404
