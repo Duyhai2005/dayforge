@@ -24,7 +24,8 @@ strip_one_line_ending() {
 }
 
 secret_sql_literal() {
-  value=$(strip_one_line_ending "$1") || return 1
+  value=$(strip_one_line_ending "$1"; printf '.')
+  value=${value%.}
   [ -n "$value" ] || return 1
   case "$value" in
     *[! -~]*) return 1 ;;
@@ -37,6 +38,8 @@ root_password_sql=$(secret_sql_literal /run/secrets/mysql_root_password)
 app_password_sql=$(secret_sql_literal /run/secrets/db_password)
 migrator_password_sql=$(secret_sql_literal /run/secrets/db_migrator_password)
 [ -n "$root_password_sql" ] && [ -n "$app_password_sql" ] && [ -n "$migrator_password_sql" ]
+root_password_login=$(strip_one_line_ending /run/secrets/mysql_root_password; printf '.')
+root_password_login=${root_password_login%.}
 sql_file=$(mktemp /tmp/dayforge-users.XXXXXX.sql)
 trap 'rm -f "$sql_file"' EXIT HUP INT TERM
 
@@ -51,4 +54,4 @@ ALTER USER '${DB_MIGRATOR_USER}'@'%' IDENTIFIED BY ${migrator_password_sql};
 GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_MIGRATOR_USER}'@'%';
 SQL
 
-MYSQL_PWD=$(strip_one_line_ending /run/secrets/mysql_root_password) mysql --protocol=TCP -h mysql -uroot --database=mysql <"$sql_file"
+MYSQL_PWD=$root_password_login mysql --protocol=TCP -h mysql -uroot --database=mysql <"$sql_file"
