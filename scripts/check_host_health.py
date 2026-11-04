@@ -40,7 +40,7 @@ def _http_status(url: str, timeout_seconds: float = 3.0) -> int | None:
             return response.status
     except urllib.error.HTTPError as exc:
         return exc.code
-    except (OSError, TimeoutError, urllib.error.URLError, ValueError):
+    except OSError, TimeoutError, urllib.error.URLError, ValueError:
         return None
 
 
@@ -58,7 +58,7 @@ def _clock_synchronized() -> bool:
             text=True,
             timeout=2,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         result = None
     if result is not None and result.returncode == 0:
         return result.stdout.strip().lower() == "yes"
@@ -74,7 +74,7 @@ def _docker_root_dir() -> Path | None:
             text=True,
             timeout=3,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         return None
     if result.returncode != 0 or not result.stdout.strip():
         return None
@@ -93,7 +93,7 @@ def _backup_is_stale(state_dir: Path, now: datetime) -> bool:
         timestamp = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
         if timestamp.tzinfo is None:
             return True
-    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+    except OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError, ValueError:
         return True
     age = now.astimezone(timezone.utc) - timestamp.astimezone(timezone.utc)
     return age > _BACKUP_STALE_AFTER or age < timedelta(0)
@@ -129,7 +129,7 @@ def check_host_health(
             if percent >= 85:
                 codes.append("disk_pressure")
                 break
-        except (OSError, AttributeError, ZeroDivisionError, TypeError):
+        except OSError, AttributeError, ZeroDivisionError, TypeError:
             codes.append("disk_pressure")
             break
 
@@ -151,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         config = load_deploy_config(args.config)
         report = check_host_health(config, now=datetime.now(timezone.utc))
-    except (DeployConfigError, OSError, ValueError):
+    except DeployConfigError, OSError, ValueError:
         print(json.dumps({"healthy": False, "codes": ["configuration_invalid"]}), file=sys.stderr)
         return 2
     print(
