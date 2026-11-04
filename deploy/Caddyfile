@@ -1,0 +1,14 @@
+{
+	admin off
+	email {$ACME_EMAIL}
+}
+
+{$STAGING_ORIGIN} {
+	encode zstd gzip
+	reverse_proxy staging-web:3000
+}
+
+{$PRODUCTION_ORIGIN} {
+	encode zstd gzip
+	reverse_proxy production-web:3000
+}

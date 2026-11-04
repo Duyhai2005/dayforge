@@ -2,9 +2,9 @@ import asyncio
 import base64
 
 import pytest
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
-from app.core.config import SettingsError, build_database_url, load_settings
+from app.core.config import ENV_FIELDS, SettingsError, build_database_url, load_settings
 
 
 def test_database_url_preserves_reserved_password(settings_factory):
@@ -119,6 +119,106 @@ def test_unrelated_environment_variables_are_ignored():
     )
     assert settings.app_env == "test"
     assert not hasattr(settings, "unknown_option")
+
+
+def test_smtp_runtime_options_default_to_development_compatible_values(settings_factory):
+    settings = settings_factory()
+    assert settings.email_smtp_tls == "none"
+    assert settings.email_smtp_username is None
+    assert settings.email_smtp_password is None
+    assert settings.email_smtp_timeout_seconds == 10
+
+
+@pytest.mark.parametrize("tls", ["none", "invalid", "implicit"])
+def test_production_requires_authenticated_tls_smtp(settings_factory, tls):
+    with pytest.raises(SettingsError):
+        settings_factory(app_env="production", public_origin="https://example.test", email_smtp_tls=tls)
+
+
+@pytest.mark.parametrize("tls", ["starttls", "implicit"])
+def test_production_accepts_only_authenticated_tls_smtp(settings_factory, tls):
+    settings = settings_factory(
+        app_env="production",
+        public_origin="https://example.test",
+        email_smtp_tls=tls,
+        email_smtp_username="smtp-user",
+        email_smtp_password="smtp-secret",
+    )
+    assert settings.email_smtp_tls == tls
+
+
+def test_smtp_credentials_must_be_a_pair(settings_factory):
+    with pytest.raises(SettingsError) as caught:
+        settings_factory(email_smtp_username="smtp-user")
+    assert "EMAIL_SMTP_USERNAME" in str(caught.value)
+
+
+@pytest.mark.parametrize("timeout", [0, 61, "invalid"])
+def test_smtp_timeout_is_bounded(settings_factory, timeout):
+    with pytest.raises(SettingsError) as caught:
+        settings_factory(email_smtp_timeout_seconds=timeout)
+    assert "EMAIL_SMTP_TIMEOUT_SECONDS" in str(caught.value)
+
+
+def test_smtp_password_is_redacted(settings_factory):
+    settings = settings_factory(
+        email_smtp_tls="starttls", email_smtp_username="smtp-user", email_smtp_password="smtp-secret"
+    )
+    assert "smtp-secret" not in repr(settings)
+
+
+def _valid_environment(settings_factory):
+    model = settings_factory().model_dump()
+    return {
+        name: value.get_secret_value() if isinstance(value, SecretStr) else str(value)
+        for field, name in ENV_FIELDS.items()
+        if (value := model[field]) is not None
+    }
+
+
+def test_secret_file_loads_one_trailing_newline_and_keeps_password_spaces(settings_factory, tmp_path):
+    environment = _valid_environment(settings_factory)
+    password_file = tmp_path / "db-password"
+    password_file.write_text("  private password  \n", encoding="utf-8")
+    environment.pop("DB_PASSWORD")
+    environment["DB_PASSWORD_FILE"] = str(password_file)
+
+    loaded = load_settings(environment)
+
+    assert loaded.db_password.get_secret_value() == "  private password  "
+
+
+def test_smtp_secret_files_load_into_redacted_runtime_settings(settings_factory, tmp_path):
+    environment = _valid_environment(settings_factory)
+    username_file = tmp_path / "smtp-username"
+    password_file = tmp_path / "smtp-password"
+    username_file.write_text("smtp-user\n", encoding="utf-8")
+    password_file.write_bytes(" smtp-private-password \r\n".encode("utf-8"))
+    environment["EMAIL_SMTP_TLS"] = "starttls"
+    environment["EMAIL_SMTP_USERNAME_FILE"] = str(username_file)
+    environment["EMAIL_SMTP_PASSWORD_FILE"] = str(password_file)
+
+    loaded = load_settings(environment)
+
+    assert loaded.email_smtp_username.get_secret_value() == "smtp-user"
+    assert loaded.email_smtp_password.get_secret_value() == " smtp-private-password "
+    assert "smtp-private-password" not in repr(loaded)
+
+
+def test_secret_file_rejects_conflict_or_missing_file_without_echo(settings_factory, tmp_path):
+    environment = _valid_environment(settings_factory)
+    environment["DB_PASSWORD_FILE"] = str(tmp_path / "private-location-do-not-echo")
+
+    with pytest.raises(SettingsError) as caught:
+        load_settings(environment)
+    assert str(caught.value) == "DB_PASSWORD"
+    assert "private-location-do-not-echo" not in str(caught.value)
+
+    environment["DB_PASSWORD"] = "existing-value"
+    with pytest.raises(SettingsError) as caught:
+        load_settings(environment)
+    assert str(caught.value) == "DB_PASSWORD"
+    assert "existing-value" not in str(caught.value)
 
 
 def test_auth_secret_keys_decode_to_32_bytes_and_remain_hidden(settings_factory):

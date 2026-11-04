@@ -5,6 +5,7 @@ import binascii
 import os
 import re
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -37,6 +38,10 @@ ENV_FIELDS = {
     "email_smtp_host": "EMAIL_SMTP_HOST",
     "email_smtp_port": "EMAIL_SMTP_PORT",
     "email_from": "EMAIL_FROM",
+    "email_smtp_tls": "EMAIL_SMTP_TLS",
+    "email_smtp_username": "EMAIL_SMTP_USERNAME",
+    "email_smtp_password": "EMAIL_SMTP_PASSWORD",
+    "email_smtp_timeout_seconds": "EMAIL_SMTP_TIMEOUT_SECONDS",
 }
 _SECRET_FIELDS = (
     "local_key_kek_b64",
@@ -44,6 +49,28 @@ _SECRET_FIELDS = (
     "auth_rate_limit_key_b64",
     "auth_email_outbox_key_b64",
     "sync_page_token_key_b64",
+)
+_FILE_SECRET_FIELDS = frozenset(
+    {
+        "db_password",
+        "local_key_kek_b64",
+        "logout_ticket_key_b64",
+        "logout_ticket_previous_keys_b64",
+        "auth_rate_limit_key_b64",
+        "auth_email_outbox_key_b64",
+        "sync_page_token_key_b64",
+        "email_smtp_username",
+        "email_smtp_password",
+    }
+)
+_OPTIONAL_ENV_FIELDS = frozenset(
+    {
+        "logout_ticket_previous_keys_b64",
+        "email_smtp_tls",
+        "email_smtp_username",
+        "email_smtp_password",
+        "email_smtp_timeout_seconds",
+    }
 )
 
 
@@ -80,6 +107,10 @@ class Settings(BaseModel):
     email_smtp_host: str
     email_smtp_port: int
     email_from: str
+    email_smtp_tls: Literal["none", "starttls", "implicit"] = "none"
+    email_smtp_username: SecretStr | None = None
+    email_smtp_password: SecretStr | None = None
+    email_smtp_timeout_seconds: int = 10
 
     def __init__(self, **values):
         invalid = set(values) - ENV_FIELDS.keys()
@@ -87,6 +118,10 @@ class Settings(BaseModel):
             value = values.get(field)
             if isinstance(value, SecretStr):
                 value = value.get_secret_value()
+            if field not in values and field in _OPTIONAL_ENV_FIELDS:
+                continue
+            if field in ("email_smtp_username", "email_smtp_password") and value is None:
+                continue
             if field == "logout_ticket_previous_keys_b64":
                 if field not in values or value is None or value == "":
                     values[field] = None
@@ -101,12 +136,20 @@ class Settings(BaseModel):
                 except ValueError:
                     invalid.add(field)
                 continue
-            if field in ("db_port", "email_smtp_port", "local_key_kek_version"):
-                maximum = 65535
+            if field in ("db_port", "email_smtp_port", "local_key_kek_version", "email_smtp_timeout_seconds"):
                 try:
-                    valid = (type(value) is int and 1 <= value <= maximum) or (
-                        isinstance(value, str) and re.fullmatch(r"[0-9]+", value) and 1 <= int(value) <= maximum
-                    )
+                    if field == "email_smtp_timeout_seconds":
+                        valid = (type(value) is int and 1 <= value <= 60) or (
+                            isinstance(value, str)
+                            and re.fullmatch(r"[0-9]+", value) is not None
+                            and 1 <= int(value) <= 60
+                        )
+                    else:
+                        valid = (type(value) is int and 1 <= value <= 65535) or (
+                            isinstance(value, str)
+                            and re.fullmatch(r"[0-9]+", value) is not None
+                            and 1 <= int(value) <= 65535
+                        )
                 except ValueError:
                     valid = False
                 if not valid:
@@ -115,6 +158,22 @@ class Settings(BaseModel):
                 invalid.add(field)
         if values.get("app_env") not in ("development", "test", "production"):
             invalid.add("app_env")
+        if values.get("email_smtp_tls", "none") not in ("none", "starttls", "implicit"):
+            invalid.add("email_smtp_tls")
+        smtp_username = values.get("email_smtp_username")
+        if isinstance(smtp_username, SecretStr):
+            smtp_username = smtp_username.get_secret_value()
+        smtp_password = values.get("email_smtp_password")
+        if isinstance(smtp_password, SecretStr):
+            smtp_password = smtp_password.get_secret_value()
+        if (smtp_username is None) != (smtp_password is None):
+            invalid.add("email_smtp_tls" if values.get("app_env") == "production" else "email_smtp_username")
+        if values.get("app_env") == "production" and (
+            values.get("email_smtp_tls", "none") == "none" or smtp_username is None or smtp_password is None
+        ):
+            invalid.update({"email_smtp_tls", "email_smtp_username", "email_smtp_password"})
+        if values.get("email_smtp_tls", "none") == "none" and smtp_username is not None:
+            invalid.update({"email_smtp_tls", "email_smtp_username", "email_smtp_password"})
         decoded_secrets = {}
         for field in _SECRET_FIELDS:
             value = values.get(field)
@@ -207,7 +266,30 @@ class Settings(BaseModel):
 
 def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
     source = os.environ if environ is None else environ
-    return Settings(**{field: source[env] for field, env in ENV_FIELDS.items() if env in source})
+    values: dict[str, object] = {}
+    invalid: set[str] = set()
+    for field, name in ENV_FIELDS.items():
+        variable = source.get(name)
+        file_variable = source.get(f"{name}_FILE") if field in _FILE_SECRET_FIELDS else None
+        if variable is not None and file_variable is not None:
+            invalid.add(field)
+            continue
+        if file_variable is not None:
+            try:
+                value = Path(file_variable).read_text(encoding="utf-8")
+            except OSError, UnicodeError:
+                invalid.add(field)
+                continue
+            if value.endswith("\r\n"):
+                value = value[:-2]
+            elif value.endswith(("\n", "\r")):
+                value = value[:-1]
+            values[field] = value
+        elif variable is not None:
+            values[field] = variable
+    if invalid:
+        raise SettingsError(", ".join(ENV_FIELDS[field] for field in sorted(invalid)))
+    return Settings(**values)
 
 
 def build_database_url(settings: Settings) -> URL:

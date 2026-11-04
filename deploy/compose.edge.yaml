@@ -1,0 +1,42 @@
+name: dayforge-edge
+
+services:
+  edge:
+    image: ${CADDY_IMAGE:?set the digest-pinned Caddy image}
+    restart: unless-stopped
+    ports:
+      - 80:80
+      - 443:443
+      - 443:443/udp
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?set the certificate contact email}
+      STAGING_ORIGIN: ${STAGING_ORIGIN:?set the staging origin}
+      PRODUCTION_ORIGIN: ${PRODUCTION_ORIGIN:?set the production origin}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - staging
+      - production
+    healthcheck:
+      test: ["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  staging:
+    name: dayforge-staging-ingress
+    external: true
+  production:
+    name: dayforge-production-ingress
+    external: true
+
+volumes:
+  caddy-data:
+    name: dayforge-edge-caddy-data
+  caddy-config:
+    name: dayforge-edge-caddy-config

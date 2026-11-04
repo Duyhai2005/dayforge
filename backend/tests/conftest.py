@@ -153,6 +153,10 @@ def settings_factory():
             email_smtp_host="127.0.0.1",
             email_smtp_port=1025,
             email_from="dayforge@example.test",
+            email_smtp_tls="none",
+            email_smtp_username=None,
+            email_smtp_password=None,
+            email_smtp_timeout_seconds=10,
         )
         values.update(overrides)
         return Settings(**values)
