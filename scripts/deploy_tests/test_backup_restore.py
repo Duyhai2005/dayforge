@@ -35,10 +35,15 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class IsolatedDockerRunner:
     def __init__(
-        self, compose_project: str, *, isolate_project: str | None = None
+        self,
+        compose_project: str,
+        *,
+        override_file: Path,
+        isolate_project: str | None = None,
     ) -> None:
         self.compose_project = compose_project
         self.isolate_project = isolate_project or compose_project
+        self.override_file = override_file
         self.events: list[list[str]] = []
         self.last_result: subprocess.CompletedProcess[str] | None = None
 
@@ -48,6 +53,10 @@ class IsolatedDockerRunner:
         if command[:2] == ["docker", "compose"]:
             project_index = command.index("--project-name") + 1
             command[project_index] = self.isolate_project
+            command[project_index + 1 : project_index + 1] = [
+                "--file",
+                str(self.override_file),
+            ]
             env["COMPOSE_PROJECT"] = self.isolate_project
         return command, env
 
@@ -180,11 +189,21 @@ class BackupRestoreIntegrationTests(unittest.TestCase):
             credentials_file=self.credentials_file,
             workspace_root=self.target_state / "restore-work",
         )
+        get_uid = getattr(os, "getuid", lambda: 10001)
+        get_gid = getattr(os, "getgid", lambda: 10001)
+        self.compose_override = self.root / "compose.test.override.yaml"
+        self.compose_override.write_text(
+            f'services:\n  migrate:\n    user: "{get_uid()}:{get_gid()}"\n',
+            encoding="utf-8",
+        )
         self.source_runner = IsolatedDockerRunner(
             self.source_config.compose_project,
+            override_file=self.compose_override,
             isolate_project=self.source_project,
         )
-        self.target_runner = IsolatedDockerRunner(self.target_project)
+        self.target_runner = IsolatedDockerRunner(
+            self.target_project, override_file=self.compose_override
+        )
         self.release = ReleaseManifest(
             release_id="t31-backup-restore-fixture",
             git_sha="1" * 40,
