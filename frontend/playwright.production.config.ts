@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests",
-  testIgnore: ["**/offline-*.spec.ts"],
+  testIgnore: ["**/offline-*.spec.ts", "**/staging/**", "**/release/**"],
   outputDir: "./.test-artifacts/web-prod",
   use: {
     baseURL: "http://127.0.0.1:3001",

@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
     "test:e2e:prod": "cross-env PLAYWRIGHT_BASE_URL=http://127.0.0.1:3001 playwright test --config=playwright.production.config.ts",
-    "test:e2e:offline": "playwright test --config=playwright.offline.config.ts"
+    "test:e2e:offline": "playwright test --config=playwright.offline.config.ts",
+    "test:e2e:staging": "node ../scripts/run_staging_acceptance.cjs"
   },
   "dependencies": {
     "next": "16.4.3",

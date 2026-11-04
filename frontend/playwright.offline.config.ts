@@ -5,6 +5,7 @@ const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3011";
 export default defineConfig({
   testDir: "./tests",
   testMatch: ["**/offline-*.spec.ts"],
+  testIgnore: ["**/staging/**", "**/release/**"],
   outputDir: "./.test-artifacts/web-offline",
   use: {
     baseURL,

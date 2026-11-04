@@ -22,6 +22,7 @@
     "test:web": "pnpm --filter @dayforge/frontend test:e2e",
     "test:web:prod": "pnpm --filter @dayforge/frontend test:e2e:prod",
     "test:web:offline": "pnpm --filter @dayforge/frontend test:e2e:offline",
+    "test:web:staging": "node scripts/run_staging_acceptance.cjs",
     "test:web:offline:update": "node scripts/test-offline-update.cjs",
     "verify:web-discovery": "node scripts/check-playwright-discovery.cjs",
     "verify:fast": "pnpm lint && pnpm typecheck && pnpm verify:env && pnpm test:api",
@@ -41,4 +42,3 @@
     "cross-env": "7.0.3"
   }
 }
-
