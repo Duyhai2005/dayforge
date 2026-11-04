@@ -14,6 +14,8 @@
 
 `TARGET_PENDING` is reserved for the real inbox checks AC-31/32 (T32) and the independent-host check AC-36 (T32/T36). Local Mailpit/mocked auth checks do not count as delivery to a real inbox. This is a pre-deploy acceptance candidate, not production sign-off.
 
+T32 records follow-on staging evidence separately in [its 38-criterion ledger](../t32/acceptance-results.md); the historical T28 statuses and candidate provenance above remain unchanged.
+
 ## Evidence index
 
 | ID | Command / scenario | Result and tested revision |

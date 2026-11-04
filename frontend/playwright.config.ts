@@ -4,7 +4,7 @@ const productionBaseURL = process.env.PLAYWRIGHT_BASE_URL;
 
 export default defineConfig({
   testDir: "./tests",
-  testIgnore: ["**/offline-*.spec.ts"],
+  testIgnore: ["**/offline-*.spec.ts", "**/staging/**", "**/release/**"],
   outputDir: "./.test-artifacts/web-dev",
   use: {
     baseURL: productionBaseURL ?? "http://127.0.0.1:3010",
