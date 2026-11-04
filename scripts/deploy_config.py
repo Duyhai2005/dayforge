@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import argparse
 import ipaddress
 import json
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -100,7 +102,7 @@ def _resolved_path(value: object, field: str, invalid: set[str]) -> Path:
         return Path(".")
     try:
         path = Path(value).expanduser().resolve(strict=False)
-    except OSError, RuntimeError, ValueError:
+    except (OSError, RuntimeError, ValueError):
         invalid.add(field)
         return Path(".")
     if not path.is_absolute():
@@ -111,7 +113,7 @@ def _resolved_path(value: object, field: str, invalid: set[str]) -> Path:
 def load_deploy_config(path: Path) -> DeployConfig:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
-    except OSError, UnicodeError, json.JSONDecodeError:
+    except (OSError, UnicodeError, json.JSONDecodeError):
         raise DeployConfigError("config_file") from None
     if not isinstance(raw, dict):
         raise DeployConfigError("config_object")
@@ -135,9 +137,7 @@ def load_deploy_config(path: Path) -> DeployConfig:
     }:
         invalid.add("platform")
     region = raw.get("region")
-    if not isinstance(region, str) or not re.fullmatch(
-        r"[a-z0-9][a-z0-9-]{1,62}", region
-    ):
+    if not isinstance(region, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,62}", region):
         invalid.add("region")
     if not _safe_origin(raw.get("public_origin")):
         invalid.add("public_origin")
@@ -163,19 +163,9 @@ def load_deploy_config(path: Path) -> DeployConfig:
         if edge_alias != "production-web":
             invalid.add("edge_alias")
     elif environment == "restore":
-        project_id = (
-            project.removeprefix("dayforge-restore-")
-            if isinstance(project, str)
-            else ""
-        )
-        database_id = (
-            db_name.removeprefix("dayforge_restore_")
-            if isinstance(db_name, str)
-            else ""
-        )
-        alias_id = (
-            edge_alias.removeprefix("restore-") if isinstance(edge_alias, str) else ""
-        )
+        project_id = project.removeprefix("dayforge-restore-") if isinstance(project, str) else ""
+        database_id = db_name.removeprefix("dayforge_restore_") if isinstance(db_name, str) else ""
+        alias_id = edge_alias.removeprefix("restore-") if isinstance(edge_alias, str) else ""
         if not _RESTORE_ID.fullmatch(project_id):
             invalid.add("compose_project")
         if not _RESTORE_ID.fullmatch(database_id):
@@ -187,11 +177,7 @@ def load_deploy_config(path: Path) -> DeployConfig:
 
     secrets_dir = _resolved_path(raw.get("secrets_dir"), "secrets_dir", invalid)
     state_dir = _resolved_path(raw.get("state_dir"), "state_dir", invalid)
-    if (
-        secrets_dir == state_dir
-        or secrets_dir in state_dir.parents
-        or state_dir in secrets_dir.parents
-    ):
+    if secrets_dir == state_dir or secrets_dir in state_dir.parents or state_dir in secrets_dir.parents:
         invalid.update({"secrets_dir", "state_dir"})
     if invalid:
         raise DeployConfigError(", ".join(sorted(invalid)))
@@ -239,11 +225,7 @@ def assert_environment_isolation(
             ("state_dir", config.state_dir),
         ):
             for previous_field, previous in paths:
-                if (
-                    path == previous
-                    or path in previous.parents
-                    or previous in path.parents
-                ):
+                if path == previous or path in previous.parents or previous in path.parents:
                     invalid.update({field, previous_field})
             paths.append((field, path))
         subnet = ipaddress.ip_network(config.app_subnet, strict=True)
@@ -256,3 +238,22 @@ def assert_environment_isolation(
 
     if invalid:
         raise DeployConfigError(", ".join(sorted(invalid)))
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Validate one target file without exposing any configured values."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--target", type=Path, required=True)
+    args = parser.parse_args(argv)
+    try:
+        config = load_deploy_config(args.target)
+        assert_environment_isolation([config])
+    except (DeployConfigError, OSError):
+        print("deployment_target_invalid", file=sys.stderr)
+        return 2
+    print("deployment_target_valid")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -51,7 +51,7 @@ ALTER USER '${DB_USER}'@'%' IDENTIFIED BY ${app_password_sql};
 GRANT SELECT, INSERT, UPDATE, DELETE ON \`${DB_NAME}\`.* TO '${DB_USER}'@'%';
 CREATE USER IF NOT EXISTS '${DB_MIGRATOR_USER}'@'%' IDENTIFIED BY ${migrator_password_sql};
 ALTER USER '${DB_MIGRATOR_USER}'@'%' IDENTIFIED BY ${migrator_password_sql};
-GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_MIGRATOR_USER}'@'%';
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, REFERENCES ON \`${DB_NAME}\`.* TO '${DB_MIGRATOR_USER}'@'%';
 SQL
 
 MYSQL_PWD=$root_password_login mysql --protocol=TCP -h mysql -uroot --database=mysql <"$sql_file"

@@ -5,10 +5,24 @@
 
 {$STAGING_ORIGIN} {
 	encode zstd gzip
-	reverse_proxy staging-web:3000
+	@staging_maintenance file /run/dayforge/staging/on
+	handle @staging_maintenance {
+		header Retry-After 60
+		respond "Temporarily unavailable" 503
+	}
+	handle {
+		reverse_proxy staging-web:3000
+	}
 }
 
 {$PRODUCTION_ORIGIN} {
 	encode zstd gzip
-	reverse_proxy production-web:3000
+	@production_maintenance file /run/dayforge/production/on
+	handle @production_maintenance {
+		header Retry-After 60
+		respond "Temporarily unavailable" 503
+	}
+	handle {
+		reverse_proxy production-web:3000
+	}
 }

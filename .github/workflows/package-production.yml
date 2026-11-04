@@ -43,6 +43,9 @@ jobs:
           python-version: "3.14.10"
           enable-cache: true
 
+      - name: Check host bootstrap shell syntax
+        run: bash -n deploy/host/bootstrap.sh
+
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 

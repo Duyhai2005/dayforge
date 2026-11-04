@@ -1,0 +1,16 @@
+[Unit]
+Description=Check Dayforge %i public health
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/dayforge
+Environment=PYTHONPATH=/opt/dayforge
+ExecStart=/usr/bin/python3 /opt/dayforge/scripts/check_host_health.py --config /etc/dayforge/%i/target.json
+TimeoutStartSec=15
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/srv/dayforge/%i/state

@@ -4,6 +4,11 @@ services:
   edge:
     image: ${CADDY_IMAGE:?set the digest-pinned Caddy image}
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
     ports:
       - 80:80
       - 443:443
@@ -14,6 +19,8 @@ services:
       PRODUCTION_ORIGIN: ${PRODUCTION_ORIGIN:?set the production origin}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${STAGING_MAINTENANCE_DIR:?set the staging maintenance directory}:/run/dayforge/staging:ro
+      - ${PRODUCTION_MAINTENANCE_DIR:?set the production maintenance directory}:/run/dayforge/production:ro
       - caddy-data:/data
       - caddy-config:/config
     networks:
