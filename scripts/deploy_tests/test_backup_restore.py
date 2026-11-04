@@ -16,6 +16,7 @@ from uuid import uuid4
 
 from scripts.backup_database import (
     _KEY_FILES,
+    BackupError,
     _current_revision,
     create_backup,
     initialize_backup_repository,
@@ -47,6 +48,7 @@ class IsolatedDockerRunner:
         self.override_file = override_file
         self.events: list[list[str]] = []
         self.last_result: subprocess.CompletedProcess[str] | None = None
+        self.last_popen: subprocess.Popen[bytes] | None = None
 
     def _isolated(self, arguments: Sequence[str], environment: Mapping[str, str]):
         command = list(arguments)
@@ -59,6 +61,12 @@ class IsolatedDockerRunner:
                 str(self.override_file),
             ]
             env["COMPOSE_PROJECT"] = self.isolate_project
+        elif command[:2] == ["docker", "run"]:
+            user_index = command.index("--user") + 1
+            if command[user_index] == "0:0":
+                get_uid = getattr(os, "getuid", lambda: 10001)
+                get_gid = getattr(os, "getgid", lambda: 10001)
+                command[user_index] = f"{get_uid()}:{get_gid()}"
         return command, env
 
     def __call__(self, arguments: Sequence[str], environment: Mapping[str, str]):
@@ -78,7 +86,10 @@ class IsolatedDockerRunner:
 
     def popen(self, arguments: Sequence[str], **kwargs):
         command, env = self._isolated(arguments, kwargs.pop("env", {}))
-        return subprocess.Popen(command, cwd=ROOT, env=env, **kwargs)
+        if command[:2] == ["docker", "compose"] and "mysqldump" in command:
+            kwargs["stderr"] = subprocess.PIPE
+        self.last_popen = subprocess.Popen(command, cwd=ROOT, env=env, **kwargs)
+        return self.last_popen
 
 
 class BackupRestoreIntegrationTests(unittest.TestCase):
@@ -501,6 +512,20 @@ class BackupRestoreIntegrationTests(unittest.TestCase):
                 )
             after = sum("snapshots" in call for call in self.target_runner_calls())
             self.assertEqual(after, before)
+        except BackupError as error:
+            process = self.source_runner.last_popen
+            diagnostic = ""
+            if process is not None and process.stderr is not None:
+                diagnostic = process.stderr.read().decode("utf-8", errors="replace")
+            for path in self.source_secrets.iterdir():
+                if path.is_file():
+                    try:
+                        secret = path.read_text(encoding="utf-8").strip()
+                    except OSError, UnicodeError:
+                        continue
+                    if secret:
+                        diagnostic = diagnostic.replace(secret, "<redacted>")
+            self.fail(f"{error}; mysqldump_stderr={diagnostic[:2000]}")
         finally:
             self._compose_down(
                 self.source_config,
