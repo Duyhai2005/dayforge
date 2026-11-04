@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import unittest
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
@@ -414,12 +415,10 @@ class BackupRestoreIntegrationTests(unittest.TestCase):
         )
         if revision is None:
             self.fail("Disposable source database has no migration revision")
-        return ReleaseManifest(
-            **{
-                **self.release.__dict__,
-                "required_db_revision": revision,
-                "supported_db_revisions": (revision,),
-            }
+        return replace(
+            self.release,
+            required_db_revision=revision,
+            supported_db_revisions=(revision,),
         )
 
     def test_encrypted_snapshot_restores_to_a_clean_database(self) -> None:
