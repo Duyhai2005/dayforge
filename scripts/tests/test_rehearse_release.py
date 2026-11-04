@@ -69,6 +69,7 @@ class RehearseReleaseTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        self.credentials.chmod(0o600)
         self.runtime = self.private / "runtime.json"
         self.runtime.write_text(
             json.dumps(
