@@ -307,7 +307,7 @@ class BackupRestoreIntegrationTests(unittest.TestCase):
                 if path.is_file():
                     try:
                         secret = path.read_text(encoding="utf-8").strip()
-                    except (OSError, UnicodeError):
+                    except OSError, UnicodeError:
                         continue
                     if secret:
                         diagnostic = diagnostic.replace(secret, "<redacted>")
@@ -342,7 +342,7 @@ class BackupRestoreIntegrationTests(unittest.TestCase):
                 "--volumes",
                 "--remove-orphans",
             )
-        except (DeploymentError, OSError, subprocess.SubprocessError):
+        except DeploymentError, OSError, subprocess.SubprocessError:
             pass
 
     def _start_source(self) -> ReleaseManifest:
