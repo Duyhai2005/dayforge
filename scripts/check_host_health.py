@@ -33,7 +33,9 @@ class DiskUsageInfo(Protocol):
 
 
 def _http_status(url: str, timeout_seconds: float = 3.0) -> int | None:
-    request = urllib.request.Request(url, method="GET", headers={"Cache-Control": "no-cache"})
+    request = urllib.request.Request(
+        url, method="GET", headers={"Cache-Control": "no-cache"}
+    )
     try:
         opener = urllib.request.build_opener(_NoRedirect())
         with opener.open(request, timeout=timeout_seconds) as response:
@@ -86,7 +88,9 @@ def _backup_is_stale(state_dir: Path, now: datetime) -> bool:
     if not (state_dir / "backup.enabled").is_file():
         return False
     try:
-        record = json.loads((state_dir / "last-backup.json").read_text(encoding="utf-8"))
+        record = json.loads(
+            (state_dir / "last-backup.json").read_text(encoding="utf-8")
+        )
         completed_at = record["completed_at"]
         if not isinstance(completed_at, str):
             return True
@@ -152,11 +156,19 @@ def main(argv: list[str] | None = None) -> int:
         config = load_deploy_config(args.config)
         report = check_host_health(config, now=datetime.now(timezone.utc))
     except DeployConfigError, OSError, ValueError:
-        print(json.dumps({"healthy": False, "codes": ["configuration_invalid"]}), file=sys.stderr)
+        print(
+            json.dumps({"healthy": False, "codes": ["configuration_invalid"]}),
+            file=sys.stderr,
+        )
         return 2
     print(
         json.dumps(
-            {"healthy": report.healthy, "codes": list(report.codes), "checked_at": report.checked_at}, sort_keys=True
+            {
+                "healthy": report.healthy,
+                "codes": list(report.codes),
+                "checked_at": report.checked_at,
+            },
+            sort_keys=True,
         )
     )
     return 0 if report.healthy else 1
