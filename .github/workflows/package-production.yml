@@ -1,0 +1,67 @@
+name: Production Package
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+  push:
+    branches:
+      - develop
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-production-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-smoke:
+    name: build-and-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: "12.16.1"
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.6"
+          python-version: "3.14.10"
+          enable-cache: true
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build package images
+        env:
+          DAYFORGE_PACKAGE_BUILD_ID: ${{ github.sha }}
+        run: |
+          docker build --file deploy/frontend.Dockerfile --build-arg DAYFORGE_BUILD_ID="$DAYFORGE_PACKAGE_BUILD_ID" --tag "dayforge/package-web:$DAYFORGE_PACKAGE_BUILD_ID" .
+          docker build --file deploy/backend.Dockerfile --tag "dayforge/package-api:$DAYFORGE_PACKAGE_BUILD_ID" .
+
+      - name: Run release manifest and deployment contract tests
+        run: |
+          uv sync --directory backend --locked
+          uv run --directory backend --locked python -m unittest discover -s ../scripts/tests -v
+
+      - name: Run disposable production package smoke
+        env:
+          DAYFORGE_PACKAGE_WEB_IMAGE: dayforge/package-web:${{ github.sha }}
+          DAYFORGE_PACKAGE_API_IMAGE: dayforge/package-api:${{ github.sha }}
+          DAYFORGE_PACKAGE_MYSQL_IMAGE: mysql:8.4.13@sha256:a0225d1ea6631c8bc2385dc4c2faba17bbf1834ecf369e1659a9a382bd8d5dd7
+          DAYFORGE_PACKAGE_BUILD_ID: ${{ github.sha }}
+        run: uv run --directory backend --locked python -m unittest discover -s ../scripts/deploy_tests -p test_production_package.py -v

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dayforge.example.test/schemas/release-v1.json",
+  "title": "DAYFORGE release manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format_version",
+    "release_id",
+    "git_sha",
+    "build_id",
+    "platform",
+    "web_image",
+    "api_image",
+    "mysql_image",
+    "required_db_revision",
+    "supported_db_revisions",
+    "indexeddb_schema_version",
+    "supported_indexeddb_schema_versions",
+    "protocol_versions",
+    "reducer_versions",
+    "created_at",
+    "test_harness"
+  ],
+  "properties": {
+    "format_version": { "const": 1 },
+    "release_id": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$" },
+    "git_sha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "build_id": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$" },
+    "platform": { "enum": ["linux/amd64", "linux/arm64"] },
+    "web_image": { "$ref": "#/$defs/digestImage" },
+    "api_image": { "$ref": "#/$defs/digestImage" },
+    "mysql_image": { "$ref": "#/$defs/digestImage" },
+    "required_db_revision": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+    "supported_db_revisions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" }
+    },
+    "indexeddb_schema_version": { "$ref": "#/$defs/positiveInteger" },
+    "supported_indexeddb_schema_versions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/positiveInteger" }
+    },
+    "protocol_versions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/positiveInteger" }
+    },
+    "reducer_versions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/positiveInteger" }
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "test_harness": { "const": false }
+  },
+  "$defs": {
+    "digestImage": { "type": "string", "pattern": "^.+@sha256:[a-f0-9]{64}$" },
+    "positiveInteger": { "type": "integer", "minimum": 1 }
+  }
+}

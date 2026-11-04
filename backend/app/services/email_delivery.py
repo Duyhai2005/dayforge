@@ -5,10 +5,13 @@ import json
 import logging
 import secrets
 import smtplib
+import ssl
 import struct
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
+from functools import partial
+from typing import Literal
 from uuid import UUID, uuid4
 
 import anyio
@@ -132,8 +135,37 @@ def _message(settings: Settings, payload: dict[str, str], job_id: UUID | None = 
     return message
 
 
-def smtp_send_message(host: str, port: int, message: EmailMessage) -> None:
-    with smtplib.SMTP(host, port, timeout=5) as connection:
+def smtp_send_message(
+    host: str,
+    port: int,
+    message: EmailMessage,
+    *,
+    tls: Literal["none", "starttls", "implicit"] = "none",
+    username: str | None = None,
+    password: str | None = None,
+    timeout_seconds: int = 10,
+) -> None:
+    if tls not in {"none", "starttls", "implicit"}:
+        raise ValueError("smtp_tls_mode_invalid")
+    if (username is None) != (password is None):
+        raise ValueError("smtp_credentials_incomplete")
+    if tls == "none" and username is not None:
+        raise ValueError("smtp_auth_requires_tls")
+    if tls == "implicit":
+        with smtplib.SMTP_SSL(host, port, timeout=timeout_seconds, context=ssl.create_default_context()) as connection:
+            if username is not None:
+                assert password is not None
+                connection.login(username, password)
+            connection.send_message(message)
+        return
+    with smtplib.SMTP(host, port, timeout=timeout_seconds) as connection:
+        if tls == "starttls":
+            connection.ehlo()
+            connection.starttls(context=ssl.create_default_context())
+            connection.ehlo()
+        if username is not None:
+            assert password is not None
+            connection.login(username, password)
         connection.send_message(message)
 
 
@@ -143,7 +175,7 @@ async def deliver_pending_jobs(
     *,
     now: datetime | None = None,
     clock: Callable[[], datetime] | None = None,
-    send_message=smtp_send_message,
+    send_message: Callable[[str, int, EmailMessage], None] | None = None,
     limit: int = 20,
 ) -> int:
     instant = now or datetime.now(timezone.utc)
@@ -160,6 +192,13 @@ async def deliver_pending_jobs(
 
     limit = min(20, max(1, limit))
     key = settings.secret_key("auth_email_outbox_key_b64")
+    sender = send_message or partial(
+        smtp_send_message,
+        tls=settings.email_smtp_tls,
+        username=settings.email_smtp_username.get_secret_value() if settings.email_smtp_username else None,
+        password=settings.email_smtp_password.get_secret_value() if settings.email_smtp_password else None,
+        timeout_seconds=settings.email_smtp_timeout_seconds,
+    )
     claimed: list[tuple[UUID, bytes, int, int, datetime, UUID]] = []
     async with database.sessions() as db:
         async with db.begin():
@@ -216,7 +255,7 @@ async def deliver_pending_jobs(
                     job_id,
                     claim_token,
                     current_time,
-                    send_message,
+                    sender,
                     settings.email_smtp_host,
                     settings.email_smtp_port,
                     message,

@@ -1,15 +1,31 @@
 import type { NextConfig } from "next";
+import path from "node:path";
 
-const apiInternalOrigin = process.env.API_INTERNAL_ORIGIN;
+const containerBuild = process.env.DAYFORGE_CONTAINER_BUILD === "1";
+const apiInternalOrigin = process.env.API_INTERNAL_ORIGIN ?? "http://127.0.0.1:8000";
 const playwrightMockApi = process.env.DAYFORGE_PLAYWRIGHT_MOCK_API === "1";
 const dayforgeBuildId = process.env.NEXT_PUBLIC_DAYFORGE_BUILD_ID ?? "development";
 
-if (apiInternalOrigin !== "http://127.0.0.1:8000") {
+if (containerBuild && apiInternalOrigin !== "http://api:8000") {
+  throw new Error("Container builds require API_INTERNAL_ORIGIN=http://api:8000.");
+}
+
+if (!containerBuild && apiInternalOrigin !== "http://127.0.0.1:8000") {
   throw new Error("API_INTERNAL_ORIGIN must be http://127.0.0.1:8000.");
+}
+
+if (containerBuild && playwrightMockApi) {
+  throw new Error("The production container build cannot enable the Playwright mock API.");
 }
 
 const nextConfig: NextConfig = {
   agentRules: false,
+  ...(containerBuild
+    ? {
+        output: "standalone" as const,
+        outputFileTracingRoot: path.join(__dirname, ".."),
+      }
+    : {}),
   env: {
     NEXT_PUBLIC_DAYFORGE_BUILD_ID: dayforgeBuildId,
   },

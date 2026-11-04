@@ -1,0 +1,240 @@
+name: ${COMPOSE_PROJECT:?set COMPOSE_PROJECT from the validated target}
+
+services:
+  mysql:
+    image: ${MYSQL_IMAGE:?set the digest-pinned MySQL image}
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+00:00
+    environment:
+      MYSQL_DATABASE: ${DB_NAME:?set DB_NAME from the validated target}
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_password
+      MYSQL_ROOT_HOST: "%"
+    secrets:
+      - mysql_root_password
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping --protocol=TCP -h 127.0.0.1 --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+
+  provision-users:
+    image: ${MYSQL_IMAGE:?set the digest-pinned MySQL image}
+    restart: "no"
+    entrypoint: ["/bin/sh", "/opt/dayforge/provision-users.sh"]
+    environment:
+      DB_NAME: ${DB_NAME:?set DB_NAME from the validated target}
+      DB_USER: dayforge_app
+      DB_MIGRATOR_USER: dayforge_migrator
+    volumes:
+      - ./mysql/provision-users.sh:/opt/dayforge/provision-users.sh:ro
+    secrets:
+      - mysql_root_password
+      - db_password
+      - db_migrator_password
+    networks:
+      - data
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  migrate:
+    image: ${API_IMAGE:?set API_IMAGE to the release digest}
+    restart: "no"
+    entrypoint: ["python", "-m", "alembic"]
+    command: ["upgrade", "head"]
+    environment:
+      APP_ENV: ${APP_ENV:?set APP_ENV=production}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?set the validated origin}
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_NAME: ${DB_NAME:?set DB_NAME from the validated target}
+      DB_USER: dayforge_migrator
+      DB_PASSWORD_FILE: /run/secrets/db_migrator_password
+      OWNER_EMAIL: ${OWNER_EMAIL:?set the owner inbox}
+      LOCAL_KEY_KEK_B64_FILE: /run/secrets/local_key_kek_b64
+      LOCAL_KEY_KEK_VERSION: ${LOCAL_KEY_KEK_VERSION:?set the key version}
+      LOGOUT_TICKET_KEY_B64_FILE: /run/secrets/logout_ticket_key_b64
+      LOGOUT_TICKET_PREVIOUS_KEYS_B64_FILE: /run/secrets/logout_ticket_previous_keys_b64
+      AUTH_RATE_LIMIT_KEY_B64_FILE: /run/secrets/auth_rate_limit_key_b64
+      AUTH_EMAIL_OUTBOX_KEY_B64_FILE: /run/secrets/auth_email_outbox_key_b64
+      SYNC_PAGE_TOKEN_KEY_B64_FILE: /run/secrets/sync_page_token_key_b64
+      EMAIL_SMTP_HOST: ${EMAIL_SMTP_HOST:?set the verified SMTP host}
+      EMAIL_SMTP_PORT: ${EMAIL_SMTP_PORT:?set the SMTP port}
+      EMAIL_FROM: ${EMAIL_FROM:?set the verified sender}
+      EMAIL_SMTP_TLS: ${EMAIL_SMTP_TLS:?use starttls or implicit in production}
+      EMAIL_SMTP_USERNAME_FILE: /run/secrets/email_smtp_username
+      EMAIL_SMTP_PASSWORD_FILE: /run/secrets/email_smtp_password
+      EMAIL_SMTP_TIMEOUT_SECONDS: ${EMAIL_SMTP_TIMEOUT_SECONDS:-10}
+    secrets:
+      - db_migrator_password
+      - local_key_kek_b64
+      - logout_ticket_key_b64
+      - logout_ticket_previous_keys_b64
+      - auth_rate_limit_key_b64
+      - auth_email_outbox_key_b64
+      - sync_page_token_key_b64
+      - email_smtp_username
+      - email_smtp_password
+    networks:
+      - data
+    depends_on:
+      provision-users:
+        condition: service_completed_successfully
+
+  api:
+    image: ${API_IMAGE:?set API_IMAGE to the release digest}
+    restart: unless-stopped
+    init: true
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --workers
+      - "1"
+      - --no-access-log
+      - --proxy-headers
+      - --forwarded-allow-ips
+      - ${APP_SUBNET:?set the validated private app subnet}
+    environment:
+      APP_ENV: ${APP_ENV:?set APP_ENV=production}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?set the validated origin}
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_NAME: ${DB_NAME:?set DB_NAME from the validated target}
+      DB_USER: dayforge_app
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      OWNER_EMAIL: ${OWNER_EMAIL:?set the owner inbox}
+      LOCAL_KEY_KEK_B64_FILE: /run/secrets/local_key_kek_b64
+      LOCAL_KEY_KEK_VERSION: ${LOCAL_KEY_KEK_VERSION:?set the key version}
+      LOGOUT_TICKET_KEY_B64_FILE: /run/secrets/logout_ticket_key_b64
+      LOGOUT_TICKET_PREVIOUS_KEYS_B64_FILE: /run/secrets/logout_ticket_previous_keys_b64
+      AUTH_RATE_LIMIT_KEY_B64_FILE: /run/secrets/auth_rate_limit_key_b64
+      AUTH_EMAIL_OUTBOX_KEY_B64_FILE: /run/secrets/auth_email_outbox_key_b64
+      SYNC_PAGE_TOKEN_KEY_B64_FILE: /run/secrets/sync_page_token_key_b64
+      EMAIL_SMTP_HOST: ${EMAIL_SMTP_HOST:?set the verified SMTP host}
+      EMAIL_SMTP_PORT: ${EMAIL_SMTP_PORT:?set the SMTP port}
+      EMAIL_FROM: ${EMAIL_FROM:?set the verified sender}
+      EMAIL_SMTP_TLS: ${EMAIL_SMTP_TLS:?use starttls or implicit in production}
+      EMAIL_SMTP_USERNAME_FILE: /run/secrets/email_smtp_username
+      EMAIL_SMTP_PASSWORD_FILE: /run/secrets/email_smtp_password
+      EMAIL_SMTP_TIMEOUT_SECONDS: ${EMAIL_SMTP_TIMEOUT_SECONDS:-10}
+    secrets:
+      - db_password
+      - local_key_kek_b64
+      - logout_ticket_key_b64
+      - logout_ticket_previous_keys_b64
+      - auth_rate_limit_key_b64
+      - auth_email_outbox_key_b64
+      - sync_page_token_key_b64
+      - email_smtp_username
+      - email_smtp_password
+    networks:
+      - app
+      - data
+    depends_on:
+      mysql:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=2).read()"
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    security_opt:
+      - no-new-privileges:true
+
+  web:
+    image: ${WEB_IMAGE:?set WEB_IMAGE to the release digest}
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+    networks:
+      app: {}
+      ingress:
+        aliases:
+          - ${EDGE_ALIAS:?set a unique edge alias}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/work').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+      - /app/frontend/.next/cache:rw,noexec,nosuid,size=32m
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  app:
+    name: ${COMPOSE_PROJECT:?set COMPOSE_PROJECT}-app
+    ipam:
+      config:
+        - subnet: ${APP_SUBNET:?set the validated private app subnet}
+  data:
+    name: ${COMPOSE_PROJECT:?set COMPOSE_PROJECT}-data
+    internal: true
+  ingress:
+    name: ${COMPOSE_PROJECT:?set COMPOSE_PROJECT}-ingress
+    external: true
+
+volumes:
+  mysql-data:
+    name: ${COMPOSE_PROJECT:?set COMPOSE_PROJECT}-mysql-data
+
+secrets:
+  mysql_root_password:
+    file: ${SECRETS_DIR:?set the environment secrets directory}/mysql_root_password
+  db_password:
+    file: ${SECRETS_DIR:?set the environment secrets directory}/db_password
+  db_migrator_password:
+    file: ${SECRETS_DIR:?set the environment secrets directory}/db_migrator_password
+  local_key_kek_b64:
+    file: ${SECRETS_DIR:?set the environment secrets directory}/local_key_kek_b64
+  logout_ticket_key_b64:
+    file: ${SECRETS_DIR:?set the environment secrets directory}/logout_ticket_key_b64
+  logout_ticket_previous_keys_b64:
+    file: ${SECRETS_DIR:?set the environment secrets directory}/logout_ticket_previous_keys_b64
+  auth_rate_limit_key_b64:
+    file: ${SECRETS_DIR:?set the environment secrets directory}/auth_rate_limit_key_b64
+  auth_email_outbox_key_b64:
+    file: ${SECRETS_DIR:?set the environment secrets directory}/auth_email_outbox_key_b64
+  sync_page_token_key_b64:
+    file: ${SECRETS_DIR:?set the environment secrets directory}/sync_page_token_key_b64
+  email_smtp_username:
+    file: ${SECRETS_DIR:?set the environment secrets directory}/email_smtp_username
+  email_smtp_password:
+    file: ${SECRETS_DIR:?set the environment secrets directory}/email_smtp_password

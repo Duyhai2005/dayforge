@@ -1,0 +1,13 @@
+{
+  "environment": "staging",
+  "provider": "aws",
+  "region": "ap-southeast-1",
+  "platform": "linux/amd64",
+  "public_origin": "https://staging.example.test",
+  "compose_project": "dayforge-staging",
+  "db_name": "dayforge_staging",
+  "secrets_dir": "/etc/dayforge/staging/secrets",
+  "state_dir": "/srv/dayforge/staging/state",
+  "edge_alias": "staging-web",
+  "app_subnet": "10.81.10.0/24"
+}
