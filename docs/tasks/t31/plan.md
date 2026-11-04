@@ -34,9 +34,10 @@
 | File | Trách nhiệm |
 | --- | --- |
 | scripts/backup_policy.py, deploy/backup-policy.example.json | Tạo policy repository/secret paths/retention/threshold, không credentials trong JSON public |
-| scripts/backup_database.py | Tạo dump→private stage→restic→check snapshot→atomic success marker |
+| scripts/backup_database.py | Tạo dump→private stage→restic→check snapshot→atomic success marker; khởi tạo repository mã hóa một lần |
 | scripts/restore_database.py, scripts/verify_restore.py | Tạo restore guard/import/checksum/fingerprint/app probe |
-| scripts/tests/test_backup_policy.py, test_backup_database.py, test_restore_database.py | Unit argv, lock, failure, path và redaction |
+| scripts/prepare_restore_recovery.py | Gọi recovery CLI bằng API image đã pin, chỉ như one-shot container |
+| scripts/tests/test_backup_policy.py, test_backup_database.py, test_restore_database.py, test_prepare_restore_recovery.py | Unit argv, lock, failure, path và redaction |
 | scripts/deploy_tests/test_backup_restore.py | Integration disposable source/clean target và local restic test repository |
 | backend/app/services/restore_recovery.py | Tạo transaction chuẩn bị DB restore, giữ event/hash |
 | backend/app/cli/prepare_restored_database.py | Tạo CLI nội bộ trong package app/cli đã có từ T30; không HTTP endpoint |
@@ -53,7 +54,7 @@
 
 - Frozen **BackupPolicy** trong backup_policy.py: repository_file: Path, password_file: Path, credentials_file: Path, workspace_root: Path, keep_daily: int=7, keep_weekly: int=4, keep_monthly: int=3, max_success_age_hours: int=26. **load_backup_policy(path: Path) -> BackupPolicy**, lỗi BackupPolicyError không echo nội dung/path secret.
 - **create_backup(config: DeployConfig, release: ReleaseManifest, policy: BackupPolicy) -> BackupResult**; BackupResult fields snapshot_id: str, completed_at: str, dump_sha256: str, source_revision: str. Snapshot chỉ xuất hiện như success sau restic exit0 + snapshot lookup đúng ID/tag/env.
-- CLI **python3 scripts/backup_database.py --config <path> --release <release.json> --policy <path>**; dùng operation.lock từ T30. State last-backup.json không có SQL/keys, write atomic.
+- **initialize_backup_repository(config: DeployConfig, policy: BackupPolicy) -> None** khởi tạo repository rỗng bằng restic đã pin, không reset repo hiện có; production từ chối `local:`. CLI **python3 scripts/backup_database.py --config <path> --release <release.json> --policy <path>**; thêm `--initialize-repository` để khởi tạo một lần và `--check-repository` để check/prune. Dùng operation.lock từ T30. State last-backup.json không có SQL/keys, write atomic.
 - Snapshot payload: database.sql.gz; backup-manifest.json format_version1/source environment/release_id/build_id/mysql_version/alembic_revision/start+end UTC/dump SHA256/key_versions; restore-secrets chứa KEK/version và auth signing/encryption keys cần phục hồi; private runtime settings đủ biết OWNER_EMAIL/origin. Không đưa restic password/access credential vào snapshot duy nhất mà nó mở được.
 
 - [ ] **Step 1: Viết failing unit backup.** Fake subprocess/clock/fs ở module test; assert:
@@ -75,8 +76,8 @@ Thêm tests mất disk, lock busy, SIGTERM cleanup, symlink workspace ra ngoài 
 
 - [ ] **Step 2: Run đỏ.** `uv run --directory backend --locked python -m unittest discover -s ../scripts/tests -p 'test_backup*.py' -v`. Expected FAIL vì chưa có backup implementation.
 - [ ] **Step 3: Implement dump và lock.** mysqldump dùng defaults-extra-file riêng mode0600, đúng thứ tự option-file trước các options khác; flags **--single-transaction --quick --hex-blob --no-tablespaces --set-gtid-purged=OFF --skip-lock-tables** với DB đã validate. Toàn bộ bảng app hiện là InnoDB; check engine và chặn nếu khác. Không dump mysql system schema, CREATE DATABASE hoặc user grants. Cấm migrate/key rotation bằng operation.lock chung; ghi revision trước/sau, fail nếu đổi. DML app vẫn có thể chạy với consistent snapshot; không dùng live cursor query riêng để khẳng định cùng snapshot.
-- [ ] **Step 4: Implement staging/restic.** Temp directory0700, SQL gzip0600, chỉ copy keys/runtime config cần phục hồi, sha256 dump, đảm bảo cleanup cả khi lỗi. restic đọc repo/password/credential từ private file/environment process không log. Snapshot tag environment/release và đường stage ổn định tương đối để retention grouping không bị tách thành một group mỗi temp path; dùng một staging root riêng theo environment, lock và cleanup trước/sau, hoặc override grouping thành host+tags có kiểm chứng. Bắt mọi exit code khác0, không coi partial snapshot là success.
-- [ ] **Step 5: Lịch và retention.** Timer OnCalendar với timezone Asia/Bangkok đúng02:15, Persistent=true; kiểm tra bằng systemd-analyze calendar, không suy timezone host. Restic forget giữ7daily/4weekly/3monthly chỉ filter đúng env/backup tag, --dry-run trước khi bật. Chạy prune/check riêng hằng tuần, khóa repository không chồng backup. Password khôi phục lưu ở nơi người dùng lấy được khi VM mất hoàn toàn; không chỉ có một copy trên VM hoặc chính repository.
+- [ ] **Step 4: Implement staging/restic.** Temp directory0700, SQL gzip0600, chỉ copy keys/runtime config cần phục hồi, sha256 dump, đảm bảo cleanup cả khi lỗi. restic đọc repo/password/credential từ private file/environment process không log. Snapshot tag environment/release/build và dùng đường stage ổn định `/backup-work/payload`; retention lọc đúng environment+kind, group theo host+paths để tag release/build không tách mỗi release thành retention group riêng. Bắt mọi exit code khác0, không coi partial snapshot là success.
+- [ ] **Step 5: Lịch và retention.** Timer OnCalendar với timezone Asia/Bangkok đúng02:15, Persistent=true; kiểm tra bằng systemd-analyze calendar, không suy timezone host. Restic forget giữ7daily/4weekly/3monthly chỉ filter đúng env/backup tag; job tự chạy `forget --dry-run --json`, xác nhận tag group rồi mới prune. Chạy prune/check riêng hằng tuần, khóa repository không chồng backup. Password khôi phục lưu ở nơi người dùng lấy được khi VM mất hoàn toàn; không chỉ có một copy trên VM hoặc chính repository.
 - [ ] **Step 6: Run xanh.** Unit PASS; `systemd-analyze verify` và calendar output đúng ngày/giờ; integration local encrypted repository snapshot tạo được và failure không thay marker. Host thật phải có snapshot **ngoài VM và volume app**, kiểm tra download/check bằng credential khôi phục; local repo chỉ là fixture test. Health T30 báo stale khi last-success>26h.
 - [ ] **Step 7: Commit.** Stage pipeline/policy/tests/units; `git commit -m "feat(backup): schedule encrypted off-host database snapshots"`.
 
@@ -88,7 +89,7 @@ Thêm tests mất disk, lock busy, SIGTERM cleanup, symlink workspace ra ngoài 
 
 - **restore_database(config: DeployConfig, release: ReleaseManifest, policy: BackupPolicy, *, snapshot_id: str) -> RestoreResult**; chỉ environment=restore, project/DB prefix restore, DB trống và volume đích mới. RestoreResult gồm snapshot_id, restored_revision, verified_dump_sha256; chưa đồng nghĩa đã mở app an toàn trước T31.3.
 - **verify_restored_database(config: DeployConfig, *, expected_fingerprint: Path) -> RestoreVerification**; fingerprint bao gồm table counts, owner/workspace/local-key IDs và hash envelope canonical sorted theo owner_id/operation_id; loại dữ liệu volatile sẽ được invalidated và epoch dự kiến đổi.
-- CLI restore **python3 scripts/restore_database.py --config <restore.json> --release <release.json> --policy <policy.json> --snapshot <id>**; không nhận --force/--overwrite production. CLI verify tương tự với --expected-fingerprint.
+- CLI restore **python3 scripts/restore_database.py --config <restore.json> --release <release.json> --policy <policy.json> --snapshot <id> --source-environment <staging|production>**; không nhận --force/--overwrite production. CLI verify tương tự với --expected-fingerprint.
 
 - [ ] **Step 1: Viết test đỏ restore guard/key loss.** Assert production/staging target exit2 trước mọi restic/docker/DB call; nonempty target exit2; snapshot tag env không khớp source đã chọn reject; checksum sai hoặc KEK/version thiếu reject. Integration source fixture có tiếng Việt nhiều dòng, plan/color, task, milestone, recurrence/exception/deletion; tất cả đi qua API/sync hợp lệ, không tạo domain rows tưởng tượng.
 

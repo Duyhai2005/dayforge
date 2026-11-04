@@ -81,6 +81,7 @@ class ProductionPackageSmokeTests(unittest.TestCase):
             "\n".join(
                 (
                     f"COMPOSE_PROJECT={self.project}",
+                    "DEPLOYMENT_ENV=staging",
                     "APP_ENV=production",
                     "PUBLIC_ORIGIN=https://staging.example.test",
                     "DB_NAME=dayforge_staging",
@@ -140,7 +141,12 @@ class ProductionPackageSmokeTests(unittest.TestCase):
     def _run(self, command, *, check=True, timeout=240):
         try:
             result = subprocess.run(
-                command, cwd=ROOT, capture_output=True, text=True, timeout=timeout
+                command,
+                check=False,
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
             )
         except OSError, subprocess.TimeoutExpired:
             self.fail("Docker package smoke command was unavailable or timed out")

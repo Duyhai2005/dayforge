@@ -68,6 +68,8 @@ services:
     entrypoint: ["python", "-m", "alembic"]
     command: ["upgrade", "head"]
     environment:
+      DEPLOYMENT_ENV: ${DEPLOYMENT_ENV:?set the validated target environment}
+      COMPOSE_PROJECT: ${COMPOSE_PROJECT:?set the validated Compose project}
       APP_ENV: ${APP_ENV:?set APP_ENV=production}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?set the validated origin}
       DB_HOST: mysql
@@ -129,6 +131,8 @@ services:
       - --forwarded-allow-ips
       - ${APP_SUBNET:?set the validated private app subnet}
     environment:
+      DEPLOYMENT_ENV: ${DEPLOYMENT_ENV:?set the validated target environment}
+      COMPOSE_PROJECT: ${COMPOSE_PROJECT:?set the validated Compose project}
       APP_ENV: ${APP_ENV:?set APP_ENV=production}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?set the validated origin}
       DB_HOST: mysql

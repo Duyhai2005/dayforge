@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Dayforge %i database backup every day at 02:15 Asia/Bangkok
+
+[Timer]
+OnCalendar=*-*-* 02:15:00 Asia/Bangkok
+Persistent=true
+AccuracySec=1s
+Unit=dayforge-backup@%i.service
+
+[Install]
+WantedBy=timers.target

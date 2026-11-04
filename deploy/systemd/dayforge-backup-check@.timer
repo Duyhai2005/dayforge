@@ -1,0 +1,11 @@
+[Unit]
+Description=Check and prune the Dayforge %i backup repository weekly
+
+[Timer]
+OnCalendar=Sun *-*-* 04:00:00 Asia/Bangkok
+Persistent=true
+AccuracySec=1s
+Unit=dayforge-backup-check@%i.service
+
+[Install]
+WantedBy=timers.target

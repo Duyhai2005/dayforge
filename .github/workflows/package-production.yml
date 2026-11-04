@@ -68,3 +68,13 @@ jobs:
           DAYFORGE_PACKAGE_MYSQL_IMAGE: mysql:8.4.13@sha256:a0225d1ea6631c8bc2385dc4c2faba17bbf1834ecf369e1659a9a382bd8d5dd7
           DAYFORGE_PACKAGE_BUILD_ID: ${{ github.sha }}
         run: uv run --directory backend --locked python -m unittest discover -s ../scripts/deploy_tests -p test_production_package.py -v
+
+      - name: Run disposable encrypted backup and restore rehearsal
+        env:
+          DAYFORGE_PACKAGE_WEB_IMAGE: dayforge/package-web:${{ github.sha }}
+          DAYFORGE_PACKAGE_API_IMAGE: dayforge/package-api:${{ github.sha }}
+          DAYFORGE_PACKAGE_MYSQL_IMAGE: mysql:8.4.13@sha256:a0225d1ea6631c8bc2385dc4c2faba17bbf1834ecf369e1659a9a382bd8d5dd7
+          DAYFORGE_PACKAGE_BUILD_ID: ${{ github.sha }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: uv run --directory backend --locked python -m unittest discover -s ../scripts/deploy_tests -p test_backup_restore.py -v
+

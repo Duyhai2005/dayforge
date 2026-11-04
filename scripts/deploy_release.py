@@ -88,6 +88,7 @@ def _compose_prefix(
     environment = _docker_environment(manifest)
     environment.update(
         COMPOSE_PROJECT=config.compose_project,
+        DEPLOYMENT_ENV=config.environment,
         APP_ENV="production",
         PUBLIC_ORIGIN=config.public_origin,
         DB_NAME=config.db_name,

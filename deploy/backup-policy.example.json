@@ -1,0 +1,10 @@
+{
+  "repository_file": "/etc/dayforge/staging/restic-repository",
+  "password_file": "/etc/dayforge/staging/restic-password",
+  "credentials_file": "/etc/dayforge/staging/restic-credentials.env",
+  "workspace_root": "/srv/dayforge/staging/state/backup-work",
+  "keep_daily": 7,
+  "keep_weekly": 4,
+  "keep_monthly": 3,
+  "max_success_age_hours": 26
+}
