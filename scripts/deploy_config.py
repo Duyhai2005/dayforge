@@ -102,7 +102,7 @@ def _resolved_path(value: object, field: str, invalid: set[str]) -> Path:
         return Path(".")
     try:
         path = Path(value).expanduser().resolve(strict=False)
-    except (OSError, RuntimeError, ValueError):
+    except OSError, RuntimeError, ValueError:
         invalid.add(field)
         return Path(".")
     if not path.is_absolute():
@@ -113,7 +113,7 @@ def _resolved_path(value: object, field: str, invalid: set[str]) -> Path:
 def load_deploy_config(path: Path) -> DeployConfig:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
+    except OSError, UnicodeError, json.JSONDecodeError:
         raise DeployConfigError("config_file") from None
     if not isinstance(raw, dict):
         raise DeployConfigError("config_object")
@@ -248,7 +248,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         config = load_deploy_config(args.target)
         assert_environment_isolation([config])
-    except (DeployConfigError, OSError):
+    except DeployConfigError, OSError:
         print("deployment_target_invalid", file=sys.stderr)
         return 2
     print("deployment_target_valid")
