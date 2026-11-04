@@ -6,7 +6,7 @@
 
 **Architecture:** Bootstrap một Linux host theo decision T29, tạo môi trường staging tách production và triển khai image đã build. Edge Caddy sở hữu 80/443; mỗi app stack có ingress/app/data network riêng, MySQL không publish host port, migration chạy bằng principal riêng. Health/restart/log/timer được kiểm chứng bằng fault injection có giới hạn, không chỉ xem file cấu hình.
 
-**Tech Stack:** Linux LTS đã chốt tại T29; Docker Engine/Compose v2/Caddy pin; systemd, MySQL 8.4.13; Python ops 3.11+; HTTPS/SMTP thật.
+**Tech Stack:** Linux LTS là điều kiện của T29 nhưng distro/host đích chưa được chọn; bootstrap T30 hỗ trợ Debian/Ubuntu systemd với Docker Engine/Compose v2 đã cài theo phiên bản được duyệt; Caddy pin, MySQL 8.4.13, Python ops 3.11+; HTTPS/SMTP thật.
 
 **Spec:** [T30](../README.md), [T29 plan](../t29/plan.md), [auth contract](../t03/auth-contract.md), [AC-31/32/35/36](../../project-definition/06-delivery-and-acceptance.md), [plan tổng/interfaces](../../superpowers/plans/2026-11-04-group7-deployment-rehearsal.md).
 
@@ -18,6 +18,10 @@
 - Không tự mua host/domain/email/backup; chỉ dùng tài nguyên đã chốt và được phép tại T29.
 - Không mở public 3000/8000/3306, Caddy admin API, Docker socket hoặc MySQL root remote; secret thật chỉ ở private config/file trên host.
 - Production user data và deploy production thuộc T35; T30 khởi động staging và chuẩn bị template production.
+
+## Implementation status
+
+This branch prepares host tooling and runbooks, but a code-only pass does not complete T30. External host, DNS/TLS, network policy, SMTP delivery, reboot/fault recovery, and inbox/device acceptance remain explicit gates in [infrastructure results](infrastructure-results.md). Production remains out of scope until T35.
 
 ## Review Focus
 
@@ -34,13 +38,14 @@
 | File | Trách nhiệm |
 | --- | --- |
 | deploy/host/bootstrap.sh | Tạo: --check/--apply host prerequisites, dirs, service enablement; không tạo cloud resource |
-| deploy/mysql/initialize.sql, deploy/mysql/grants.sql | Tạo: DB charset/timezone/DDL template và principal grants |
+| deploy/mysql/provision-users.sh, deploy/compose.app.yaml | Sửa: grants theo từng principal; Compose giữ DDL job riêng và UTC/utf8mb4 |
 | deploy/systemd/dayforge-app@.service | Tạo: khởi động lại stack hiện tại, không build/migrate lúc boot |
 | deploy/systemd/dayforge-health@.service, dayforge-health@.timer | Tạo: kiểm tra định kỳ và trạng thái lỗi |
 | scripts/deploy_release.py | Tạo: validate→lock→pull→migrate→start→smoke; T33 bổ sung compatibility switch |
 | scripts/smoke_deploy.py, scripts/check_host_health.py | Tạo: probe HTTP/runtime/health không cần import backend trên host |
 | backend/app/cli/__init__.py, backend/app/cli/send_mail_probe.py; backend/tests/unit/test_email_probe.py | Tạo: mail probe chạy trong API image và unit test |
-| scripts/tests/test_deploy_release.py, test_host_health.py | Tạo: unit command planning, guard/error redaction |
+| scripts/tests/test_deploy_release.py, test_host_health.py, test_smoke_deploy.py | Tạo: unit command sequencing, health, endpoint contract và redaction |
+| backend/tests/unit/test_email_probe.py | Tạo: owner-only probe, TLS/auth forwarding, header-injection guard |
 | scripts/deploy_tests/test_host_stack.py | Tạo: Docker/runtime/DB privilege integration; không thuộc verify:env |
 | docs/deployment/infrastructure.md, docs/deployment/runtime-config.md | Tạo runbook Linux và secret custody |
 | docs/tasks/t30/infrastructure-results.md | Tạo evidence host/DNS/TLS/grants/reboot/inbox |

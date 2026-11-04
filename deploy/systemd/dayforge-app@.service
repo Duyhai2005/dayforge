@@ -1,0 +1,19 @@
+[Unit]
+Description=Start existing Dayforge %i containers
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/dayforge
+ExecStart=/usr/bin/docker compose --env-file /etc/dayforge/%i/runtime.env --file /opt/dayforge/deploy/compose.app.yaml --project-name dayforge-%i start mysql api web
+TimeoutStartSec=180
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

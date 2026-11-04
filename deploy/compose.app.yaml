@@ -4,6 +4,11 @@ services:
   mysql:
     image: ${MYSQL_IMAGE:?set the digest-pinned MySQL image}
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_0900_ai_ci
@@ -30,6 +35,11 @@ services:
   provision-users:
     image: ${MYSQL_IMAGE:?set the digest-pinned MySQL image}
     restart: "no"
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
     entrypoint: ["/bin/sh", "/opt/dayforge/provision-users.sh"]
     environment:
       DB_NAME: ${DB_NAME:?set DB_NAME from the validated target}
@@ -50,6 +60,11 @@ services:
   migrate:
     image: ${API_IMAGE:?set API_IMAGE to the release digest}
     restart: "no"
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
     entrypoint: ["python", "-m", "alembic"]
     command: ["upgrade", "head"]
     environment:
@@ -94,6 +109,11 @@ services:
   api:
     image: ${API_IMAGE:?set API_IMAGE to the release digest}
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
     init: true
     command:
       - uvicorn
@@ -147,8 +167,6 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
     healthcheck:
       test:
         - CMD
@@ -168,6 +186,11 @@ services:
   web:
     image: ${WEB_IMAGE:?set WEB_IMAGE to the release digest}
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
     init: true
     environment:
       NODE_ENV: production

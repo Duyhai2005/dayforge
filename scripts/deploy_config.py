@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import argparse
 import ipaddress
 import json
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -256,3 +258,22 @@ def assert_environment_isolation(
 
     if invalid:
         raise DeployConfigError(", ".join(sorted(invalid)))
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Validate one target file without exposing any configured values."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--target", type=Path, required=True)
+    args = parser.parse_args(argv)
+    try:
+        config = load_deploy_config(args.target)
+        assert_environment_isolation([config])
+    except DeployConfigError, OSError:
+        print("deployment_target_invalid", file=sys.stderr)
+        return 2
+    print("deployment_target_valid")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

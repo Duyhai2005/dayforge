@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Dayforge %i health checks every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=true
+Unit=dayforge-health@%i.service
+
+[Install]
+WantedBy=timers.target
