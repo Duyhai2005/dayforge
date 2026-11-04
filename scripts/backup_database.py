@@ -289,17 +289,8 @@ defaults_file="$(mktemp /tmp/dayforge-mysqldump.XXXXXX)"
 trap 'rm -f "$defaults_file"' EXIT HUP INT TERM
 { printf '[client]\\nuser=root\\npassword='; cat /run/secrets/mysql_root_password; printf '\\n'; } > "$defaults_file"
 chmod 600 "$defaults_file"
-mysqldump \
-    --defaults-extra-file="$defaults_file" \
-    --protocol=TCP \
-    --host=127.0.0.1 \
-    --single-transaction \
-    --quick \
-    --hex-blob \
-    --no-tablespaces \
-    --set-gtid-purged=OFF \
-    --skip-lock-tables \
-    "$MYSQL_DATABASE"""
+mysqldump --defaults-extra-file="$defaults_file" --protocol=TCP --host=127.0.0.1 --single-transaction --quick --hex-blob --no-tablespaces --set-gtid-purged=OFF --skip-lock-tables "$MYSQL_DATABASE"
+"""
 
 
 def _write_dump(
