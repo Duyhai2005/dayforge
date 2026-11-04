@@ -12,7 +12,9 @@ FROM ${PYTHON_IMAGE} AS runtime
 ENV PATH=/app/.venv/bin:$PATH \
     PYTHONPATH=/app/backend \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    USER=dayforge \
+    LOGNAME=dayforge
 WORKDIR /app/backend
 COPY --from=build --chown=10001:10001 /app/.venv /app/.venv
 COPY --chown=10001:10001 backend/app ./app
