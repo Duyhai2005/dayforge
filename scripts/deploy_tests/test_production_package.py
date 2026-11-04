@@ -143,8 +143,37 @@ class ProductionPackageSmokeTests(unittest.TestCase):
         except OSError, subprocess.TimeoutExpired:
             self.fail("Docker package smoke command was unavailable or timed out")
         if check and result.returncode:
-            self.fail("Docker package smoke command failed; details suppressed")
+            statuses = self._service_statuses()
+            self.fail(
+                "Docker package smoke command failed "
+                f"(exit code {result.returncode}); service states: {statuses}"
+            )
         return result
+
+    def _service_statuses(self):
+        result = subprocess.run(
+            [*self.compose, "ps", "--all", "--format", "json"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        try:
+            payload = json.loads(result.stdout)
+            rows = payload if isinstance(payload, list) else [payload]
+        except json.JSONDecodeError:
+            rows = [json.loads(line) for line in result.stdout.splitlines() if line]
+        return [
+            {
+                "service": row.get("Service"),
+                "state": row.get("State"),
+                "health": row.get("Health"),
+                "exit_code": row.get("ExitCode"),
+            }
+            for row in rows
+            if isinstance(row, dict)
+        ]
 
     def _status(self, path):
         try:
