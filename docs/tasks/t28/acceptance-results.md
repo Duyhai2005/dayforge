@@ -40,7 +40,7 @@ pnpm --filter @dayforge/frontend exec playwright test --config=playwright.produc
 
 ## GitHub CI
 
-On code candidate SHA `e181e6782d267ae45992baff3d2755182d3d38cb`, [CI run #109](https://github.com/Duyhai2005/dayforge/actions/runs/41745077977) passed all three jobs (`quality`, `frontend`, `backend-mysql`), and [Offline web run #116](https://github.com/Duyhai2005/dayforge/actions/runs/41745077935) passed `offline-web`. The Group 6 status update below is documentation-only; its resulting PR head is subject to a final CI rerun before merge.
+On code candidate SHA `e181e6782d267ae45992baff3d2755182d3d38cb`, [CI run #109](https://github.com/Duyhai2005/dayforge/actions/runs/41745077977) passed all three jobs (`quality`, `frontend`, `backend-mysql`), and [Offline web run #116](https://github.com/Duyhai2005/dayforge/actions/runs/41745077935) passed `offline-web`. The updated status/report candidate at SHA `b3d33f45b448b40865c63fed112572ce5bf61c0a` also passed [CI run #110](https://github.com/Duyhai2005/dayforge/actions/runs/41746802160) and [Offline web run #118](https://github.com/Duyhai2005/dayforge/actions/runs/41746802183). A final documentation status edit follows and will be checked on the resulting PR head before merge.
 
 ## AC-01–AC-38 matrix
 
