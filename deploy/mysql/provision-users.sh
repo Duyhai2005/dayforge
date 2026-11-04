@@ -28,7 +28,7 @@ secret_sql_literal() {
   value=${value%.}
   [ -n "$value" ] || return 1
   case "$value" in
-    *[! -~]*) return 1 ;;
+    *[![:print:]]*) return 1 ;;
   esac
   escaped=$(printf '%s' "$value" | sed "s/'/''/g") || return 1
   printf "'%s'" "$escaped"
