@@ -514,9 +514,29 @@ class BackupRestoreIntegrationTests(unittest.TestCase):
             self.assertEqual(after, before)
         except BackupError as error:
             process = self.source_runner.last_popen
-            diagnostic = ""
+            diagnostics: list[str] = []
             if process is not None and process.stderr is not None:
-                diagnostic = process.stderr.read().decode("utf-8", errors="replace")
+                stderr = process.stderr.read().decode("utf-8", errors="replace")
+                if stderr.strip():
+                    diagnostics.append(f"mysqldump_stderr={stderr.strip()}")
+                diagnostics.append(f"docker_compose_exit_code={process.returncode}")
+            try:
+                mysql_logs = self._compose(
+                    self.source_config,
+                    self.release,
+                    self.source_runtime,
+                    self.source_runner,
+                    "logs",
+                    "--no-color",
+                    "--tail",
+                    "50",
+                    "mysql",
+                )
+            except DeploymentError, OSError, subprocess.SubprocessError:
+                mysql_logs = ""
+            if mysql_logs:
+                diagnostics.append(f"mysql_logs={mysql_logs}")
+            diagnostic = "\n".join(diagnostics)
             for path in self.source_secrets.iterdir():
                 if path.is_file():
                     try:
