@@ -52,12 +52,21 @@ class ReleaseManifestTests(unittest.TestCase):
         value = self.valid()
         self.write(value)
         loaded = load_release_manifest(self.path)
-        schema = json.loads((REPO_ROOT / "deploy/release.schema.json").read_text(encoding="utf-8"))
+        schema = json.loads(
+            (REPO_ROOT / "deploy/release.schema.json").read_text(encoding="utf-8")
+        )
 
         self.assertEqual(loaded.git_sha, value["git_sha"])
         self.assertEqual(loaded.supported_db_revisions, ("0004_sync",))
         self.assertEqual(loaded.supported_indexeddb_schema_versions, (1, 2))
-        self.assertEqual(list(Draft202012Validator(schema, format_checker=FormatChecker()).iter_errors(value)), [])
+        self.assertEqual(
+            list(
+                Draft202012Validator(
+                    schema, format_checker=FormatChecker()
+                ).iter_errors(value)
+            ),
+            [],
+        )
 
     def test_write_emits_a_valid_round_trip(self):
         from scripts.release_manifest import ReleaseManifest
@@ -89,7 +98,9 @@ class ReleaseManifestTests(unittest.TestCase):
             value = self.valid()
             value[field] = "ghcr.io/dayforge/image:latest"
             self.write(value)
-            with self.subTest(field=field), self.assertRaises(ReleaseManifestError) as caught:
+            with self.subTest(field=field), self.assertRaises(
+                ReleaseManifestError
+            ) as caught:
                 load_release_manifest(self.path)
             self.assertIn(field, str(caught.exception))
 
@@ -98,7 +109,9 @@ class ReleaseManifestTests(unittest.TestCase):
             value = self.valid()
             value[field] = invalid
             self.write(value)
-            with self.subTest(field=field), self.assertRaises(ReleaseManifestError) as caught:
+            with self.subTest(field=field), self.assertRaises(
+                ReleaseManifestError
+            ) as caught:
                 load_release_manifest(self.path)
             self.assertIn(field, str(caught.exception))
 
@@ -112,7 +125,9 @@ class ReleaseManifestTests(unittest.TestCase):
             value = self.valid()
             value[field] = invalid
             self.write(value)
-            with self.subTest(field=field), self.assertRaises(ReleaseManifestError) as caught:
+            with self.subTest(field=field), self.assertRaises(
+                ReleaseManifestError
+            ) as caught:
                 load_release_manifest(self.path)
             self.assertIn(field, str(caught.exception))
 

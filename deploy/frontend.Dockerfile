@@ -6,6 +6,7 @@ ENV COREPACK_HOME=/tmp/corepack
 WORKDIR /workspace
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY frontend/package.json frontend/package.json
+COPY scripts/check-node-version.cjs scripts/check-node-version.cjs
 RUN corepack enable && corepack prepare pnpm@12.16.1 --activate && pnpm install --frozen-lockfile
 COPY frontend frontend
 COPY scripts/build-frontend.cjs scripts/build-frontend.cjs

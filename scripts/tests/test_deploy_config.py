@@ -7,7 +7,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.deploy_config import DeployConfigError, assert_environment_isolation, load_deploy_config  # noqa: E402
+from scripts.deploy_config import (  # noqa: E402
+    DeployConfigError,
+    assert_environment_isolation,
+    load_deploy_config,
+)
 
 
 class DeployConfigTests(unittest.TestCase):
@@ -87,7 +91,9 @@ class DeployConfigTests(unittest.TestCase):
 
     def test_rejects_unknown_fields_and_malformed_values_without_echo(self):
         secret_sentinel = "local-private-secret-value"
-        value = self.config("staging", unsupported=secret_sentinel, provider={"aws": True})
+        value = self.config(
+            "staging", unsupported=secret_sentinel, provider={"aws": True}
+        )
         with self.assertRaises(DeployConfigError) as caught:
             self.load(value)
         self.assertIn("unsupported", str(caught.exception))
@@ -104,19 +110,27 @@ class DeployConfigTests(unittest.TestCase):
             ("app_subnet", "10.81.10.1/24"),
             ("app_subnet", "2001:db8::/64"),
         ):
-            with self.subTest(field=field, value=value), self.assertRaises(DeployConfigError):
+            with self.subTest(field=field, value=value), self.assertRaises(
+                DeployConfigError
+            ):
                 self.load(self.config("staging", **{field: value}))
 
     def test_rejects_duplicate_environment_boundary_and_overlapping_subnets(self):
         staging = self.load(self.config("staging"))
         duplicate_origin = self.load(
-            self.config("production", public_origin=staging.public_origin, app_subnet="10.82.20.0/24")
+            self.config(
+                "production",
+                public_origin=staging.public_origin,
+                app_subnet="10.82.20.0/24",
+            )
         )
         with self.assertRaises(DeployConfigError) as caught:
             assert_environment_isolation([staging, duplicate_origin])
         self.assertIn("public_origin", str(caught.exception))
 
-        overlapping_subnet = self.load(self.config("production", app_subnet="10.81.10.128/25"))
+        overlapping_subnet = self.load(
+            self.config("production", app_subnet="10.81.10.128/25")
+        )
         with self.assertRaises(DeployConfigError) as caught:
             assert_environment_isolation([staging, overlapping_subnet])
         self.assertIn("app_subnet", str(caught.exception))

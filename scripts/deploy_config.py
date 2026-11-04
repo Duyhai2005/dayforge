@@ -124,12 +124,20 @@ def load_deploy_config(path: Path) -> DeployConfig:
         "restore",
     }:
         invalid.add("environment")
-    if not isinstance(raw.get("provider"), str) or raw["provider"] not in {"aws", "oci"}:
+    if not isinstance(raw.get("provider"), str) or raw["provider"] not in {
+        "aws",
+        "oci",
+    }:
         invalid.add("provider")
-    if not isinstance(raw.get("platform"), str) or raw["platform"] not in {"linux/amd64", "linux/arm64"}:
+    if not isinstance(raw.get("platform"), str) or raw["platform"] not in {
+        "linux/amd64",
+        "linux/arm64",
+    }:
         invalid.add("platform")
     region = raw.get("region")
-    if not isinstance(region, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,62}", region):
+    if not isinstance(region, str) or not re.fullmatch(
+        r"[a-z0-9][a-z0-9-]{1,62}", region
+    ):
         invalid.add("region")
     if not _safe_origin(raw.get("public_origin")):
         invalid.add("public_origin")
@@ -155,9 +163,19 @@ def load_deploy_config(path: Path) -> DeployConfig:
         if edge_alias != "production-web":
             invalid.add("edge_alias")
     elif environment == "restore":
-        project_id = project.removeprefix("dayforge-restore-") if isinstance(project, str) else ""
-        database_id = db_name.removeprefix("dayforge_restore_") if isinstance(db_name, str) else ""
-        alias_id = edge_alias.removeprefix("restore-") if isinstance(edge_alias, str) else ""
+        project_id = (
+            project.removeprefix("dayforge-restore-")
+            if isinstance(project, str)
+            else ""
+        )
+        database_id = (
+            db_name.removeprefix("dayforge_restore_")
+            if isinstance(db_name, str)
+            else ""
+        )
+        alias_id = (
+            edge_alias.removeprefix("restore-") if isinstance(edge_alias, str) else ""
+        )
         if not _RESTORE_ID.fullmatch(project_id):
             invalid.add("compose_project")
         if not _RESTORE_ID.fullmatch(database_id):
@@ -169,7 +187,11 @@ def load_deploy_config(path: Path) -> DeployConfig:
 
     secrets_dir = _resolved_path(raw.get("secrets_dir"), "secrets_dir", invalid)
     state_dir = _resolved_path(raw.get("state_dir"), "state_dir", invalid)
-    if secrets_dir == state_dir or secrets_dir in state_dir.parents or state_dir in secrets_dir.parents:
+    if (
+        secrets_dir == state_dir
+        or secrets_dir in state_dir.parents
+        or state_dir in secrets_dir.parents
+    ):
         invalid.update({"secrets_dir", "state_dir"})
     if invalid:
         raise DeployConfigError(", ".join(sorted(invalid)))
@@ -189,7 +211,9 @@ def load_deploy_config(path: Path) -> DeployConfig:
     )
 
 
-def assert_environment_isolation(configs: list[DeployConfig] | tuple[DeployConfig, ...]) -> None:
+def assert_environment_isolation(
+    configs: list[DeployConfig] | tuple[DeployConfig, ...],
+) -> None:
     invalid: set[str] = set()
     paths: list[tuple[str, Path]] = []
     subnets: list[ipaddress.IPv4Network] = []
@@ -210,9 +234,16 @@ def assert_environment_isolation(configs: list[DeployConfig] | tuple[DeployConfi
             if value in seen:
                 invalid.add(field)
             seen.add(value)
-        for field, path in (("secrets_dir", config.secrets_dir), ("state_dir", config.state_dir)):
+        for field, path in (
+            ("secrets_dir", config.secrets_dir),
+            ("state_dir", config.state_dir),
+        ):
             for previous_field, previous in paths:
-                if path == previous or path in previous.parents or previous in path.parents:
+                if (
+                    path == previous
+                    or path in previous.parents
+                    or previous in path.parents
+                ):
                     invalid.update({field, previous_field})
             paths.append((field, path))
         subnet = ipaddress.ip_network(config.app_subnet, strict=True)

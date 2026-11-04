@@ -87,12 +87,19 @@ def _invalid_fields(raw: object) -> set[str]:
     for field in ("release_id", "build_id"):
         if not isinstance(raw.get(field), str) or not _RELEASE_ID.fullmatch(raw[field]):
             invalid.add(field)
-    if not isinstance(raw.get("git_sha"), str) or not re.fullmatch(r"[a-f0-9]{40}", raw["git_sha"]):
+    if not isinstance(raw.get("git_sha"), str) or not re.fullmatch(
+        r"[a-f0-9]{40}", raw["git_sha"]
+    ):
         invalid.add("git_sha")
-    if not isinstance(raw.get("platform"), str) or raw["platform"] not in {"linux/amd64", "linux/arm64"}:
+    if not isinstance(raw.get("platform"), str) or raw["platform"] not in {
+        "linux/amd64",
+        "linux/arm64",
+    }:
         invalid.add("platform")
     for field in ("web_image", "api_image", "mysql_image"):
-        if not isinstance(raw.get(field), str) or not _IMAGE_DIGEST.fullmatch(raw[field]):
+        if not isinstance(raw.get(field), str) or not _IMAGE_DIGEST.fullmatch(
+            raw[field]
+        ):
             invalid.add(field)
     revision = raw.get("required_db_revision")
     if not isinstance(revision, str) or not _REVISION.fullmatch(revision):
@@ -101,7 +108,10 @@ def _invalid_fields(raw: object) -> set[str]:
     if (
         not isinstance(supported_revisions, list)
         or not supported_revisions
-        or not all(isinstance(item, str) and _REVISION.fullmatch(item) for item in supported_revisions)
+        or not all(
+            isinstance(item, str) and _REVISION.fullmatch(item)
+            for item in supported_revisions
+        )
         or len(set(supported_revisions)) != len(supported_revisions)
     ):
         invalid.add("supported_db_revisions")
@@ -110,7 +120,11 @@ def _invalid_fields(raw: object) -> set[str]:
     schema_version = raw.get("indexeddb_schema_version")
     if type(schema_version) is not int or schema_version < 1:
         invalid.add("indexeddb_schema_version")
-    for field in ("supported_indexeddb_schema_versions", "protocol_versions", "reducer_versions"):
+    for field in (
+        "supported_indexeddb_schema_versions",
+        "protocol_versions",
+        "reducer_versions",
+    ):
         if not _positive_version_list(raw.get(field)):
             invalid.add(field)
     supported_schema_versions = raw.get("supported_indexeddb_schema_versions")
@@ -142,7 +156,9 @@ def _from_dict(raw: dict[str, object]) -> ReleaseManifest:
         required_db_revision=raw["required_db_revision"],
         supported_db_revisions=tuple(raw["supported_db_revisions"]),
         indexeddb_schema_version=raw["indexeddb_schema_version"],
-        supported_indexeddb_schema_versions=tuple(raw["supported_indexeddb_schema_versions"]),
+        supported_indexeddb_schema_versions=tuple(
+            raw["supported_indexeddb_schema_versions"]
+        ),
         protocol_versions=tuple(raw["protocol_versions"]),
         reducer_versions=tuple(raw["reducer_versions"]),
         created_at=raw["created_at"],
@@ -164,7 +180,9 @@ def load_release_manifest(path: Path) -> ReleaseManifest:
 def write_release_manifest(path: Path, manifest: ReleaseManifest) -> None:
     raw = asdict(manifest)
     raw["supported_db_revisions"] = list(manifest.supported_db_revisions)
-    raw["supported_indexeddb_schema_versions"] = list(manifest.supported_indexeddb_schema_versions)
+    raw["supported_indexeddb_schema_versions"] = list(
+        manifest.supported_indexeddb_schema_versions
+    )
     raw["protocol_versions"] = list(manifest.protocol_versions)
     raw["reducer_versions"] = list(manifest.reducer_versions)
     issues = _invalid_fields(raw)
@@ -172,6 +190,8 @@ def write_release_manifest(path: Path, manifest: ReleaseManifest) -> None:
         raise ReleaseManifestError(", ".join(sorted(issues)))
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(raw, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        path.write_text(
+            json.dumps(raw, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
     except OSError, UnicodeError:
         raise ReleaseManifestError("manifest_write") from None

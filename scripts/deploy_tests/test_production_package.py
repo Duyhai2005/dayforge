@@ -47,7 +47,9 @@ class ProductionPackageSmokeTests(unittest.TestCase):
             "db_migrator_password",
             "email_smtp_password",
         ):
-            (self.secrets_dir / name).write_text(secrets.token_urlsafe(32), encoding="utf-8")
+            (self.secrets_dir / name).write_text(
+                secrets.token_urlsafe(32), encoding="utf-8"
+            )
         for name in (
             "local_key_kek_b64",
             "logout_ticket_key_b64",
@@ -56,11 +58,17 @@ class ProductionPackageSmokeTests(unittest.TestCase):
             "sync_page_token_key_b64",
         ):
             (self.secrets_dir / name).write_text(
-                base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii").rstrip("="),
+                base64.urlsafe_b64encode(secrets.token_bytes(32))
+                .decode("ascii")
+                .rstrip("="),
                 encoding="utf-8",
             )
-        (self.secrets_dir / "logout_ticket_previous_keys_b64").write_text("", encoding="utf-8")
-        (self.secrets_dir / "email_smtp_username").write_text("package-test-user", encoding="utf-8")
+        (self.secrets_dir / "logout_ticket_previous_keys_b64").write_text(
+            "", encoding="utf-8"
+        )
+        (self.secrets_dir / "email_smtp_username").write_text(
+            "package-test-user", encoding="utf-8"
+        )
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
             self.port = probe.getsockname()[1]
@@ -94,7 +102,9 @@ class ProductionPackageSmokeTests(unittest.TestCase):
         )
         self.override_file = self.root / "compose.override.yaml"
         self.override_file.write_text(
-            "services:\n  web:\n    ports:\n      - 127.0.0.1:" + str(self.port) + ":3000\n",
+            "services:\n  web:\n    ports:\n      - 127.0.0.1:"
+            + str(self.port)
+            + ":3000\n",
             encoding="utf-8",
         )
         self.compose = [
@@ -112,17 +122,24 @@ class ProductionPackageSmokeTests(unittest.TestCase):
     def tearDown(self):
         try:
             if PROJECT_PATTERN.fullmatch(self.project):
-                self._run([*self.compose, "down", "--volumes", "--remove-orphans"], check=False)
+                self._run(
+                    [*self.compose, "down", "--volumes", "--remove-orphans"],
+                    check=False,
+                )
             if self.network_created and re.fullmatch(
                 r"dayforge-package-test-[a-f0-9]{32}-ingress", self.ingress_network
             ):
-                self._run(["docker", "network", "rm", self.ingress_network], check=False)
+                self._run(
+                    ["docker", "network", "rm", self.ingress_network], check=False
+                )
         finally:
             self.temporary.cleanup()
 
     def _run(self, command, *, check=True, timeout=240):
         try:
-            result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=timeout)
+            result = subprocess.run(
+                command, cwd=ROOT, capture_output=True, text=True, timeout=timeout
+            )
         except OSError, subprocess.TimeoutExpired:
             self.fail("Docker package smoke command was unavailable or timed out")
         if check and result.returncode:
@@ -131,21 +148,39 @@ class ProductionPackageSmokeTests(unittest.TestCase):
 
     def _status(self, path):
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{self.port}{path}", timeout=8) as response:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{self.port}{path}", timeout=8
+            ) as response:
                 return response.status
         except urllib.error.HTTPError as error:
             return error.code
 
     def _headers(self, path):
-        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}{path}", timeout=8) as response:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{self.port}{path}", timeout=8
+        ) as response:
             return response.headers
 
     def test_final_image_has_matching_manifest_assets_headers_and_live_api(self):
         network = self._run(["docker", "network", "create", self.ingress_network])
         self.network_created = network.returncode == 0
-        self._run([*self.compose, "up", "--detach", "--wait", "--wait-timeout", "180", "api", "web"], timeout=240)
+        self._run(
+            [
+                *self.compose,
+                "up",
+                "--detach",
+                "--wait",
+                "--wait-timeout",
+                "180",
+                "api",
+                "web",
+            ],
+            timeout=240,
+        )
 
-        manifest_response = urllib.request.urlopen(f"http://127.0.0.1:{self.port}/dayforge-build.json", timeout=8)
+        manifest_response = urllib.request.urlopen(
+            f"http://127.0.0.1:{self.port}/dayforge-build.json", timeout=8
+        )
         with manifest_response:
             manifest = json.load(manifest_response)
         self.assertEqual(manifest["build_id"], self.build_id)
@@ -157,27 +192,44 @@ class ProductionPackageSmokeTests(unittest.TestCase):
         self.assertEqual(self._status("/api/v1/health"), 200)
         self.assertEqual(self._status("/sync-browser"), 404)
         self.assertEqual(self._status("/offline-update"), 404)
-        self.assertIn("no-store", self._headers("/api/v1/health").get("Cache-Control", "").lower())
-        self.assertIn("no-store", self._headers("/verify-email").get("Cache-Control", "").lower())
-        self.assertEqual(self._headers("/verify-email").get("Referrer-Policy"), "no-referrer")
-        self.assertIn("no-store", self._headers("/sw.js").get("Cache-Control", "").lower())
+        self.assertIn(
+            "no-store", self._headers("/api/v1/health").get("Cache-Control", "").lower()
+        )
+        self.assertIn(
+            "no-store", self._headers("/verify-email").get("Cache-Control", "").lower()
+        )
+        self.assertEqual(
+            self._headers("/verify-email").get("Referrer-Policy"), "no-referrer"
+        )
+        self.assertIn(
+            "no-store", self._headers("/sw.js").get("Cache-Control", "").lower()
+        )
         for asset in manifest["assets"]:
             self.assertTrue(asset.startswith("/_next/static/"))
             self.assertEqual(self._status(asset), 200, asset)
-        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/work", timeout=8) as response:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{self.port}/work", timeout=8
+        ) as response:
             self.assertEqual(response.headers.get("X-Dayforge-Build"), self.build_id)
 
-        resolved = json.loads(self._run([*self.compose, "config", "--format", "json"]).stdout)
+        resolved = json.loads(
+            self._run([*self.compose, "config", "--format", "json"]).stdout
+        )
         self.assertNotIn("ports", resolved["services"]["api"])
         self.assertNotIn("ports", resolved["services"]["mysql"])
         self.assertEqual(resolved["services"]["migrate"]["restart"], "no")
-        self.assertEqual(resolved["volumes"]["mysql-data"]["name"], f"{self.project}-mysql-data")
+        self.assertEqual(
+            resolved["volumes"]["mysql-data"]["name"], f"{self.project}-mysql-data"
+        )
         for service in ("api", "web"):
             environment = resolved["services"][service].get("environment", {})
             self.assertNotIn("DAYFORGE_SYNC_TEST_HARNESS", environment)
             self.assertNotIn("DAYFORGE_OFFLINE_UPDATE_TEST_HARNESS", environment)
             self.assertNotIn("DAYFORGE_PLAYWRIGHT_MOCK_API", environment)
-        for image, expected_user in ((self.web_image, "node"), (self.api_image, "10001:10001")):
+        for image, expected_user in (
+            (self.web_image, "node"),
+            (self.api_image, "10001:10001"),
+        ):
             actual_user = self._run(
                 ["docker", "image", "inspect", "--format", "{{.Config.User}}", image]
             ).stdout.strip()
