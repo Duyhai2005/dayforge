@@ -45,7 +45,7 @@ def _run(arguments: Sequence[str], environment: Mapping[str, str]) -> subprocess
             timeout=300,
             env=dict(environment),
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         raise DeploymentError("command_unavailable_or_timed_out") from None
 
 
@@ -176,7 +176,7 @@ def _backup_is_recent(state_dir: Path, now: datetime) -> bool:
         timestamp = datetime.fromisoformat(record["completed_at"].replace("Z", "+00:00"))
         if timestamp.tzinfo is None:
             return False
-    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError, AttributeError, ValueError):
+    except OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError, AttributeError, ValueError:
         return False
     age = now.astimezone(timezone.utc) - timestamp.astimezone(timezone.utc)
     return timedelta(0) <= age <= _BACKUP_MAX_AGE
@@ -346,7 +346,7 @@ def deploy_release(
         _set_maintenance(maintenance_dir, False)
         try:
             (smoke or smoke_deployment)(config.public_origin, release.build_id)
-        except (SmokeDeploymentError, OSError, TimeoutError, ValueError):
+        except SmokeDeploymentError, OSError, TimeoutError, ValueError:
             _set_maintenance(maintenance_dir, True)
             raise DeploymentError("post_deploy_smoke_failed") from None
         try:
