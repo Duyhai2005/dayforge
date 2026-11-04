@@ -40,6 +40,7 @@ class IsolatedDockerRunner:
         self.compose_project = compose_project
         self.isolate_project = isolate_project or compose_project
         self.events: list[list[str]] = []
+        self.last_result: subprocess.CompletedProcess[str] | None = None
 
     def _isolated(self, arguments: Sequence[str], environment: Mapping[str, str]):
         command = list(arguments)
@@ -53,7 +54,7 @@ class IsolatedDockerRunner:
     def __call__(self, arguments: Sequence[str], environment: Mapping[str, str]):
         command, env = self._isolated(arguments, environment)
         self.events.append(command)
-        return subprocess.run(
+        result = subprocess.run(
             command,
             cwd=ROOT,
             env=env,
@@ -62,6 +63,8 @@ class IsolatedDockerRunner:
             text=True,
             timeout=60 * 60,
         )
+        self.last_result = result
+        return result
 
     def popen(self, arguments: Sequence[str], **kwargs):
         command, env = self._isolated(arguments, kwargs.pop("env", {}))
@@ -287,13 +290,33 @@ class BackupRestoreIntegrationTests(unittest.TestCase):
             runtime,
             ROOT / "deploy" / "compose.app.yaml",
         )
-        return _execute(
-            runner,
-            prefix,
-            environment,
-            arguments,
-            "backup_restore_compose_failed",
-        )
+        try:
+            return _execute(
+                runner,
+                prefix,
+                environment,
+                arguments,
+                "backup_restore_compose_failed",
+            )
+        except DeploymentError as error:
+            result = runner.last_result
+            if result is None or not result.returncode:
+                raise
+            diagnostic = result.stderr.strip()
+            for path in config.secrets_dir.iterdir():
+                if path.is_file():
+                    try:
+                        secret = path.read_text(encoding="utf-8").strip()
+                    except (OSError, UnicodeError):
+                        continue
+                    if secret:
+                        diagnostic = diagnostic.replace(secret, "<redacted>")
+            diagnostic = diagnostic.replace(str(config.secrets_dir), "<secrets-dir>")[
+                :500
+            ]
+            if diagnostic:
+                raise DeploymentError(f"{error}; compose_stderr={diagnostic}") from None
+            raise
 
     def _create_network(self, name: str) -> None:
         result = subprocess.run(
@@ -480,3 +503,4 @@ class BackupRestoreIntegrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
