@@ -28,7 +28,9 @@ class FakeRunner:
         event = args[args.index("compose") + 1 :]
         self.events.append((event, dict(environment)))
         if self.fail_on and self.fail_on in event:
-            return subprocess.CompletedProcess(args, 1, "private secret sentinel", "private sentinel")
+            return subprocess.CompletedProcess(
+                args, 1, "private secret sentinel", "private sentinel"
+            )
         if any("SELECT COUNT(*)" in item for item in event):
             stdout = f"{self.table_count}\n"
         elif "upgrade" in event:
@@ -36,7 +38,9 @@ class FakeRunner:
             self.current_revision = "0004_sync"
             stdout = ""
         elif event[-1:] == ["current"]:
-            stdout = f"{self.current_revision} (head)\n" if self.current_revision else ""
+            stdout = (
+                f"{self.current_revision} (head)\n" if self.current_revision else ""
+            )
         else:
             stdout = ""
         return subprocess.CompletedProcess(args, 0, stdout, "")
@@ -110,11 +114,19 @@ class DeployReleaseTests(unittest.TestCase):
         self.assertTrue(result.healthy)
         self.assertTrue((self.state / "current-release.json").is_file())
         events = [event for event, _ in runner.events]
-        migration_index = next(index for index, event in enumerate(events) if "upgrade" in event)
-        start_index = next(
-            index for index, event in enumerate(events) if "api" in event and "web" in event and "up" in event
+        migration_index = next(
+            index for index, event in enumerate(events) if "upgrade" in event
         )
-        internal_smoke_index = next(index for index, event in enumerate(events) if "node" in event and "-e" in event)
+        start_index = next(
+            index
+            for index, event in enumerate(events)
+            if "api" in event and "web" in event and "up" in event
+        )
+        internal_smoke_index = next(
+            index
+            for index, event in enumerate(events)
+            if "node" in event and "-e" in event
+        )
         self.assertLess(migration_index, start_index)
         self.assertLess(start_index, internal_smoke_index)
         self.assertIn("--no-deps", events[migration_index])
@@ -127,7 +139,12 @@ class DeployReleaseTests(unittest.TestCase):
             self.deploy(runner, initialize=True)
         self.assertEqual(str(caught.exception), "migration_failed")
         self.assertNotIn("private secret sentinel", str(caught.exception))
-        self.assertFalse(any("api" in event and "web" in event and "up" in event for event, _ in runner.events))
+        self.assertFalse(
+            any(
+                "api" in event and "web" in event and "up" in event
+                for event, _ in runner.events
+            )
+        )
         self.assertTrue((self.state / "edge-maintenance" / "on").is_file())
 
     def test_failed_smoke_does_not_write_current_release(self):
@@ -141,7 +158,9 @@ class DeployReleaseTests(unittest.TestCase):
                 compose_file=self.compose_file,
                 runner=runner,
                 now=datetime(2026, 11, 4, 12, tzinfo=timezone.utc),
-                smoke=lambda origin, build_id: (_ for _ in ()).throw(ValueError("private sentinel")),
+                smoke=lambda origin, build_id: (_ for _ in ()).throw(
+                    ValueError("private sentinel")
+                ),
             )
         self.assertEqual(str(caught.exception), "post_deploy_smoke_failed")
         self.assertFalse((self.state / "current-release.json").exists())
@@ -173,7 +192,9 @@ class DeployReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(DeploymentError, "recent_backup_required"):
             self.deploy(runner)
         events = [event for event, _ in runner.events]
-        self.assertNotIn("upgrade", [argument for event in events for argument in event])
+        self.assertNotIn(
+            "upgrade", [argument for event in events for argument in event]
+        )
         self.assertFalse((self.state / "edge-maintenance" / "on").exists())
 
     def test_upgrade_runs_after_recent_backup_and_clears_maintenance(self):
